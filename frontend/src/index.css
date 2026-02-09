@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg: #0A0F1A;
+  --color-surface: #0F1623;
+  --color-surface-elevated: #141C2B;
+  --color-accent: #10B981;
+  --color-text: #E2E8F0;
+  --color-text-secondary: #64748B;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #0A0F1A;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(16, 185, 129, 0.04), transparent),
+    radial-gradient(ellipse 60% 40% at 80% 60%, rgba(6, 182, 212, 0.02), transparent);
+  background-attachment: fixed;
+  min-height: 100vh;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
+}
+
+/* Glass card utility */
+.glass-card {
+  background: linear-gradient(135deg, rgba(15, 22, 35, 0.8), rgba(20, 28, 43, 0.6));
+  border: 1px solid rgba(30, 41, 59, 0.6);
+  backdrop-filter: blur(12px);
+}
+
+.glass-card:hover {
+  border-color: rgba(16, 185, 129, 0.2);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), 0 0 20px rgba(16, 185, 129, 0.05);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.3);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.5);
+}
+
+::selection {
+  background: rgba(16, 185, 129, 0.3);
+}

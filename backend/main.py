@@ -1,0 +1,1741 @@
+"""FastAPI backend for stock backtesting application."""
+
+import os
+import pandas as pd
+import numpy as np
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Optional, List
+import io
+from dotenv import load_dotenv
+
+from backtester import BacktestEngine, fetch_ohlcv, get_available_strategies
+from backtester.breakout_engine import run_breakout_backtest
+
+load_dotenv()
+
+
+app = FastAPI(
+    title="Stock Backtester API",
+    description="API for running backtests on stock strategies",
+    version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class BacktestRequest(BaseModel):
+    symbol: str
+    strategy_id: str
+    start_date: str
+    end_date: str
+    initial_capital: float = 100_000
+    params: Optional[dict] = None
+
+
+class MultiBacktestRequest(BaseModel):
+    symbols: list[str]
+    strategy_id: str
+    start_date: str
+    end_date: str
+    initial_capital: float = 100_000
+    params: Optional[dict] = None
+
+
+class BreakoutBacktestRequest(BaseModel):
+    """Ticker + allocation. E.g. [{"symbol": "AAPL", "allocation_pct": 100}] or [{"symbol": "AAPL", "allocation_pct": 60}, {"symbol": "MSFT", "allocation_pct": 40}]"""
+    holdings: list[dict]  # [{"symbol": "AAPL", "allocation_pct": 100}]
+    start_date: str
+    end_date: str
+    initial_capital: float = 100_000
+    risk_pct: float = 1.0
+    max_position_pct: float = 25.0
+
+
+@app.get("/api/strategies")
+def list_strategies():
+    """Return available backtesting strategies."""
+    return get_available_strategies()
+
+
+@app.post("/api/backtest/run")
+def run_backtest(request: BacktestRequest):
+    """Run a single backtest."""
+    try:
+        engine = BacktestEngine(initial_capital=request.initial_capital)
+        result = engine.run(
+            symbol=request.symbol,
+            strategy_id=request.strategy_id,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            params=request.params,
+        )
+        return {
+            "symbol": result.symbol,
+            "strategy_id": result.strategy_id,
+            "start_date": result.start_date,
+            "end_date": result.end_date,
+            "initial_capital": result.initial_capital,
+            "final_value": result.final_value,
+            "total_return_pct": result.total_return_pct,
+            "cagr": result.cagr,
+            "sharpe_ratio": result.sharpe_ratio,
+            "max_drawdown_pct": result.max_drawdown_pct,
+            "total_trades": result.total_trades,
+            "winning_trades": result.winning_trades,
+            "losing_trades": result.losing_trades,
+            "win_rate_pct": result.win_rate_pct,
+            "avg_win_pct": result.avg_win_pct,
+            "avg_loss_pct": result.avg_loss_pct,
+            "profit_factor": result.profit_factor,
+            "equity_curve": result.equity_curve,
+            "trades": result.trades,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Backtest failed: {str(e)}")
+
+
+@app.post("/api/backtest/run-multi")
+def run_multi_backtest(request: MultiBacktestRequest):
+    """Run backtests for multiple symbols and aggregate results."""
+    results = []
+    engine = BacktestEngine(initial_capital=request.initial_capital)
+
+    for symbol in request.symbols:
+        try:
+            result = engine.run(
+                symbol=symbol.strip().upper(),
+                strategy_id=request.strategy_id,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                params=request.params,
+            )
+            results.append({
+                "symbol": result.symbol,
+                "strategy_id": result.strategy_id,
+                "start_date": result.start_date,
+                "end_date": result.end_date,
+                "initial_capital": result.initial_capital,
+                "final_value": result.final_value,
+                "total_return_pct": result.total_return_pct,
+                "cagr": result.cagr,
+                "sharpe_ratio": result.sharpe_ratio,
+                "max_drawdown_pct": result.max_drawdown_pct,
+                "total_trades": result.total_trades,
+                "winning_trades": result.winning_trades,
+                "losing_trades": result.losing_trades,
+                "win_rate_pct": result.win_rate_pct,
+                "avg_win_pct": result.avg_win_pct,
+                "avg_loss_pct": result.avg_loss_pct,
+                "profit_factor": result.profit_factor,
+                "equity_curve": result.equity_curve,
+                "trades": result.trades,
+            })
+        except Exception as e:
+            results.append({
+                "symbol": symbol,
+                "error": str(e),
+                "total_trades": 0,
+                "equity_curve": [],
+                "trades": [],
+            })
+
+    # Aggregate metrics across symbols
+    successful = [r for r in results if "error" not in r]
+    if successful:
+        avg_return = sum(r["total_return_pct"] for r in successful) / len(successful)
+        total_trades = sum(r["total_trades"] for r in successful)
+        wins = sum(r["winning_trades"] for r in successful)
+        losses = sum(r["losing_trades"] for r in successful)
+        win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+    else:
+        avg_return = 0
+        total_trades = 0
+        win_rate = 0
+
+    return {
+        "results": results,
+        "aggregate": {
+            "symbols_run": len(results),
+            "successful": len(successful),
+            "failed": len(results) - len(successful),
+            "avg_return_pct": round(avg_return, 2) if successful else 0,
+            "total_trades": total_trades,
+            "win_rate_pct": round(win_rate, 1),
+        },
+    }
+
+
+@app.post("/api/backtest/breakout")
+def run_breakout_backtest_endpoint(request: BreakoutBacktestRequest):
+    """
+    Run previous day breakout strategy.
+    Rules: Buy when price > prev day high, sell when price < prev day low.
+    Risk 1% per trade, max 25% in any position.
+    """
+    if not request.holdings:
+        raise HTTPException(status_code=400, detail="At least one holding required")
+    
+    total_pct = sum(h.get("allocation_pct", 0) for h in request.holdings)
+    if abs(total_pct - 100) > 0.1:
+        raise HTTPException(status_code=400, detail="Allocation percentages must sum to 100")
+
+    results = []
+    equity_curves = []
+
+    for h in request.holdings:
+        symbol = str(h.get("symbol", "")).strip().upper()
+        alloc_pct = float(h.get("allocation_pct", 0))
+        alloc_capital = request.initial_capital * (alloc_pct / 100)
+
+        try:
+            r = run_breakout_backtest(
+                symbol=symbol,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                allocation_capital=alloc_capital,
+                risk_pct=request.risk_pct,
+                max_position_pct=request.max_position_pct,
+            )
+            results.append({
+                "symbol": r.symbol,
+                "allocation_pct": alloc_pct,
+                "strategy_id": "previous_day_breakout",
+                "start_date": r.start_date,
+                "end_date": r.end_date,
+                "initial_capital": r.initial_capital,
+                "final_value": r.final_value,
+                "total_return_pct": r.total_return_pct,
+                "cagr": r.cagr,
+                "sharpe_ratio": r.sharpe_ratio,
+                "max_drawdown_pct": r.max_drawdown_pct,
+                "total_trades": r.total_trades,
+                "winning_trades": r.winning_trades,
+                "losing_trades": r.losing_trades,
+                "win_rate_pct": r.win_rate_pct,
+                "avg_win_pct": r.avg_win_pct,
+                "avg_loss_pct": r.avg_loss_pct,
+                "profit_factor": r.profit_factor,
+                "equity_curve": r.equity_curve,
+                "trades": r.trades,
+            })
+            equity_curves.append((symbol, r.equity_curve))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    # Combine equity curves by date (forward-fill each, then sum)
+    all_dates = set()
+    for _, curve in equity_curves:
+        for p in curve:
+            all_dates.add(p["date"])
+    all_dates = sorted(all_dates)
+
+    filled_by_symbol = {}
+    for symbol, curve in equity_curves:
+        d = {p["date"]: p["value"] for p in curve}
+        last = 0
+        filled = {}
+        for dt in all_dates:
+            last = d.get(dt, last)
+            filled[dt] = last
+        filled_by_symbol[symbol] = filled
+
+    combined = [{"date": dt, "value": round(sum(filled_by_symbol[sym][dt] for sym, _ in equity_curves), 2)} for dt in all_dates]
+
+    total_final = sum(r["final_value"] for r in results)
+    total_return = (total_final / request.initial_capital - 1) * 100
+    all_trades = [t for r in results for t in r["trades"]]
+    total_trades = len(all_trades)
+    wins = sum(r["winning_trades"] for r in results)
+    losses = sum(r["losing_trades"] for r in results)
+    win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+
+    winning_trades_list = [t for t in all_trades if t["pnl"] > 0]
+    losing_trades_list = [t for t in all_trades if t["pnl"] <= 0]
+    avg_win_pct = np.mean([t["pnl_pct"] for t in winning_trades_list]) if winning_trades_list else 0
+    avg_loss_pct = np.mean([t["pnl_pct"] for t in losing_trades_list]) if losing_trades_list else 0
+    gross_profit = sum(t["pnl"] for t in winning_trades_list)
+    gross_loss = abs(sum(t["pnl"] for t in losing_trades_list))
+    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (gross_profit if gross_profit > 0 else 0)
+
+    equity_series = pd.Series([p["value"] for p in combined])
+    returns = equity_series.pct_change().dropna()
+    sharpe = (returns.mean() / returns.std()) * np.sqrt(252) if len(returns) > 1 and returns.std() > 0 else 0.0
+    cummax = equity_series.cummax()
+    drawdown = (equity_series - cummax) / cummax * 100
+    max_dd = round(drawdown.min(), 2)
+    days = (pd.to_datetime(request.end_date) - pd.to_datetime(request.start_date)).days
+    years = max(days / 365.25, 0.01)
+    cagr = (total_final / request.initial_capital) ** (1 / years) - 1
+    cagr *= 100
+
+    return {
+        "symbol": "+".join(r["symbol"] for r in results),
+        "strategy_id": "previous_day_breakout",
+        "start_date": request.start_date,
+        "end_date": request.end_date,
+        "initial_capital": request.initial_capital,
+        "final_value": round(total_final, 2),
+        "total_return_pct": round(total_return, 2),
+        "cagr": round(cagr, 2),
+        "sharpe_ratio": round(sharpe, 2),
+        "max_drawdown_pct": max_dd,
+        "total_trades": total_trades,
+        "winning_trades": wins,
+        "losing_trades": losses,
+        "win_rate_pct": round(win_rate, 1),
+        "avg_win_pct": round(avg_win_pct, 2),
+        "avg_loss_pct": round(avg_loss_pct, 2),
+        "profit_factor": round(profit_factor, 2),
+        "equity_curve": combined,
+        "trades": all_trades,
+        "results": results,
+    }
+
+
+@app.get("/api/health")
+def health():
+    """Health check."""
+    return {"status": "ok"}
+
+
+# Trading Analysis Endpoints
+
+class TradeDataRequest(BaseModel):
+    trades: List[dict]
+
+
+class RMultipleRequest(BaseModel):
+    trades: List[dict]
+    initial_capital: float = 100000
+
+
+@app.get("/api/trading-analysis/load-default")
+def load_default_trades():
+    """Load trades from the default file path."""
+    default_path = os.getenv("DEFAULT_TRADES_PATH", "trades/Trades_2025.xlsx")
+
+    try:
+        df = pd.read_excel(default_path)
+
+        # Clean up dataframe - remove unnamed columns
+        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+
+        # Normalize column names to match expected format
+        trades = normalize_trade_data(df)
+
+        # Calculate metrics
+        metrics = calculate_trade_metrics(trades)
+
+        return {
+            "trades": trades,
+            "metrics": metrics,
+            "total_records": len(trades),
+            "source": "default_file"
+        }
+
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Default trades file not found at {default_path}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading default trades: {str(e)}")
+
+
+@app.post("/api/trading-analysis/upload")
+async def upload_trade_data(file: UploadFile = File(...)):
+    """
+    Upload and parse trade data from CSV or Excel file.
+    Expected columns: Symbol, Qty, Side, Entry Price, Entry Date, Exit Price, Exit Date, Profit / Loss, Profit / Loss %
+    """
+    try:
+        contents = await file.read()
+
+        # Determine file type and read accordingly
+        if file.filename.endswith('.csv'):
+            df = pd.read_csv(io.BytesIO(contents))
+        elif file.filename.endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(io.BytesIO(contents))
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file format. Please upload CSV or Excel file.")
+
+        # Clean up dataframe - remove unnamed columns
+        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+
+        # Normalize column names to match expected format
+        trades = normalize_trade_data(df)
+
+        # Calculate metrics
+        metrics = calculate_trade_metrics(trades)
+
+        return {
+            "trades": trades,
+            "metrics": metrics,
+            "total_records": len(trades)
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+
+
+@app.post("/api/trading-analysis/analyze")
+def analyze_trade_data(request: TradeDataRequest):
+    """Analyze trade data and return comprehensive metrics."""
+    try:
+        trades = request.trades
+        metrics = calculate_trade_metrics(trades)
+
+        # Calculate time-based metrics
+        if trades:
+            df = pd.DataFrame(trades)
+            # Use exit_date as the primary date for analysis
+            date_column = None
+            if 'exit_date' in df.columns:
+                date_column = 'exit_date'
+            elif 'date' in df.columns:
+                date_column = 'date'
+
+            if date_column:
+                df['date'] = pd.to_datetime(df[date_column])
+                df = df.sort_values('date')
+
+                # Monthly P&L
+                df['month'] = df['date'].dt.to_period('M')
+                monthly_pnl = df.groupby('month')['pnl'].sum().reset_index()
+                monthly_pnl['month'] = monthly_pnl['month'].astype(str)
+
+                # Cumulative P&L
+                df['cumulative_pnl'] = df['pnl'].cumsum()
+                cumulative_pnl = df[['date', 'cumulative_pnl']].to_dict('records')
+
+                metrics['monthly_pnl'] = monthly_pnl.to_dict('records')
+                metrics['cumulative_pnl'] = cumulative_pnl
+
+        return metrics
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error analyzing trades: {str(e)}")
+
+
+@app.post("/api/trading-analysis/statistics")
+def get_trade_statistics(request: TradeDataRequest):
+    """Get detailed trade statistics."""
+    try:
+        trades = request.trades
+
+        if not trades:
+            raise HTTPException(status_code=400, detail="No trade data provided")
+
+        df = pd.DataFrame(trades)
+
+        winning_trades = [t for t in trades if t.get('pnl', 0) > 0]
+        losing_trades = [t for t in trades if t.get('pnl', 0) <= 0]
+
+        # Calculate consecutive wins/losses
+        pnl_series = df['pnl'].values
+        max_consecutive_wins = 0
+        max_consecutive_losses = 0
+        current_wins = 0
+        current_losses = 0
+
+        for pnl in pnl_series:
+            if pnl > 0:
+                current_wins += 1
+                current_losses = 0
+                max_consecutive_wins = max(max_consecutive_wins, current_wins)
+            else:
+                current_losses += 1
+                current_wins = 0
+                max_consecutive_losses = max(max_consecutive_losses, current_losses)
+
+        # Calculate expectancy
+        win_rate = len(winning_trades) / len(trades) if trades else 0
+        avg_win = np.mean([t['pnl'] for t in winning_trades]) if winning_trades else 0
+        avg_loss = abs(np.mean([t['pnl'] for t in losing_trades])) if losing_trades else 0
+        expectancy = (win_rate * avg_win) - ((1 - win_rate) * avg_loss)
+
+        # Kelly Criterion
+        if avg_loss > 0:
+            kelly = (win_rate * avg_win - (1 - win_rate) * avg_loss) / avg_win
+        else:
+            kelly = 0
+
+        # Calculate average trade duration (in days and time components)
+        avg_duration_days = 0
+        avg_duration_hours = 0
+        avg_duration_minutes = 0
+
+        if 'duration_days' in df.columns:
+            valid_durations = df['duration_days'].dropna()
+            if len(valid_durations) > 0:
+                avg_duration_days = valid_durations.mean()
+                # Convert to hours and minutes for better granularity
+                avg_duration_hours = avg_duration_days * 24
+                avg_duration_minutes = avg_duration_hours * 60
+
+        # Calculate duration for winners vs losers
+        winners_df = df[df['pnl'] > 0]
+        losers_df = df[df['pnl'] <= 0]
+
+        avg_winner_duration = 0
+        avg_loser_duration = 0
+
+        if 'duration_days' in winners_df.columns and len(winners_df) > 0:
+            avg_winner_duration = winners_df['duration_days'].mean()
+        if 'duration_days' in losers_df.columns and len(losers_df) > 0:
+            avg_loser_duration = losers_df['duration_days'].mean()
+
+        return {
+            "largest_win": round(max([t['pnl'] for t in trades]), 2) if trades else 0,
+            "largest_loss": round(min([t['pnl'] for t in trades]), 2) if trades else 0,
+            "avg_trade_duration_days": round(avg_duration_days, 1),
+            "avg_trade_duration_hours": round(avg_duration_hours, 1),
+            "avg_trade_duration_minutes": round(avg_duration_minutes, 0),
+            "avg_winner_duration_days": round(avg_winner_duration, 1),
+            "avg_loser_duration_days": round(avg_loser_duration, 1),
+            "consecutive_wins": max_consecutive_wins,
+            "consecutive_losses": max_consecutive_losses,
+            "expectancy": round(expectancy, 2),
+            "risk_reward_ratio": round(avg_win / avg_loss, 2) if avg_loss > 0 else 0,
+            "kelly_criterion_pct": round(kelly * 100, 1) if kelly > 0 else 0,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating statistics: {str(e)}")
+
+
+def normalize_trade_data(df):
+    """
+    Normalize trade data from various formats to a consistent structure.
+    Handles the specific format from Trades_2025.xlsx with columns like:
+    Symbol, Qty, Side, Entry Price, Entry Date, Exit Price, Exit Date, Profit / Loss, Profit / Loss %
+    """
+    # Column mapping - handles different naming conventions
+    column_mapping = {
+        'Symbol': 'symbol',
+        'Qty': 'quantity',
+        'Side': 'side',
+        'Entry Price': 'entry_price',
+        'Entry Date': 'entry_date',
+        'Entry Time': 'entry_time',
+        'Exit Price': 'exit_price',
+        'Exit Date': 'exit_date',
+        'Exit Time': 'exit_time',
+        'Exit Qty': 'exit_quantity',
+        'Profit / Loss': 'pnl',
+        'Profit / Loss %': 'pnl_pct',
+        'Setup': 'setup',
+        'Entry Notes': 'entry_notes',
+        'Notes': 'notes',
+        'Market Cap': 'market_cap',
+        'Stock/Option': 'instrument_type',
+    }
+
+    # Rename columns if they exist
+    df_renamed = df.rename(columns=column_mapping)
+
+    # Filter only closed trades (those with exit prices)
+    df_filtered = df_renamed[df_renamed['exit_price'].notna()].copy()
+
+    # Ensure date columns are datetime
+    if 'entry_date' in df_filtered.columns:
+        df_filtered['entry_date'] = pd.to_datetime(df_filtered['entry_date'], errors='coerce')
+    if 'exit_date' in df_filtered.columns:
+        df_filtered['exit_date'] = pd.to_datetime(df_filtered['exit_date'], errors='coerce')
+
+    # Calculate trade duration in days
+    if 'entry_date' in df_filtered.columns and 'exit_date' in df_filtered.columns:
+        df_filtered['duration_days'] = (df_filtered['exit_date'] - df_filtered['entry_date']).dt.days
+
+    # Calculate P&L if not present
+    if 'pnl' not in df_filtered.columns or df_filtered['pnl'].isna().all():
+        df_filtered['pnl'] = (df_filtered['exit_price'] - df_filtered['entry_price']) * df_filtered['quantity']
+
+    # Handle pnl_pct - if it exists but is in decimal form (0.12 instead of 12%), convert it
+    if 'pnl_pct' in df_filtered.columns and not df_filtered['pnl_pct'].isna().all():
+        # Check if values are in decimal form (between -1 and 1 for most cases)
+        sample_values = df_filtered['pnl_pct'].dropna().head(10)
+        if len(sample_values) > 0 and sample_values.abs().max() < 10:
+            # Likely in decimal form, convert to percentage
+            df_filtered['pnl_pct'] = df_filtered['pnl_pct'] * 100
+    elif 'pnl_pct' not in df_filtered.columns or df_filtered['pnl_pct'].isna().all():
+        df_filtered['pnl_pct'] = ((df_filtered['exit_price'] - df_filtered['entry_price']) / df_filtered['entry_price']) * 100
+
+    # Convert to list of dicts, handling NaN values
+    trades = df_filtered.to_dict('records')
+
+    # Clean up NaN values
+    for trade in trades:
+        for key, value in trade.items():
+            if pd.isna(value):
+                if key in ['entry_date', 'exit_date', 'entry_time', 'exit_time']:
+                    trade[key] = None
+                elif isinstance(value, (float, int)):
+                    trade[key] = 0
+                else:
+                    trade[key] = ''
+
+    return trades
+
+
+@app.post("/api/trading-analysis/setup-statistics")
+def get_setup_statistics(request: TradeDataRequest):
+    """Get statistics broken down by setup type."""
+    try:
+        trades = request.trades
+
+        if not trades:
+            raise HTTPException(status_code=400, detail="No trade data provided")
+
+        df = pd.DataFrame(trades)
+
+        # Check if setup column exists
+        if 'setup' not in df.columns:
+            return {"setups": [], "message": "No setup data available"}
+
+        # Group by setup
+        setup_stats = []
+
+        for setup in df['setup'].dropna().unique():
+            setup_trades = df[df['setup'] == setup]
+
+            winning_trades = setup_trades[setup_trades['pnl'] > 0]
+            losing_trades = setup_trades[setup_trades['pnl'] <= 0]
+
+            total_pnl = setup_trades['pnl'].sum()
+            win_rate = (len(winning_trades) / len(setup_trades) * 100) if len(setup_trades) > 0 else 0
+            avg_pnl = setup_trades['pnl'].mean()
+
+            setup_stats.append({
+                "setup": setup,
+                "total_trades": len(setup_trades),
+                "winning_trades": len(winning_trades),
+                "losing_trades": len(losing_trades),
+                "total_pnl": round(total_pnl, 2),
+                "avg_pnl": round(avg_pnl, 2),
+                "win_rate": round(win_rate, 1),
+                "best_trade": round(setup_trades['pnl'].max(), 2),
+                "worst_trade": round(setup_trades['pnl'].min(), 2),
+            })
+
+        # Sort by total P&L descending
+        setup_stats.sort(key=lambda x: x['total_pnl'], reverse=True)
+
+        return {"setups": setup_stats}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating setup statistics: {str(e)}")
+
+
+@app.post("/api/trading-analysis/symbol-statistics")
+def get_symbol_statistics(request: TradeDataRequest):
+    """Get statistics broken down by symbol."""
+    try:
+        trades = request.trades
+
+        if not trades:
+            raise HTTPException(status_code=400, detail="No trade data provided")
+
+        df = pd.DataFrame(trades)
+
+        # Group by symbol
+        symbol_stats = []
+
+        for symbol in df['symbol'].dropna().unique():
+            symbol_trades = df[df['symbol'] == symbol]
+
+            winning_trades = symbol_trades[symbol_trades['pnl'] > 0]
+            losing_trades = symbol_trades[symbol_trades['pnl'] <= 0]
+
+            total_pnl = symbol_trades['pnl'].sum()
+            win_rate = (len(winning_trades) / len(symbol_trades) * 100) if len(symbol_trades) > 0 else 0
+            avg_pnl = symbol_trades['pnl'].mean()
+
+            symbol_stats.append({
+                "symbol": symbol,
+                "total_trades": len(symbol_trades),
+                "winning_trades": len(winning_trades),
+                "losing_trades": len(losing_trades),
+                "total_pnl": round(total_pnl, 2),
+                "avg_pnl": round(avg_pnl, 2),
+                "win_rate": round(win_rate, 1),
+                "best_trade": round(symbol_trades['pnl'].max(), 2),
+                "worst_trade": round(symbol_trades['pnl'].min(), 2),
+            })
+
+        # Sort by total P&L descending
+        symbol_stats.sort(key=lambda x: x['total_pnl'], reverse=True)
+
+        return {"symbols": symbol_stats}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating symbol statistics: {str(e)}")
+
+
+@app.post("/api/trading-analysis/drawdown-analysis")
+def get_drawdown_analysis(request: TradeDataRequest):
+    """Calculate drawdown metrics."""
+    try:
+        trades = request.trades
+        if not trades:
+            raise HTTPException(status_code=400, detail="No trade data provided")
+
+        df = pd.DataFrame(trades)
+
+        # Use exit_date for chronological ordering
+        date_column = 'exit_date' if 'exit_date' in df.columns else 'date'
+        if date_column not in df.columns:
+            return {"error": "No date column found"}
+
+        df['date'] = pd.to_datetime(df[date_column])
+        df = df.sort_values('date')
+
+        # Calculate cumulative P&L and equity curve
+        df['cumulative_pnl'] = df['pnl'].cumsum()
+        df['peak'] = df['cumulative_pnl'].cummax()
+        df['drawdown'] = df['cumulative_pnl'] - df['peak']
+        df['drawdown_pct'] = (df['drawdown'] / df['peak'].replace(0, 1)) * 100
+
+        # Find maximum drawdown
+        max_dd_idx = df['drawdown'].idxmin()
+        max_drawdown = df.loc[max_dd_idx, 'drawdown']
+        max_drawdown_pct = df.loc[max_dd_idx, 'drawdown_pct']
+
+        # Find peak before max drawdown
+        peak_before_dd = df.loc[:max_dd_idx, 'peak'].max()
+        peak_date_idx = df.loc[:max_dd_idx][df['peak'] == peak_before_dd].index[-1]
+        peak_date = df.loc[peak_date_idx, 'date']
+        trough_date = df.loc[max_dd_idx, 'date']
+
+        # Calculate recovery (if recovered)
+        recovery_date = None
+        days_to_recover = None
+        recovered = False
+
+        after_trough = df.loc[max_dd_idx:]
+        recovery_idx = after_trough[after_trough['cumulative_pnl'] >= peak_before_dd].index
+        if len(recovery_idx) > 0:
+            recovery_date = df.loc[recovery_idx[0], 'date']
+            days_to_recover = (recovery_date - trough_date).days
+            recovered = True
+
+        # Current drawdown
+        current_peak = df['peak'].iloc[-1]
+        current_pnl = df['cumulative_pnl'].iloc[-1]
+        current_drawdown = current_pnl - current_peak
+        current_drawdown_pct = (current_drawdown / current_peak * 100) if current_peak > 0 else 0
+
+        # Average drawdown
+        drawdown_periods = []
+        in_drawdown = False
+        dd_start = None
+
+        for idx, row in df.iterrows():
+            if row['drawdown'] < 0 and not in_drawdown:
+                in_drawdown = True
+                dd_start = idx
+            elif row['drawdown'] == 0 and in_drawdown:
+                in_drawdown = False
+                if dd_start is not None:
+                    dd_data = df.loc[dd_start:idx]
+                    drawdown_periods.append({
+                        'max_dd': dd_data['drawdown'].min(),
+                        'duration': len(dd_data)
+                    })
+
+        avg_drawdown = np.mean([dd['max_dd'] for dd in drawdown_periods]) if drawdown_periods else 0
+        avg_dd_duration = np.mean([dd['duration'] for dd in drawdown_periods]) if drawdown_periods else 0
+
+        # Equity curve data for chart
+        equity_curve = df[['date', 'cumulative_pnl', 'peak', 'drawdown']].to_dict('records')
+
+        return {
+            "max_drawdown": round(max_drawdown, 2),
+            "max_drawdown_pct": round(max_drawdown_pct, 2),
+            "peak_date": peak_date.isoformat() if pd.notna(peak_date) else None,
+            "trough_date": trough_date.isoformat() if pd.notna(trough_date) else None,
+            "recovery_date": recovery_date.isoformat() if recovery_date and pd.notna(recovery_date) else None,
+            "days_to_recover": int(days_to_recover) if days_to_recover else None,
+            "recovered": recovered,
+            "current_drawdown": round(current_drawdown, 2),
+            "current_drawdown_pct": round(current_drawdown_pct, 2),
+            "avg_drawdown": round(avg_drawdown, 2),
+            "avg_drawdown_duration": round(avg_dd_duration, 1),
+            "total_drawdown_periods": len(drawdown_periods),
+            "equity_curve": equity_curve
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating drawdown: {str(e)}")
+
+
+@app.post("/api/trading-analysis/time-performance")
+def get_time_performance(request: TradeDataRequest):
+    """Analyze performance by time periods (day of week, month, hour)."""
+    try:
+        trades = request.trades
+        if not trades:
+            raise HTTPException(status_code=400, detail="No trade data provided")
+
+        df = pd.DataFrame(trades)
+
+        # Use exit_date for analysis
+        date_column = 'exit_date' if 'exit_date' in df.columns else 'date'
+        if date_column not in df.columns:
+            return {"error": "No date column found"}
+
+        df['date'] = pd.to_datetime(df[date_column])
+
+        # Day of week analysis
+        df['day_of_week'] = df['date'].dt.day_name()
+        day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+        dow_stats = []
+        for day in day_order:
+            day_trades = df[df['day_of_week'] == day]
+            if len(day_trades) > 0:
+                winning = day_trades[day_trades['pnl'] > 0]
+                dow_stats.append({
+                    'day': day,
+                    'total_trades': len(day_trades),
+                    'total_pnl': round(day_trades['pnl'].sum(), 2),
+                    'avg_pnl': round(day_trades['pnl'].mean(), 2),
+                    'win_rate': round((len(winning) / len(day_trades) * 100), 1),
+                    'winning_trades': len(winning),
+                    'losing_trades': len(day_trades) - len(winning)
+                })
+
+        # Monthly analysis
+        df['month'] = df['date'].dt.to_period('M').astype(str)
+        monthly_stats = []
+
+        for month in df['month'].unique():
+            month_trades = df[df['month'] == month]
+            winning = month_trades[month_trades['pnl'] > 0]
+            monthly_stats.append({
+                'month': month,
+                'total_trades': len(month_trades),
+                'total_pnl': round(month_trades['pnl'].sum(), 2),
+                'avg_pnl': round(month_trades['pnl'].mean(), 2),
+                'win_rate': round((len(winning) / len(month_trades) * 100), 1),
+                'winning_trades': len(winning),
+                'losing_trades': len(month_trades) - len(winning)
+            })
+
+        # Sort monthly stats chronologically
+        monthly_stats.sort(key=lambda x: x['month'])
+
+        return {
+            "day_of_week": dow_stats,
+            "monthly": monthly_stats
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating time performance: {str(e)}")
+
+
+@app.post("/api/trading-analysis/rolling-performance")
+def get_rolling_performance(request: TradeDataRequest):
+    """Calculate rolling performance metrics."""
+    try:
+        trades = request.trades
+        if not trades:
+            raise HTTPException(status_code=400, detail="No trade data provided")
+
+        df = pd.DataFrame(trades)
+
+        date_column = 'exit_date' if 'exit_date' in df.columns else 'date'
+        if date_column not in df.columns:
+            return {"error": "No date column found"}
+
+        df['date'] = pd.to_datetime(df[date_column])
+        df = df.sort_values('date')
+
+        # 30-day rolling metrics
+        df['cumulative_pnl'] = df['pnl'].cumsum()
+
+        rolling_data = []
+        window_size = 30  # 30 trades window
+
+        for i in range(window_size, len(df) + 1):
+            window = df.iloc[i-window_size:i]
+            winning = window[window['pnl'] > 0]
+
+            rolling_data.append({
+                'trade_number': i,
+                'date': window['date'].iloc[-1].isoformat(),
+                'pnl': round(window['pnl'].sum(), 2),
+                'win_rate': round((len(winning) / len(window) * 100), 1),
+                'avg_pnl': round(window['pnl'].mean(), 2),
+                'cumulative_pnl': round(df.iloc[i-1]['cumulative_pnl'], 2)
+            })
+
+        return {"rolling_30_trades": rolling_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating rolling performance: {str(e)}")
+
+
+@app.post("/api/trading-analysis/advanced-metrics")
+def get_advanced_metrics(request: TradeDataRequest):
+    """Calculate advanced risk-adjusted metrics (Sharpe, Sortino, Calmar)."""
+    try:
+        trades = request.trades
+        if not trades:
+            raise HTTPException(status_code=400, detail="No trade data provided")
+
+        df = pd.DataFrame(trades)
+
+        # Calculate returns
+        returns = df['pnl'].values
+
+        if len(returns) == 0:
+            return {"error": "No returns data"}
+
+        # Sharpe Ratio (assuming risk-free rate of 0 for simplicity)
+        mean_return = np.mean(returns)
+        std_return = np.std(returns)
+        sharpe_ratio = (mean_return / std_return) if std_return > 0 else 0
+
+        # Sortino Ratio (only penalize downside volatility)
+        downside_returns = returns[returns < 0]
+        downside_std = np.std(downside_returns) if len(downside_returns) > 0 else 0
+        sortino_ratio = (mean_return / downside_std) if downside_std > 0 else 0
+
+        # Calmar Ratio (return / max drawdown)
+        date_column = 'exit_date' if 'exit_date' in df.columns else 'date'
+        if date_column in df.columns:
+            df['date'] = pd.to_datetime(df[date_column])
+            df = df.sort_values('date')
+            df['cumulative_pnl'] = df['pnl'].cumsum()
+            df['peak'] = df['cumulative_pnl'].cummax()
+            df['drawdown'] = df['cumulative_pnl'] - df['peak']
+
+            max_drawdown = abs(df['drawdown'].min())
+            total_return = df['cumulative_pnl'].iloc[-1]
+            calmar_ratio = (total_return / max_drawdown) if max_drawdown > 0 else 0
+        else:
+            calmar_ratio = 0
+            max_drawdown = 0
+
+        return {
+            "sharpe_ratio": round(sharpe_ratio, 3),
+            "sortino_ratio": round(sortino_ratio, 3),
+            "calmar_ratio": round(calmar_ratio, 3),
+            "mean_return": round(mean_return, 2),
+            "std_return": round(std_return, 2),
+            "downside_std": round(downside_std, 2)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating advanced metrics: {str(e)}")
+
+
+@app.post("/api/trading-analysis/entry-timing-analysis")
+def get_entry_timing_analysis(request: TradeDataRequest):
+    """Analyze performance by entry time relative to market open."""
+    try:
+        trades = request.trades
+        if not trades:
+            raise HTTPException(status_code=400, detail="No trade data provided")
+
+        df = pd.DataFrame(trades)
+
+        # Check if entry_time exists
+        if 'entry_time' not in df.columns or df['entry_time'].isna().all():
+            return {"error": "No entry time data available"}
+
+        # Parse entry_time - handle different formats
+        def parse_time(time_val):
+            if pd.isna(time_val):
+                return None
+            if isinstance(time_val, str):
+                # Handle various time formats
+                try:
+                    return pd.to_datetime(time_val, format='%H:%M:%S').time()
+                except:
+                    try:
+                        return pd.to_datetime(time_val).time()
+                    except:
+                        return None
+            elif hasattr(time_val, 'time'):
+                return time_val.time()
+            else:
+                return None
+
+        df['parsed_time'] = df['entry_time'].apply(parse_time)
+        df = df[df['parsed_time'].notna()].copy()
+
+        if len(df) == 0:
+            return {"error": "No valid entry times found"}
+
+        # Convert time to minutes from market open (9:30 AM = 0 minutes)
+        def minutes_from_open(time_obj):
+            if time_obj is None:
+                return None
+            market_open_minutes = 9 * 60 + 30  # 9:30 AM in minutes
+            time_minutes = time_obj.hour * 60 + time_obj.minute
+            return time_minutes - market_open_minutes
+
+        df['minutes_from_open'] = df['parsed_time'].apply(minutes_from_open)
+
+        # Define time buckets
+        def categorize_entry_time(minutes):
+            if minutes < 0:
+                return "Pre-market"
+            elif minutes <= 5:
+                return "0-5 min"
+            elif minutes <= 15:
+                return "5-15 min"
+            elif minutes <= 30:
+                return "15-30 min"
+            elif minutes <= 60:
+                return "30-60 min"
+            elif minutes <= 120:
+                return "1-2 hours"
+            elif minutes <= 330:
+                return "Mid-day (11:30-3:00)"
+            elif minutes <= 390:
+                return "Power hour (3:00-4:00)"
+            else:
+                return "After hours"
+
+        df['time_bucket'] = df['minutes_from_open'].apply(categorize_entry_time)
+
+        # Calculate stats for each bucket
+        bucket_order = [
+            "0-5 min", "5-15 min", "15-30 min", "30-60 min",
+            "1-2 hours", "Mid-day (11:30-3:00)", "Power hour (3:00-4:00)",
+            "Pre-market", "After hours"
+        ]
+
+        entry_stats = []
+        for bucket in bucket_order:
+            bucket_trades = df[df['time_bucket'] == bucket]
+            if len(bucket_trades) > 0:
+                winning = bucket_trades[bucket_trades['pnl'] > 0]
+                entry_stats.append({
+                    'time_bucket': bucket,
+                    'total_trades': len(bucket_trades),
+                    'total_pnl': round(bucket_trades['pnl'].sum(), 2),
+                    'avg_pnl': round(bucket_trades['pnl'].mean(), 2),
+                    'win_rate': round((len(winning) / len(bucket_trades) * 100), 1),
+                    'winning_trades': len(winning),
+                    'losing_trades': len(bucket_trades) - len(winning),
+                    'best_trade': round(bucket_trades['pnl'].max(), 2),
+                    'worst_trade': round(bucket_trades['pnl'].min(), 2)
+                })
+
+        # Also analyze exit timing
+        exit_stats = []
+        if 'exit_time' in df.columns and not df['exit_time'].isna().all():
+            df['parsed_exit_time'] = df['exit_time'].apply(parse_time)
+            df_with_exit = df[df['parsed_exit_time'].notna()].copy()
+
+            if len(df_with_exit) > 0:
+                df_with_exit['exit_minutes_from_open'] = df_with_exit['parsed_exit_time'].apply(minutes_from_open)
+                df_with_exit['exit_time_bucket'] = df_with_exit['exit_minutes_from_open'].apply(categorize_entry_time)
+
+                for bucket in bucket_order:
+                    bucket_trades = df_with_exit[df_with_exit['exit_time_bucket'] == bucket]
+                    if len(bucket_trades) > 0:
+                        winning = bucket_trades[bucket_trades['pnl'] > 0]
+                        exit_stats.append({
+                            'time_bucket': bucket,
+                            'total_trades': len(bucket_trades),
+                            'total_pnl': round(bucket_trades['pnl'].sum(), 2),
+                            'avg_pnl': round(bucket_trades['pnl'].mean(), 2),
+                            'win_rate': round((len(winning) / len(bucket_trades) * 100), 1),
+                            'winning_trades': len(winning),
+                            'losing_trades': len(bucket_trades) - len(winning)
+                        })
+
+        return {
+            "entry_timing": entry_stats,
+            "exit_timing": exit_stats if exit_stats else None
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating entry timing: {str(e)}")
+
+
+@app.post("/api/trading-analysis/streak-detection")
+def get_streak_detection(request: TradeDataRequest):
+    """Detect losing/winning streaks and potential tilt/revenge trading patterns."""
+    try:
+        trades = request.trades
+        if not trades:
+            raise HTTPException(status_code=400, detail="No trade data provided")
+
+        df = pd.DataFrame(trades)
+
+        date_column = 'exit_date' if 'exit_date' in df.columns else 'date'
+        if date_column in df.columns:
+            df['date'] = pd.to_datetime(df[date_column])
+            df = df.sort_values('date').reset_index(drop=True)
+
+        pnl_list = df['pnl'].tolist()
+
+        # Calculate streaks (3+ consecutive wins or losses)
+        streaks = []
+        if pnl_list:
+            streak_type = 'win' if pnl_list[0] > 0 else 'loss'
+            streak_start = 0
+            streak_len = 1
+
+            for i in range(1, len(pnl_list)):
+                is_win = pnl_list[i] > 0
+                current_type = 'win' if is_win else 'loss'
+
+                if current_type == streak_type:
+                    streak_len += 1
+                else:
+                    if streak_len >= 3:
+                        streak_pnl = sum(pnl_list[streak_start:i])
+                        streaks.append({
+                            'type': streak_type,
+                            'length': streak_len,
+                            'start_date': df.iloc[streak_start]['date'].isoformat() if 'date' in df.columns else None,
+                            'end_date': df.iloc[i - 1]['date'].isoformat() if 'date' in df.columns else None,
+                            'total_pnl': round(streak_pnl, 2),
+                        })
+                    streak_type = current_type
+                    streak_start = i
+                    streak_len = 1
+
+            # Final streak
+            if streak_len >= 3:
+                streak_pnl = sum(pnl_list[streak_start:])
+                streaks.append({
+                    'type': streak_type,
+                    'length': streak_len,
+                    'start_date': df.iloc[streak_start]['date'].isoformat() if 'date' in df.columns else None,
+                    'end_date': df.iloc[-1]['date'].isoformat() if 'date' in df.columns else None,
+                    'total_pnl': round(streak_pnl, 2),
+                })
+
+        # Detect revenge trades (trade entered within 24h after a loss)
+        revenge_trades = []
+        if 'entry_date' in df.columns and 'date' in df.columns:
+            df['entry_date_parsed'] = pd.to_datetime(df['entry_date'], errors='coerce')
+            for i in range(1, len(df)):
+                prev_pnl = df.iloc[i - 1]['pnl']
+                if prev_pnl < 0:
+                    prev_exit = df.iloc[i - 1]['date']
+                    curr_entry = df.iloc[i].get('entry_date_parsed')
+                    if pd.notna(prev_exit) and pd.notna(curr_entry):
+                        hours_diff = (curr_entry - prev_exit).total_seconds() / 3600
+                        if 0 <= hours_diff <= 24:
+                            revenge_trades.append({
+                                'trade_index': i,
+                                'symbol': df.iloc[i].get('symbol', ''),
+                                'pnl': round(df.iloc[i]['pnl'], 2),
+                                'previous_loss': round(prev_pnl, 2),
+                                'hours_after_loss': round(hours_diff, 1),
+                                'date': df.iloc[i]['date'].isoformat() if pd.notna(df.iloc[i]['date']) else None,
+                            })
+
+        revenge_losses = [r for r in revenge_trades if r['pnl'] < 0]
+        tilt_score = (len(revenge_losses) / len(revenge_trades) * 100) if revenge_trades else 0
+
+        losing_streaks = [s for s in streaks if s['type'] == 'loss']
+        winning_streaks = [s for s in streaks if s['type'] == 'win']
+
+        return {
+            'streaks': streaks,
+            'losing_streaks': len(losing_streaks),
+            'winning_streaks': len(winning_streaks),
+            'longest_losing_streak': max([s['length'] for s in losing_streaks]) if losing_streaks else 0,
+            'longest_winning_streak': max([s['length'] for s in winning_streaks]) if winning_streaks else 0,
+            'worst_streak_pnl': round(min([s['total_pnl'] for s in losing_streaks]), 2) if losing_streaks else 0,
+            'revenge_trades': revenge_trades[:20],
+            'total_revenge_trades': len(revenge_trades),
+            'revenge_trade_loss_rate': round(tilt_score, 1),
+            'tilt_score': round(tilt_score, 1),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error detecting streaks: {str(e)}")
+
+
+def classify_market_cap(value):
+    """Classify a numeric market cap value into standard categories."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 'Unknown'
+    if v >= 200_000_000_000:
+        return 'Mega-cap (>$200B)'
+    elif v >= 10_000_000_000:
+        return 'Large-cap ($10B-$200B)'
+    elif v >= 2_000_000_000:
+        return 'Mid-cap ($2B-$10B)'
+    elif v >= 500_000_000:
+        return 'Small-cap ($500M-$2B)'
+    else:
+        return 'Micro-cap (<$500M)'
+
+
+# Defines display order for market cap categories (largest first)
+MARKET_CAP_ORDER = [
+    'Mega-cap (>$200B)',
+    'Large-cap ($10B-$200B)',
+    'Mid-cap ($2B-$10B)',
+    'Small-cap ($500M-$2B)',
+    'Micro-cap (<$500M)',
+    'Unknown',
+]
+
+
+@app.post("/api/trading-analysis/market-cap-performance")
+def get_market_cap_performance(request: TradeDataRequest):
+    """Analyze performance broken down by market cap category."""
+    try:
+        trades = request.trades
+        if not trades:
+            raise HTTPException(status_code=400, detail="No trade data provided")
+
+        df = pd.DataFrame(trades)
+
+        if 'market_cap' not in df.columns or df['market_cap'].isna().all():
+            return {"categories": [], "message": "No market cap data available"}
+
+        df['market_cap_category'] = df['market_cap'].apply(classify_market_cap)
+
+        categories = []
+        for cap in df['market_cap_category'].unique():
+            cap_trades = df[df['market_cap_category'] == cap]
+            winning = cap_trades[cap_trades['pnl'] > 0]
+
+            categories.append({
+                'market_cap': cap,
+                'total_trades': len(cap_trades),
+                'winning_trades': len(winning),
+                'losing_trades': len(cap_trades) - len(winning),
+                'win_rate': round(len(winning) / len(cap_trades) * 100, 1) if len(cap_trades) > 0 else 0,
+                'total_pnl': round(cap_trades['pnl'].sum(), 2),
+                'avg_pnl': round(cap_trades['pnl'].mean(), 2),
+                'best_trade': round(cap_trades['pnl'].max(), 2),
+                'worst_trade': round(cap_trades['pnl'].min(), 2),
+            })
+
+        # Sort by standard market cap order
+        cap_order = {name: i for i, name in enumerate(MARKET_CAP_ORDER)}
+        categories.sort(key=lambda x: cap_order.get(x['market_cap'], 99))
+
+        return {"categories": categories}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating market cap performance: {str(e)}")
+
+
+@app.post("/api/trading-analysis/benchmark-comparison")
+def get_benchmark_comparison(request: TradeDataRequest):
+    """Compare portfolio performance against SPY benchmark."""
+    try:
+        trades = request.trades
+        if not trades:
+            raise HTTPException(status_code=400, detail="No trade data provided")
+
+        df = pd.DataFrame(trades)
+
+        date_column = 'exit_date' if 'exit_date' in df.columns else 'date'
+        if date_column not in df.columns:
+            return {"error": "No date column found"}
+
+        df['date'] = pd.to_datetime(df[date_column])
+        df = df.sort_values('date')
+
+        start_date = df['date'].min()
+        end_date = df['date'].max()
+
+        # Fetch SPY data
+        spy_data = []
+        try:
+            spy = yf.Ticker('SPY')
+            spy_hist = spy.history(start=start_date, end=end_date + timedelta(days=1))
+
+            if not spy_hist.empty:
+                spy_hist['return'] = spy_hist['Close'].pct_change().fillna(0)
+                spy_hist['cumulative_return'] = (1 + spy_hist['return']).cumprod() - 1
+                spy_hist['cumulative_return_pct'] = spy_hist['cumulative_return'] * 100
+
+                for idx, row in spy_hist.iterrows():
+                    spy_data.append({
+                        'date': idx.strftime('%Y-%m-%d'),
+                        'spy_return_pct': round(float(row['cumulative_return_pct']), 2)
+                    })
+        except Exception as spy_err:
+            print(f"Could not fetch SPY data: {spy_err}")
+
+        # Calculate portfolio cumulative return
+        df['cumulative_pnl'] = df['pnl'].cumsum()
+        initial_capital = 100000
+        df['portfolio_return_pct'] = (df['cumulative_pnl'] / initial_capital) * 100
+
+        portfolio_data = []
+        for _, row in df.iterrows():
+            portfolio_data.append({
+                'date': row['date'].strftime('%Y-%m-%d'),
+                'portfolio_return_pct': round(float(row['portfolio_return_pct']), 2)
+            })
+
+        portfolio_total_return = float(df['portfolio_return_pct'].iloc[-1]) if len(df) > 0 else 0
+        spy_total_return = spy_data[-1]['spy_return_pct'] if spy_data else 0
+        alpha = portfolio_total_return - spy_total_return
+
+        return {
+            'portfolio_data': portfolio_data,
+            'spy_data': spy_data,
+            'portfolio_total_return': round(portfolio_total_return, 2),
+            'spy_total_return': round(spy_total_return, 2),
+            'alpha': round(alpha, 2),
+            'start_date': start_date.strftime('%Y-%m-%d'),
+            'end_date': end_date.strftime('%Y-%m-%d'),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating benchmark comparison: {str(e)}")
+
+
+@app.post("/api/trading-analysis/r-multiple")
+def get_r_multiple_analysis(request: RMultipleRequest):
+    """Calculate R-multiple for each trade using 1% portfolio risk rule."""
+    try:
+        trades = request.trades
+        initial_capital = request.initial_capital
+
+        if not trades:
+            raise HTTPException(status_code=400, detail="No trade data provided")
+
+        df = pd.DataFrame(trades)
+
+        date_column = 'exit_date' if 'exit_date' in df.columns else 'date'
+        if date_column in df.columns:
+            df['date'] = pd.to_datetime(df[date_column])
+            df = df.sort_values('date').reset_index(drop=True)
+
+        cumulative_pnl = 0.0
+        r_multiples = []
+
+        for _, row in df.iterrows():
+            portfolio_value = initial_capital + cumulative_pnl
+            risk_amount = portfolio_value * 0.01
+
+            r_multiple = row['pnl'] / risk_amount if risk_amount > 0 else 0
+
+            r_multiples.append({
+                'symbol': row.get('symbol', ''),
+                'date': row['date'].strftime('%Y-%m-%d') if 'date' in row and pd.notna(row.get('date')) else None,
+                'pnl': round(float(row['pnl']), 2),
+                'portfolio_value': round(portfolio_value, 2),
+                'risk_amount': round(risk_amount, 2),
+                'r_multiple': round(float(r_multiple), 2),
+            })
+
+            cumulative_pnl += row['pnl']
+
+        r_values = [r['r_multiple'] for r in r_multiples]
+
+        if r_values:
+            avg_r = float(np.mean(r_values))
+            median_r = float(np.median(r_values))
+            best_r = max(r_values)
+            worst_r = min(r_values)
+            positive_r = len([r for r in r_values if r > 0])
+            negative_r = len([r for r in r_values if r <= 0])
+            cumulative_r = sum(r_values)
+
+            bucket_order = ['<-3R', '-3R to -2R', '-2R to -1R', '-1R to 0', '0 to 1R', '1R to 2R', '2R to 3R', '>3R']
+            distribution = {b: 0 for b in bucket_order}
+            for r in r_values:
+                if r <= -3:
+                    distribution['<-3R'] += 1
+                elif r <= -2:
+                    distribution['-3R to -2R'] += 1
+                elif r <= -1:
+                    distribution['-2R to -1R'] += 1
+                elif r <= 0:
+                    distribution['-1R to 0'] += 1
+                elif r <= 1:
+                    distribution['0 to 1R'] += 1
+                elif r <= 2:
+                    distribution['1R to 2R'] += 1
+                elif r <= 3:
+                    distribution['2R to 3R'] += 1
+                else:
+                    distribution['>3R'] += 1
+
+            distribution_list = [{'bucket': b, 'count': distribution[b]} for b in bucket_order]
+        else:
+            avg_r = median_r = best_r = worst_r = cumulative_r = 0
+            positive_r = negative_r = 0
+            distribution_list = []
+
+        return {
+            'trades': r_multiples,
+            'avg_r': round(avg_r, 2),
+            'median_r': round(median_r, 2),
+            'best_r': round(best_r, 2),
+            'worst_r': round(worst_r, 2),
+            'positive_r_trades': positive_r,
+            'negative_r_trades': negative_r,
+            'cumulative_r': round(cumulative_r, 2),
+            'distribution': distribution_list,
+            'initial_capital': initial_capital,
+            'risk_pct': 1.0,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating R-multiples: {str(e)}")
+
+
+def calculate_trade_metrics(trades):
+    """Calculate comprehensive trading metrics from trade data."""
+    if not trades:
+        return {
+            "total_pnl": 0,
+            "win_rate": 0,
+            "avg_win": 0,
+            "avg_loss": 0,
+            "profit_factor": 0,
+            "total_trades": 0,
+        }
+
+    df = pd.DataFrame(trades)
+
+    winning_trades = [t for t in trades if t.get('pnl', 0) > 0]
+    losing_trades = [t for t in trades if t.get('pnl', 0) <= 0]
+
+    total_pnl = df['pnl'].sum() if 'pnl' in df.columns else 0
+    total_trades = len(trades)
+    win_count = len(winning_trades)
+    loss_count = len(losing_trades)
+    win_rate = (win_count / total_trades * 100) if total_trades > 0 else 0
+
+    avg_win = np.mean([t['pnl'] for t in winning_trades]) if winning_trades else 0
+    avg_loss = np.mean([t['pnl'] for t in losing_trades]) if losing_trades else 0
+
+    gross_profit = sum([t['pnl'] for t in winning_trades])
+    gross_loss = abs(sum([t['pnl'] for t in losing_trades]))
+    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else 0
+
+    return {
+        "total_pnl": round(total_pnl, 2),
+        "win_rate": round(win_rate, 1),
+        "avg_win": round(avg_win, 2),
+        "avg_loss": round(avg_loss, 2),
+        "profit_factor": round(profit_factor, 2),
+        "total_trades": total_trades,
+        "winning_trades": win_count,
+        "losing_trades": loss_count,
+    }
+
+
+# Screener Endpoints
+
+import yfinance as yf
+from datetime import datetime, timedelta
+import time
+import requests
+from functools import lru_cache
+import json
+import os
+
+# Cache for sector performance data (2 hour TTL)
+_sector_cache = {"data": None, "timestamp": None}
+CACHE_TTL = 7200  # 2 hours
+CACHE_FILE = "sector_cache.json"  # File to persist cache data
+
+# Progress tracking for sector data loading
+_fetch_progress = {"loading": False, "current": 0, "total": 0, "current_ticker": "", "current_name": ""}
+
+def load_cache_from_file():
+    """Load cache data from JSON file."""
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, 'r') as f:
+                cache_data = json.load(f)
+                cache_timestamp = datetime.fromisoformat(cache_data.get('timestamp', ''))
+                time_since_cache = (datetime.now() - cache_timestamp).total_seconds()
+
+                if time_since_cache < CACHE_TTL:
+                    print(f"Loaded cache from file (age: {time_since_cache:.0f}s)")
+                    return cache_data.get('data'), cache_timestamp
+    except Exception as e:
+        print(f"Error loading cache from file: {str(e)}")
+
+    return None, None
+
+def save_cache_to_file(data):
+    """Save cache data to JSON file."""
+    try:
+        cache_data = {
+            'data': data,
+            'timestamp': datetime.now().isoformat()
+        }
+        with open(CACHE_FILE, 'w') as f:
+            json.dump(cache_data, f)
+        print("Cache saved to file")
+    except Exception as e:
+        print(f"Error saving cache to file: {str(e)}")
+
+def get_all_etf_tickers():
+    """Get dictionary of all ETF tickers organized by category."""
+    return {
+        # Major Sectors
+        'Technology': 'XLK',
+        'Financials': 'XLF',
+        'Healthcare': 'XLV',
+        'Energy': 'XLE',
+        'Consumer Discretionary': 'XLY',
+        'Consumer Staples': 'XLP',
+        'Industrials': 'XLI',
+        'Materials': 'XLB',
+        'Real Estate': 'XLRE',
+        'Utilities': 'XLU',
+        'Communication Services': 'XLC',
+
+        # Industry-Specific ETFs
+        'Transportation': 'XTN',
+        'Homebuilders': 'XHB',
+        'Airlines': 'JETS',
+        'Retail': 'XRT',
+        'Biotech': 'XBI',
+        'Oil & Gas Exploration': 'XES',
+        'Metals & Mining': 'XME',
+        'Robotics & AI': 'ROBO',
+        'Healthcare Services': 'XHS',
+        'Aerospace & Defense': 'XAR',
+        'Small Caps': 'IWM',
+        'Oil & Gas': 'XOP',
+        'Clean Energy': 'PBW',
+        'Regional Banks': 'KRE',
+        'Bank ETF': 'KBP',
+        'Bank Sector': 'KBWB',
+        'Software': 'XSW',
+        'Airlines & Airports': 'IAT',
+        'Capital Markets': 'KCE',
+        'Software & Services': 'IGV',
+        'Biotech SPDR': 'IBB',
+        'Infrastructure': 'PAVE',
+        'Health Tech': 'XHE',
+        'FinTech': 'FSPN',
+        'FinTech Growth': 'FTXD',
+        'Small-Mid Cap': 'RITY',
+        'S&P 600 North': 'RSPN',
+        'S&P 600 Momentum': 'RSPM',
+        'S&P 600 Dividend': 'RSPD',
+        'S&P 600 Pure Style': 'RSPS',
+        'S&P 600 Tech': 'RSPT',
+        'Equal Weight Industrials': 'EWWI',
+        'Steel': 'SLX',
+        'Natural Resources': 'GNR',
+        'Insurance': 'KIE',
+        'S&P 600 Growth': 'RSPG',
+        'iShares Healthcare': 'IYH',
+        'Agriculture': 'MOO',
+        'S&P Healthcare Services': 'XSR',
+        'Cloud Computing': 'WCLD',
+        'Oil Fund': 'USO',
+        'Base Metals': 'DBB',
+        'Marine': 'BOAT',
+        'Consumer Goods': 'IYC',
+        'Latin America': 'ILF',
+        'iShares Biotech': 'IIBR',
+        'Energy Select': 'IYE',
+        'S&P 600 Resources': 'RSPR',
+        'Canadian Dollar': 'FXC',
+        'India': 'INDY',
+        'NASDAQ India': 'PNQI',
+        'S&P 600 Utilities': 'RSPU',
+        'Bitcoin Trust': 'GBTC',
+    }
+
+def get_demo_sector_data():
+    """Generate demo sector data for when Yahoo Finance is unavailable."""
+    import random
+    random.seed(42)  # Consistent demo data
+
+    sectors = get_all_etf_tickers()
+
+    sector_data = []
+    for sector_name, ticker in sectors.items():
+        # Generate realistic-looking demo data
+        base_price = random.uniform(40, 180)
+        sector_data.append({
+            'sector': sector_name,
+            'ticker': ticker,
+            'price': round(base_price, 2),
+            'returns': {
+                '1D': round(random.uniform(-2, 2), 2),
+                '5D': round(random.uniform(-3, 3), 2),
+                '1M': round(random.uniform(-5, 5), 2),
+                '3M': round(random.uniform(-8, 8), 2),
+                'YTD': round(random.uniform(-10, 15), 2),
+                '1Y': round(random.uniform(-15, 25), 2),
+            },
+            'volume': random.randint(5000000, 50000000),
+            'is_demo': True
+        })
+
+    return sector_data
+
+@app.get("/api/screener/sector-performance/progress")
+def get_fetch_progress():
+    """Get the current progress of sector data fetching."""
+    return _fetch_progress
+
+@app.get("/api/screener/sector-performance")
+def get_sector_performance():
+    """Get performance data for sector and industry ETFs."""
+    global _sector_cache, _fetch_progress
+
+    # Check in-memory cache first
+    if _sector_cache["data"] is not None and _sector_cache["timestamp"] is not None:
+        time_since_cache = (datetime.now() - _sector_cache["timestamp"]).total_seconds()
+        if time_since_cache < CACHE_TTL:
+            print(f"Returning in-memory cached data (age: {time_since_cache:.0f}s)")
+            return _sector_cache["data"]
+
+    # Check file cache
+    cached_data, cached_timestamp = load_cache_from_file()
+    if cached_data is not None:
+        _sector_cache = {"data": cached_data, "timestamp": cached_timestamp}
+        return cached_data
+
+    try:
+        # Get all ETF tickers
+        sectors = get_all_etf_tickers()
+
+        # Create a session with browser-like headers
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        })
+
+        sector_data = []
+        total_tickers = len(sectors)
+
+        # Set progress tracking
+        _fetch_progress = {"loading": True, "current": 0, "total": total_tickers, "current_ticker": "", "current_name": ""}
+
+        # Fetch data for each sector with a small delay to avoid rate limiting
+        for idx, (sector_name, ticker) in enumerate(sectors.items()):
+            _fetch_progress = {"loading": True, "current": idx + 1, "total": total_tickers, "current_ticker": ticker, "current_name": sector_name}
+            try:
+                # Create ticker object with custom session
+                etf = yf.Ticker(ticker, session=session)
+
+                # Try to get historical data with retry logic
+                max_retries = 2
+                hist = None
+
+                for attempt in range(max_retries):
+                    try:
+                        hist = etf.history(period='1y')
+                        if not hist.empty:
+                            break
+                    except Exception as retry_err:
+                        if attempt < max_retries - 1:
+                            time.sleep(0.5)
+                        else:
+                            raise retry_err
+
+                if hist is None or hist.empty or len(hist) < 2:
+                    print(f"No data available for {sector_name} ({ticker})")
+                    continue
+
+                # Get current price
+                current_price = hist['Close'].iloc[-1]
+
+                # Calculate returns for different timeframes
+                returns = {}
+
+                # 1 Day
+                if len(hist) >= 2:
+                    returns['1D'] = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-2]) - 1) * 100
+
+                # 5 Days
+                if len(hist) >= 6:
+                    returns['5D'] = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-6]) - 1) * 100
+
+                # 1 Month (21 trading days)
+                if len(hist) >= 22:
+                    returns['1M'] = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-22]) - 1) * 100
+
+                # 3 Months (63 trading days)
+                if len(hist) >= 64:
+                    returns['3M'] = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-64]) - 1) * 100
+
+                # YTD
+                current_year = datetime.now().year
+                ytd_data = hist[hist.index.year == current_year]
+                if len(ytd_data) >= 2:
+                    returns['YTD'] = ((ytd_data['Close'].iloc[-1] / ytd_data['Close'].iloc[0]) - 1) * 100
+
+                # 1 Year
+                if len(hist) >= 252:
+                    returns['1Y'] = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-252]) - 1) * 100
+                elif len(hist) >= 2:
+                    returns['1Y'] = ((hist['Close'].iloc[-1] / hist['Close'].iloc[0]) - 1) * 100
+
+                # Volume
+                avg_volume = hist['Volume'].tail(20).mean()
+
+                sector_data.append({
+                    'sector': sector_name,
+                    'ticker': ticker,
+                    'price': round(float(current_price), 2),
+                    'returns': {k: round(float(v), 2) for k, v in returns.items()},
+                    'volume': int(avg_volume),
+                })
+
+                # Small delay between requests to avoid rate limiting
+                time.sleep(0.5)
+
+            except Exception as e:
+                print(f"Error fetching data for {sector_name} ({ticker}): {str(e)}")
+                continue
+
+        # Reset progress
+        _fetch_progress = {"loading": False, "current": total_tickers, "total": total_tickers, "current_ticker": "", "current_name": ""}
+
+        # If we got at least some real data, cache and return it
+        if sector_data:
+            result = {
+                "sectors": sector_data,
+                "last_updated": datetime.now().isoformat(),
+                "is_demo": False
+            }
+            _sector_cache = {"data": result, "timestamp": datetime.now()}
+            save_cache_to_file(result)  # Persist to file
+            return result
+
+        # If Yahoo Finance failed completely, return demo data (and cache it so we don't retry for 2 hours)
+        print("Yahoo Finance unavailable, using demo data")
+        demo_data = get_demo_sector_data()
+        result = {
+            "sectors": demo_data,
+            "last_updated": datetime.now().isoformat(),
+            "is_demo": True,
+            "note": "Yahoo Finance is currently unavailable. Showing demo data. Please try again later for live data."
+        }
+        _sector_cache = {"data": result, "timestamp": datetime.now()}
+        return result
+
+    except Exception as e:
+        print(f"Error in sector performance endpoint: {str(e)}")
+        # Return demo data on any error (and cache it)
+        demo_data = get_demo_sector_data()
+        result = {
+            "sectors": demo_data,
+            "last_updated": datetime.now().isoformat(),
+            "is_demo": True,
+            "note": "Yahoo Finance is currently unavailable. Showing demo data. Please try again later for live data."
+        }
+        _sector_cache = {"data": result, "timestamp": datetime.now()}
+        return result
