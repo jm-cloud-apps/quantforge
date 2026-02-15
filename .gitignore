@@ -34,5 +34,8 @@ Thumbs.db
 *.xlsx
 *.csv
 
+# User data (journal, playbook entries, screenshots)
+backend/data/
+
 # UI backup (dev only)
 frontend/src/_ui_backup_v1/

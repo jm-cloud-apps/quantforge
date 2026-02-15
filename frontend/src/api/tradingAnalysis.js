@@ -1,5 +1,16 @@
 const API_BASE = '/api'
 
+export async function getFileStatus() {
+  const res = await fetch(`${API_BASE}/trading-analysis/file-status`)
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to get file status')
+  }
+
+  return res.json()
+}
+
 export async function loadDefaultTrades() {
   const res = await fetch(`${API_BASE}/trading-analysis/load-default`)
 
@@ -218,6 +229,36 @@ export async function getRMultipleAnalysis(tradeData, initialCapital = 100000) {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(err.detail || 'Failed to get R-multiple analysis')
+  }
+
+  return res.json()
+}
+
+export async function getEmotionPerformance(tradeData) {
+  const res = await fetch(`${API_BASE}/trading-analysis/emotion-performance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ trades: tradeData }),
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to get emotion performance')
+  }
+
+  return res.json()
+}
+
+export async function getCalendarHeatmap(tradeData) {
+  const res = await fetch(`${API_BASE}/trading-analysis/calendar-heatmap`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ trades: tradeData }),
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to get calendar heatmap')
   }
 
   return res.json()

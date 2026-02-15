@@ -1,10 +1,12 @@
 import { NavLink, Outlet } from 'react-router-dom'
 
 const navItems = [
-  { path: '/', label: 'Backtesting' },
+  { path: '/', label: 'Trading Analysis' },
+  { path: '/backtesting', label: 'Backtesting' },
   { path: '/screener', label: 'Sector Scan' },
-  { path: '/bot-trader', label: 'Bot Trader', badge: 'TO DO' },
-  { path: '/trading-analysis', label: 'Trading Analysis' },
+  { path: '/bot-trader', label: 'Bot Trader' },
+  { path: '/playbook', label: 'Database' },
+  { path: '/tools', label: 'Tools' },
 ]
 
 export default function Layout() {
@@ -22,7 +24,7 @@ export default function Layout() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                 </svg>
               </div>
-              <span className="text-surface-50">Stock Backtester</span>
+              <span className="text-surface-50">QuantForge</span>
             </NavLink>
 
             <nav className="flex items-center gap-1">

@@ -1,5 +1,5 @@
 {
-  "name": "stock-backtester-frontend",
+  "name": "quantforge-frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",

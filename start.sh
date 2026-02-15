@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start both backend and frontend for Stock Backtester
+# Start both backend and frontend for QuantForge
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"

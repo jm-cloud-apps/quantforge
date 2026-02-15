@@ -1,9 +1,12 @@
 """FastAPI backend for stock backtesting application."""
 
 import os
+import json
+import threading
 import pandas as pd
 import numpy as np
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -15,12 +18,25 @@ from backtester.breakout_engine import run_breakout_backtest
 
 load_dotenv()
 
+# In-memory cache for trading analysis data
+_trades_cache = {
+    "file_mtime": None,
+    "data": None,
+}
+
 
 app = FastAPI(
-    title="Stock Backtester API",
-    description="API for running backtests on stock strategies",
+    title="QuantForge API",
+    description="API for backtesting, trading analysis, and automated trading",
     version="1.0.0",
 )
+
+# Register broker router (Interactive Brokers integration)
+try:
+    from broker.router import router as broker_router
+    app.include_router(broker_router)
+except ImportError:
+    pass  # ib_insync not installed — broker endpoints will be unavailable
 
 app.add_middleware(
     CORSMiddleware,
@@ -319,12 +335,29 @@ class RMultipleRequest(BaseModel):
     initial_capital: float = 100000
 
 
+@app.get("/api/trading-analysis/file-status")
+def get_file_status():
+    """Return the last-modified timestamp of the default trades file."""
+    default_path = os.getenv("DEFAULT_TRADES_PATH", "trades/Trades.xlsx")
+    try:
+        mtime = os.path.getmtime(default_path)
+        return {"mtime": mtime, "path": default_path}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Default trades file not found")
+
+
 @app.get("/api/trading-analysis/load-default")
 def load_default_trades():
-    """Load trades from the default file path."""
-    default_path = os.getenv("DEFAULT_TRADES_PATH", "trades/Trades_2025.xlsx")
+    """Load trades from the default file path. Uses in-memory cache if file hasn't changed."""
+    default_path = os.getenv("DEFAULT_TRADES_PATH", "trades/Trades.xlsx")
 
     try:
+        current_mtime = os.path.getmtime(default_path)
+
+        # Return cached data if file hasn't been modified
+        if _trades_cache["file_mtime"] == current_mtime and _trades_cache["data"] is not None:
+            return {**_trades_cache["data"], "from_cache": True}
+
         df = pd.read_excel(default_path)
 
         # Clean up dataframe - remove unnamed columns
@@ -336,12 +369,19 @@ def load_default_trades():
         # Calculate metrics
         metrics = calculate_trade_metrics(trades)
 
-        return {
+        result = {
             "trades": trades,
             "metrics": metrics,
             "total_records": len(trades),
-            "source": "default_file"
+            "source": "default_file",
+            "file_mtime": current_mtime,
         }
+
+        # Update cache
+        _trades_cache["file_mtime"] = current_mtime
+        _trades_cache["data"] = result
+
+        return {**result, "from_cache": False}
 
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Default trades file not found at {default_path}")
@@ -536,6 +576,11 @@ def normalize_trade_data(df):
         'Notes': 'notes',
         'Market Cap': 'market_cap',
         'Stock/Option': 'instrument_type',
+        'Emotion': 'emotion',
+        'Conviction': 'conviction',
+        'Stop Price': 'stop_price',
+        'Target Price': 'target_price',
+        'Grade': 'grade',
     }
 
     # Rename columns if they exist
@@ -571,16 +616,20 @@ def normalize_trade_data(df):
     # Convert to list of dicts, handling NaN values
     trades = df_filtered.to_dict('records')
 
-    # Clean up NaN values
+    # Clean up NaN values and convert dates to ISO strings
     for trade in trades:
         for key, value in trade.items():
             if pd.isna(value):
                 if key in ['entry_date', 'exit_date', 'entry_time', 'exit_time']:
                     trade[key] = None
+                elif key in ['stop_price', 'target_price', 'conviction']:
+                    trade[key] = None
                 elif isinstance(value, (float, int)):
                     trade[key] = 0
                 else:
                     trade[key] = ''
+            elif key in ['entry_date', 'exit_date'] and hasattr(value, 'isoformat'):
+                trade[key] = value.isoformat()
 
     return trades
 
@@ -1388,6 +1437,185 @@ def get_r_multiple_analysis(request: RMultipleRequest):
         raise HTTPException(status_code=500, detail=f"Error calculating R-multiples: {str(e)}")
 
 
+@app.post("/api/trading-analysis/emotion-performance")
+def get_emotion_performance(request: TradeDataRequest):
+    """Analyze performance broken down by emotion at entry, conviction level, and trade grade."""
+    try:
+        trades = request.trades
+        if not trades:
+            raise HTTPException(status_code=400, detail="No trade data provided")
+
+        df = pd.DataFrame(trades)
+        result = {}
+
+        # --- Emotion breakdown ---
+        if 'emotion' in df.columns and df['emotion'].notna().any() and (df['emotion'] != '').any():
+            emotion_df = df[df['emotion'].notna() & (df['emotion'] != '')]
+            emotion_stats = []
+            for emotion in emotion_df['emotion'].unique():
+                e_trades = emotion_df[emotion_df['emotion'] == emotion]
+                winning = e_trades[e_trades['pnl'] > 0]
+                total_pnl = float(e_trades['pnl'].sum())
+                avg_pnl = float(e_trades['pnl'].mean())
+                win_rate = (len(winning) / len(e_trades) * 100) if len(e_trades) > 0 else 0
+                avg_win = float(winning['pnl'].mean()) if len(winning) > 0 else 0
+                losing = e_trades[e_trades['pnl'] <= 0]
+                avg_loss = float(losing['pnl'].mean()) if len(losing) > 0 else 0
+
+                emotion_stats.append({
+                    "emotion": emotion,
+                    "total_trades": len(e_trades),
+                    "winning_trades": len(winning),
+                    "losing_trades": len(losing),
+                    "win_rate": round(win_rate, 1),
+                    "total_pnl": round(total_pnl, 2),
+                    "avg_pnl": round(avg_pnl, 2),
+                    "avg_win": round(avg_win, 2),
+                    "avg_loss": round(avg_loss, 2),
+                    "best_trade": round(float(e_trades['pnl'].max()), 2),
+                    "worst_trade": round(float(e_trades['pnl'].min()), 2),
+                })
+
+            emotion_stats.sort(key=lambda x: x['total_pnl'], reverse=True)
+            result["emotions"] = emotion_stats
+            result["trades_with_emotion"] = len(emotion_df)
+            result["trades_without_emotion"] = len(df) - len(emotion_df)
+        else:
+            result["emotions"] = []
+            result["trades_with_emotion"] = 0
+            result["trades_without_emotion"] = len(df)
+
+        # --- Conviction breakdown ---
+        if 'conviction' in df.columns and df['conviction'].notna().any():
+            conv_df = df[df['conviction'].notna()]
+            conv_stats = []
+            for level in sorted(conv_df['conviction'].unique()):
+                c_trades = conv_df[conv_df['conviction'] == level]
+                winning = c_trades[c_trades['pnl'] > 0]
+                total_pnl = float(c_trades['pnl'].sum())
+                win_rate = (len(winning) / len(c_trades) * 100) if len(c_trades) > 0 else 0
+
+                conv_stats.append({
+                    "conviction": int(level),
+                    "total_trades": len(c_trades),
+                    "win_rate": round(win_rate, 1),
+                    "total_pnl": round(total_pnl, 2),
+                    "avg_pnl": round(float(c_trades['pnl'].mean()), 2),
+                })
+
+            result["conviction"] = conv_stats
+        else:
+            result["conviction"] = []
+
+        # --- Grade breakdown ---
+        if 'grade' in df.columns and df['grade'].notna().any() and (df['grade'] != '').any():
+            grade_df = df[df['grade'].notna() & (df['grade'] != '')]
+            grade_stats = []
+            for grade in sorted(grade_df['grade'].unique()):
+                g_trades = grade_df[grade_df['grade'] == grade]
+                winning = g_trades[g_trades['pnl'] > 0]
+                total_pnl = float(g_trades['pnl'].sum())
+                win_rate = (len(winning) / len(g_trades) * 100) if len(g_trades) > 0 else 0
+
+                grade_stats.append({
+                    "grade": grade,
+                    "total_trades": len(g_trades),
+                    "win_rate": round(win_rate, 1),
+                    "total_pnl": round(total_pnl, 2),
+                    "avg_pnl": round(float(g_trades['pnl'].mean()), 2),
+                })
+
+            result["grades"] = grade_stats
+        else:
+            result["grades"] = []
+
+        return result
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating emotion performance: {str(e)}")
+
+
+@app.post("/api/trading-analysis/calendar-heatmap")
+def get_calendar_heatmap(request: TradeDataRequest):
+    """Generate daily P&L data for calendar heatmap visualization."""
+    try:
+        trades = request.trades
+        if not trades:
+            raise HTTPException(status_code=400, detail="No trade data provided")
+
+        df = pd.DataFrame(trades)
+
+        # Determine date column — use exit_date (when P&L is realized)
+        date_col = 'exit_date' if 'exit_date' in df.columns else 'entry_date'
+        if date_col not in df.columns:
+            return {"days": [], "weeks": [], "months": []}
+
+        df['date'] = pd.to_datetime(df[date_col], errors='coerce')
+        df = df.dropna(subset=['date'])
+        df['date_str'] = df['date'].dt.strftime('%Y-%m-%d')
+        df['weekday'] = df['date'].dt.dayofweek  # 0=Mon, 6=Sun
+
+        # Aggregate by day
+        daily = df.groupby('date_str').agg(
+            pnl=('pnl', 'sum'),
+            trades=('pnl', 'count'),
+            wins=('pnl', lambda x: (x > 0).sum()),
+        ).reset_index()
+
+        daily['date'] = pd.to_datetime(daily['date_str'])
+        daily = daily.sort_values('date')
+
+        # Build day-level data
+        days = []
+        for _, row in daily.iterrows():
+            days.append({
+                "date": row['date_str'],
+                "pnl": round(float(row['pnl']), 2),
+                "trades": int(row['trades']),
+                "wins": int(row['wins']),
+                "weekday": int(row['date'].dayofweek),
+                "week": int(row['date'].isocalendar()[1]),
+                "year": int(row['date'].year),
+                "month": int(row['date'].month),
+            })
+
+        # Weekly summary
+        df['week_key'] = df['date'].dt.strftime('%Y-W%W')
+        weekly = df.groupby('week_key').agg(
+            pnl=('pnl', 'sum'),
+            trades=('pnl', 'count'),
+        ).reset_index()
+        weeks = [{"week": r['week_key'], "pnl": round(float(r['pnl']), 2), "trades": int(r['trades'])} for _, r in weekly.iterrows()]
+
+        # Monthly summary
+        df['month_key'] = df['date'].dt.strftime('%Y-%m')
+        monthly = df.groupby('month_key').agg(
+            pnl=('pnl', 'sum'),
+            trades=('pnl', 'count'),
+        ).reset_index()
+        months = [{"month": r['month_key'], "pnl": round(float(r['pnl']), 2), "trades": int(r['trades'])} for _, r in monthly.iterrows()]
+
+        # Streaks
+        best_day = max(days, key=lambda d: d['pnl']) if days else None
+        worst_day = min(days, key=lambda d: d['pnl']) if days else None
+        green_days = len([d for d in days if d['pnl'] > 0])
+        red_days = len([d for d in days if d['pnl'] < 0])
+
+        return {
+            "days": days,
+            "weeks": weeks,
+            "months": months,
+            "best_day": best_day,
+            "worst_day": worst_day,
+            "green_days": green_days,
+            "red_days": red_days,
+            "total_trading_days": len(days),
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating calendar heatmap: {str(e)}")
+
+
 def calculate_trade_metrics(trades):
     """Calculate comprehensive trading metrics from trade data."""
     if not trades:
@@ -1739,3 +1967,434 @@ def get_sector_performance():
         }
         _sector_cache = {"data": result, "timestamp": datetime.now()}
         return result
+
+
+# ─── Trade Journal ────────────────────────────────────────────────────────────
+
+JOURNAL_PATH = os.getenv("JOURNAL_PATH", os.path.join(os.path.dirname(__file__), "data", "journal.json"))
+_journal_lock = threading.Lock()
+
+
+class JournalEntry(BaseModel):
+    trade_id: str
+    pre_trade_plan: str = ""
+    emotion_entry: str = ""
+    emotion_exit: str = ""
+    lessons_learned: str = ""
+    rating: int = 0
+    tags: List[str] = []
+
+
+def _load_journal() -> dict:
+    with _journal_lock:
+        if os.path.exists(JOURNAL_PATH):
+            with open(JOURNAL_PATH, "r") as f:
+                return json.load(f)
+        return {"entries": {}}
+
+
+def _save_journal(data: dict):
+    with _journal_lock:
+        os.makedirs(os.path.dirname(JOURNAL_PATH), exist_ok=True)
+        with open(JOURNAL_PATH, "w") as f:
+            json.dump(data, f, indent=2)
+
+
+@app.get("/api/journal/entries")
+def list_journal_entries():
+    journal = _load_journal()
+    entries = list(journal["entries"].values())
+    entries.sort(key=lambda e: e.get("trade_id", ""), reverse=True)
+    return {"entries": entries, "total": len(entries)}
+
+
+@app.get("/api/journal/entries/{trade_id:path}")
+def get_journal_entry(trade_id: str):
+    journal = _load_journal()
+    entry = journal["entries"].get(trade_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Journal entry not found")
+    return entry
+
+
+@app.post("/api/journal/entries")
+def save_journal_entry(entry: JournalEntry):
+    journal = _load_journal()
+    journal["entries"][entry.trade_id] = entry.dict()
+    _save_journal(journal)
+    return {"status": "saved", "trade_id": entry.trade_id}
+
+
+@app.delete("/api/journal/entries/{trade_id:path}")
+def delete_journal_entry(trade_id: str):
+    journal = _load_journal()
+    if trade_id not in journal["entries"]:
+        raise HTTPException(status_code=404, detail="Journal entry not found")
+    del journal["entries"][trade_id]
+    _save_journal(journal)
+    return {"status": "deleted", "trade_id": trade_id}
+
+
+@app.get("/api/journal/stats")
+def get_journal_stats():
+    journal = _load_journal()
+    entries = list(journal["entries"].values())
+    if not entries:
+        return {"total": 0, "avg_rating": 0, "emotions": {}, "top_tags": [], "rated_entries": 0}
+
+    ratings = [e["rating"] for e in entries if e.get("rating", 0) > 0]
+    emotions_entry = {}
+    emotions_exit = {}
+    tag_counts = {}
+
+    for e in entries:
+        if e.get("emotion_entry"):
+            emotions_entry[e["emotion_entry"]] = emotions_entry.get(e["emotion_entry"], 0) + 1
+        if e.get("emotion_exit"):
+            emotions_exit[e["emotion_exit"]] = emotions_exit.get(e["emotion_exit"], 0) + 1
+        for tag in e.get("tags", []):
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+    top_tags = sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    return {
+        "total": len(entries),
+        "rated_entries": len(ratings),
+        "avg_rating": round(sum(ratings) / len(ratings), 1) if ratings else 0,
+        "emotions_entry": emotions_entry,
+        "emotions_exit": emotions_exit,
+        "top_tags": [{"tag": t, "count": c} for t, c in top_tags],
+    }
+
+
+@app.get("/api/journal/search")
+def search_journal(q: str = ""):
+    if not q:
+        return {"entries": [], "total": 0}
+    journal = _load_journal()
+    q_lower = q.lower()
+    results = []
+    for entry in journal["entries"].values():
+        searchable = " ".join([
+            entry.get("trade_id", ""),
+            entry.get("pre_trade_plan", ""),
+            entry.get("lessons_learned", ""),
+            entry.get("emotion_entry", ""),
+            entry.get("emotion_exit", ""),
+            " ".join(entry.get("tags", [])),
+        ]).lower()
+        if q_lower in searchable:
+            results.append(entry)
+    return {"entries": results, "total": len(results)}
+
+
+@app.get("/api/journal/calendar")
+def get_journal_calendar():
+    """Return calendar P&L data from the default trades file for Journal page."""
+    default_path = os.getenv("DEFAULT_TRADES_PATH", "trades/Trades.xlsx")
+    try:
+        if not os.path.exists(default_path):
+            return {"days": [], "weeks": [], "months": [], "best_day": None, "worst_day": None, "green_days": 0, "red_days": 0, "total_trading_days": 0}
+
+        # Reuse cached trades if available
+        current_mtime = os.path.getmtime(default_path)
+        if _trades_cache["file_mtime"] == current_mtime and _trades_cache["data"] is not None:
+            trades = _trades_cache["data"]["trades"]
+        else:
+            df = pd.read_excel(default_path)
+            df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+            trades = normalize_trade_data(df)
+
+        if not trades:
+            return {"days": [], "weeks": [], "months": [], "best_day": None, "worst_day": None, "green_days": 0, "red_days": 0, "total_trading_days": 0}
+
+        df = pd.DataFrame(trades)
+        date_col = 'exit_date' if 'exit_date' in df.columns else 'entry_date'
+        if date_col not in df.columns:
+            return {"days": [], "weeks": [], "months": []}
+
+        df['date'] = pd.to_datetime(df[date_col], errors='coerce')
+        df = df.dropna(subset=['date'])
+        df['date_str'] = df['date'].dt.strftime('%Y-%m-%d')
+
+        daily = df.groupby('date_str').agg(
+            pnl=('pnl', 'sum'),
+            trades=('pnl', 'count'),
+            wins=('pnl', lambda x: (x > 0).sum()),
+        ).reset_index()
+        daily['date'] = pd.to_datetime(daily['date_str'])
+        daily = daily.sort_values('date')
+
+        days = []
+        for _, row in daily.iterrows():
+            days.append({
+                "date": row['date_str'],
+                "pnl": round(float(row['pnl']), 2),
+                "trades": int(row['trades']),
+                "wins": int(row['wins']),
+                "weekday": int(row['date'].dayofweek),
+                "week": int(row['date'].isocalendar()[1]),
+                "year": int(row['date'].year),
+                "month": int(row['date'].month),
+            })
+
+        df['week_key'] = df['date'].dt.strftime('%Y-W%W')
+        weekly = df.groupby('week_key').agg(pnl=('pnl', 'sum'), trades=('pnl', 'count')).reset_index()
+        weeks = [{"week": r['week_key'], "pnl": round(float(r['pnl']), 2), "trades": int(r['trades'])} for _, r in weekly.iterrows()]
+
+        df['month_key'] = df['date'].dt.strftime('%Y-%m')
+        monthly = df.groupby('month_key').agg(pnl=('pnl', 'sum'), trades=('pnl', 'count')).reset_index()
+        months = [{"month": r['month_key'], "pnl": round(float(r['pnl']), 2), "trades": int(r['trades'])} for _, r in monthly.iterrows()]
+
+        best_day = max(days, key=lambda d: d['pnl']) if days else None
+        worst_day = min(days, key=lambda d: d['pnl']) if days else None
+        green_days = len([d for d in days if d['pnl'] > 0])
+        red_days = len([d for d in days if d['pnl'] < 0])
+
+        return {
+            "days": days,
+            "weeks": weeks,
+            "months": months,
+            "best_day": best_day,
+            "worst_day": worst_day,
+            "green_days": green_days,
+            "red_days": red_days,
+            "total_trading_days": len(days),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading calendar data: {str(e)}")
+
+
+# ─── Trading Tools ────────────────────────────────────────────────────────────
+
+class PositionSizeRequest(BaseModel):
+    account_size: float
+    risk_per_trade_pct: float
+    entry_price: float
+    stop_loss_price: float
+    method: str = "fixed_pct"
+    win_rate: float = 0
+    avg_win: float = 0
+    avg_loss: float = 0
+    atr_value: float = 0
+    atr_multiplier: float = 2.0
+
+
+@app.post("/api/tools/position-size")
+def calculate_position_size(request: PositionSizeRequest):
+    """Calculate position size using Fixed %, Kelly Criterion, or ATR-based method."""
+    try:
+        account = request.account_size
+        risk_pct = request.risk_per_trade_pct
+        entry = request.entry_price
+        stop = request.stop_loss_price
+
+        risk_amount = account * risk_pct / 100
+        risk_per_share = abs(entry - stop)
+
+        if risk_per_share <= 0:
+            raise HTTPException(status_code=400, detail="Entry and stop loss cannot be the same price")
+
+        result = {
+            "method": request.method,
+            "account_size": account,
+            "risk_amount": round(risk_amount, 2),
+            "risk_per_share": round(risk_per_share, 2),
+            "stop_loss_distance_pct": round(risk_per_share / entry * 100, 2),
+        }
+
+        if request.method == "fixed_pct":
+            shares = int(risk_amount / risk_per_share)
+            position_value = shares * entry
+            result.update({
+                "shares": shares,
+                "position_value": round(position_value, 2),
+                "position_pct_of_account": round(position_value / account * 100, 1),
+            })
+
+        elif request.method == "kelly":
+            wr = request.win_rate / 100 if request.win_rate > 1 else request.win_rate
+            avg_w = abs(request.avg_win)
+            avg_l = abs(request.avg_loss) if request.avg_loss != 0 else 1
+
+            win_loss_ratio = avg_w / avg_l if avg_l > 0 else 0
+            kelly = (wr * win_loss_ratio - (1 - wr)) / win_loss_ratio if win_loss_ratio > 0 else 0
+            kelly = max(0, min(kelly, 1))
+            half_kelly = kelly / 2
+
+            kelly_risk = account * kelly
+            half_kelly_risk = account * half_kelly
+            shares_kelly = int(kelly_risk / risk_per_share) if risk_per_share > 0 else 0
+            shares_half = int(half_kelly_risk / risk_per_share) if risk_per_share > 0 else 0
+
+            result.update({
+                "kelly_pct": round(kelly * 100, 2),
+                "half_kelly_pct": round(half_kelly * 100, 2),
+                "shares_kelly": shares_kelly,
+                "shares_half_kelly": shares_half,
+                "position_value_kelly": round(shares_kelly * entry, 2),
+                "position_value_half_kelly": round(shares_half * entry, 2),
+                "shares": shares_half,
+                "position_value": round(shares_half * entry, 2),
+                "position_pct_of_account": round(shares_half * entry / account * 100, 1) if account > 0 else 0,
+            })
+
+        elif request.method == "atr_based":
+            atr = request.atr_value
+            mult = request.atr_multiplier
+            if atr <= 0:
+                raise HTTPException(status_code=400, detail="ATR value must be positive")
+            stop_distance = atr * mult
+            shares = int(risk_amount / stop_distance)
+            position_value = shares * entry
+            result.update({
+                "atr_value": atr,
+                "atr_multiplier": mult,
+                "atr_stop_distance": round(stop_distance, 2),
+                "shares": shares,
+                "position_value": round(position_value, 2),
+                "position_pct_of_account": round(position_value / account * 100, 1),
+            })
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating position size: {str(e)}")
+
+
+# Pre-Trade Checklist
+CHECKLIST_PATH = os.getenv("CHECKLIST_PATH", os.path.join(os.path.dirname(__file__), "data", "checklist_template.json"))
+
+DEFAULT_CHECKLIST = [
+    "Is this trade in my playbook/setup?",
+    "Is the risk/reward at least 2:1?",
+    "Have I set my stop loss?",
+    "Is volume above 20-day average?",
+    "Am I in the right emotional state? (No FOMO/revenge)",
+    "Does this fit my daily loss limit?",
+    "Is the market trend aligned? (SPY direction)",
+    "Have I sized the position correctly? (1% rule)",
+]
+
+
+@app.get("/api/tools/checklist/template")
+def get_checklist_template():
+    if os.path.exists(CHECKLIST_PATH):
+        with open(CHECKLIST_PATH, "r") as f:
+            return json.load(f)
+    return {"items": DEFAULT_CHECKLIST}
+
+
+class ChecklistTemplate(BaseModel):
+    items: List[str]
+
+
+@app.post("/api/tools/checklist/template")
+def save_checklist_template(template: ChecklistTemplate):
+    os.makedirs(os.path.dirname(CHECKLIST_PATH), exist_ok=True)
+    with open(CHECKLIST_PATH, "w") as f:
+        json.dump({"items": template.items}, f, indent=2)
+    return {"status": "saved", "items": template.items}
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Playbook — 5-star trade examples
+# ──────────────────────────────────────────────────────────────────────
+
+PLAYBOOK_PATH = os.getenv("PLAYBOOK_PATH", os.path.join(os.path.dirname(__file__), "data", "playbook.json"))
+PLAYBOOK_SCREENSHOTS_DIR = os.path.join(os.path.dirname(__file__), "data", "playbook_screenshots")
+_playbook_lock = threading.Lock()
+
+
+def _load_playbook() -> dict:
+    with _playbook_lock:
+        if os.path.exists(PLAYBOOK_PATH):
+            with open(PLAYBOOK_PATH, "r") as f:
+                return json.load(f)
+        return {"entries": {}}
+
+
+def _save_playbook(data: dict):
+    with _playbook_lock:
+        os.makedirs(os.path.dirname(PLAYBOOK_PATH), exist_ok=True)
+        with open(PLAYBOOK_PATH, "w") as f:
+            json.dump(data, f, indent=2)
+
+
+@app.get("/api/playbook/entries")
+def list_playbook_entries():
+    playbook = _load_playbook()
+    entries = list(playbook["entries"].values())
+    entries.sort(key=lambda e: e.get("date", ""), reverse=True)
+    return {"entries": entries, "total": len(entries)}
+
+
+@app.post("/api/playbook/entries")
+async def create_playbook_entry(
+    symbol: str = Form(...),
+    date: str = Form(...),
+    setup: str = Form(""),
+    pnl: float = Form(0),
+    pnl_pct: float = Form(0),
+    notes: str = Form(""),
+    tags: str = Form(""),
+    screenshot: Optional[UploadFile] = File(None),
+):
+    from datetime import datetime as dt
+
+    entry_id = str(int(dt.now().timestamp() * 1000))
+    screenshot_filename = None
+
+    if screenshot and screenshot.filename:
+        os.makedirs(PLAYBOOK_SCREENSHOTS_DIR, exist_ok=True)
+        ext = os.path.splitext(screenshot.filename)[1] or ".png"
+        screenshot_filename = f"{entry_id}{ext}"
+        filepath = os.path.join(PLAYBOOK_SCREENSHOTS_DIR, screenshot_filename)
+        contents = await screenshot.read()
+        with open(filepath, "wb") as f:
+            f.write(contents)
+
+    entry = {
+        "id": entry_id,
+        "symbol": symbol.upper().strip(),
+        "date": date,
+        "setup": setup,
+        "pnl": pnl,
+        "pnl_pct": pnl_pct,
+        "notes": notes,
+        "tags": [t.strip() for t in tags.split(",") if t.strip()] if tags else [],
+        "screenshot": screenshot_filename,
+        "created_at": dt.now().isoformat(),
+    }
+
+    playbook = _load_playbook()
+    playbook["entries"][entry_id] = entry
+    _save_playbook(playbook)
+
+    return {"status": "created", "entry": entry}
+
+
+@app.delete("/api/playbook/entries/{entry_id}")
+def delete_playbook_entry(entry_id: str):
+    playbook = _load_playbook()
+    if entry_id not in playbook["entries"]:
+        raise HTTPException(status_code=404, detail="Playbook entry not found")
+
+    entry = playbook["entries"][entry_id]
+    if entry.get("screenshot"):
+        filepath = os.path.join(PLAYBOOK_SCREENSHOTS_DIR, entry["screenshot"])
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+    del playbook["entries"][entry_id]
+    _save_playbook(playbook)
+    return {"status": "deleted", "id": entry_id}
+
+
+@app.get("/api/playbook/screenshots/{filename}")
+def get_playbook_screenshot(filename: str):
+    filepath = os.path.join(PLAYBOOK_SCREENSHOTS_DIR, filename)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Screenshot not found")
+    return FileResponse(filepath)
