@@ -43,12 +43,62 @@ export default {
         'card-hover': '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 20px rgba(16, 185, 129, 0.08)',
       },
       animation: {
-        'fade-in': 'fadeIn 200ms ease-out',
+        'fade-in': 'fadeIn 300ms ease-out',
+        'fade-in-up': 'fadeInUp 400ms ease-out',
+        'slide-in': 'slideIn 350ms cubic-bezier(0.16, 1, 0.3, 1)',
+        'slide-up': 'slideUp 300ms cubic-bezier(0.16, 1, 0.3, 1)',
+        'scale-in': 'scaleIn 200ms ease-out',
+        'shimmer': 'shimmer 1.5s ease-in-out infinite',
+        'pulse-soft': 'pulseSoft 2s ease-in-out infinite',
+        'drawer-in': 'drawerIn 300ms cubic-bezier(0.16, 1, 0.3, 1)',
+        'drawer-out': 'drawerOut 200ms ease-in',
+        'overlay-in': 'overlayIn 200ms ease-out',
+        'toast-in': 'toastIn 300ms cubic-bezier(0.16, 1, 0.3, 1)',
       },
       keyframes: {
         fadeIn: {
-          '0%': { opacity: '0', transform: 'translateY(4px)' },
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        fadeInUp: {
+          '0%': { opacity: '0', transform: 'translateY(8px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        slideIn: {
+          '0%': { opacity: '0', transform: 'translateY(4px) scale(0.98)' },
+          '100%': { opacity: '1', transform: 'translateY(0) scale(1)' },
+        },
+        slideUp: {
+          '0%': { opacity: '0', transform: 'translateY(12px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        scaleIn: {
+          '0%': { opacity: '0', transform: 'scale(0.95)' },
+          '100%': { opacity: '1', transform: 'scale(1)' },
+        },
+        shimmer: {
+          '0%': { backgroundPosition: '-200% 0' },
+          '100%': { backgroundPosition: '200% 0' },
+        },
+        pulseSoft: {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0.5' },
+        },
+        drawerIn: {
+          '0%': { transform: 'translateY(100%)' },
+          '100%': { transform: 'translateY(0)' },
+        },
+        drawerOut: {
+          '0%': { transform: 'translateY(0)' },
+          '100%': { transform: 'translateY(100%)' },
+        },
+        overlayIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        toastIn: {
+          '0%': { opacity: '0', transform: 'translateY(-12px) scale(0.95)' },
+          '100%': { opacity: '1', transform: 'translateY(0) scale(1)' },
         },
       },
     },

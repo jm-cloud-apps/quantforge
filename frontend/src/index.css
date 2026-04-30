@@ -26,7 +26,30 @@ body {
   letter-spacing: -0.01em;
 }
 
-/* Glass card utility */
+/* ─── Global focus-visible rings (Apple-style) ─── */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid rgba(16, 185, 129, 0.5);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* ─── Global button press feedback ─── */
+button:active:not(:disabled),
+[role="button"]:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* ensure buttons have a smooth transition baseline */
+button,
+[role="button"] {
+  transition: transform 120ms ease, background-color 200ms ease, border-color 200ms ease, color 200ms ease, opacity 200ms ease, box-shadow 200ms ease;
+}
+
+/* ─── Glass card utility ─── */
 .glass-card {
   background: linear-gradient(135deg, rgba(15, 22, 35, 0.8), rgba(20, 28, 43, 0.6));
   border: 1px solid rgba(30, 41, 59, 0.6);
@@ -38,6 +61,33 @@ body {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), 0 0 20px rgba(16, 185, 129, 0.05);
 }
 
+/* ─── Skeleton shimmer for loading states ─── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(30, 41, 59, 0.3) 25%,
+    rgba(30, 41, 59, 0.6) 50%,
+    rgba(30, 41, 59, 0.3) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ─── Stagger animation delays (used for card grids) ─── */
+.stagger-1 { animation-delay: 50ms; animation-fill-mode: both; }
+.stagger-2 { animation-delay: 100ms; animation-fill-mode: both; }
+.stagger-3 { animation-delay: 150ms; animation-fill-mode: both; }
+.stagger-4 { animation-delay: 200ms; animation-fill-mode: both; }
+.stagger-5 { animation-delay: 250ms; animation-fill-mode: both; }
+.stagger-6 { animation-delay: 300ms; animation-fill-mode: both; }
+
+/* ─── Scrollbar ─── */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

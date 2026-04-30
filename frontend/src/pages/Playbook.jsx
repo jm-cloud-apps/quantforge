@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { getPlaybookEntries, createPlaybookEntry, deletePlaybookEntry, getScreenshotUrl } from '../api/playbook'
+import { useToast } from '../components/Toast'
 
 const INPUT_STYLE = 'w-full rounded-lg bg-surface-800 border border-surface-600/40 px-4 py-2.5 text-sm text-surface-100 placeholder-surface-500 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30 transition-colors'
 
@@ -142,6 +143,7 @@ function Dropdown({ value, onChange, options, placeholder, grouped, searchable, 
 }
 
 export default function Playbook() {
+  const { toast } = useToast()
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -197,8 +199,10 @@ export default function Playbook() {
       setScreenshotFile(null)
       setScreenshotPreview(null)
       loadEntries()
+      toast.success(`${form.symbol} added to playbook`)
     } catch (err) {
       console.error('Failed to create entry:', err)
+      toast.error('Failed to save entry')
     }
     setSaving(false)
   }
@@ -209,8 +213,10 @@ export default function Playbook() {
       setConfirmDelete(null)
       setDetailEntry(null)
       loadEntries()
+      toast.success('Entry deleted')
     } catch (err) {
       console.error('Failed to delete:', err)
+      toast.error('Failed to delete entry')
     }
   }
 
@@ -259,7 +265,7 @@ export default function Playbook() {
         </div>
         <button
           onClick={() => { setForm(INITIAL_FORM); setScreenshotFile(null); setScreenshotPreview(null); setShowAddModal(true); }}
-          className="px-4 py-2 rounded-full bg-accent hover:brightness-110 text-white text-sm font-semibold transition-all"
+          className="px-4 py-2 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-surface-200 hover:bg-surface-700 hover:text-surface-50 transition-colors"
         >
           + Add Trade
         </button>
@@ -316,15 +322,48 @@ export default function Playbook() {
 
       {/* Gallery Grid */}
       {loading ? (
-        <div className="text-center py-12 text-surface-400">Loading database...</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="rounded-xl bg-surface-900/80 border border-surface-700/50 overflow-hidden" style={{ animationDelay: `${i * 60}ms` }}>
+              <div className="skeleton h-48 rounded-none" />
+              <div className="p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="skeleton h-4 w-16" />
+                  <div className="skeleton h-4 w-20" />
+                </div>
+                <div className="skeleton h-3 w-32" />
+                <div className="skeleton h-3 w-full" />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-[16px] bg-surface-900 border border-surface-700/50 border-dashed p-16 text-center">
-          <p className="text-surface-300 text-[15px] font-medium">
-            {entries.length === 0 ? 'No Database Entries Yet' : 'No matches'}
-          </p>
-          <p className="text-surface-500 text-[13px] mt-1">
-            {entries.length === 0 ? 'Add your best trades to build a reference library of winning setups.' : 'Try adjusting your filters.'}
-          </p>
+          <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-gradient-to-br from-accent/20 to-purple/10 border border-accent/20 flex items-center justify-center">
+            <svg className="w-8 h-8 text-accent/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+            </svg>
+          </div>
+          {entries.length === 0 ? (
+            <>
+              <p className="text-surface-200 text-[15px] font-semibold">Build Your Playbook</p>
+              <p className="text-surface-500 text-[13px] mt-1.5 max-w-sm mx-auto leading-relaxed">
+                Save your best trade setups with screenshots, notes, and tags. Build a visual reference library of patterns that work for you.
+              </p>
+              <button
+                onClick={() => { setForm(INITIAL_FORM); setScreenshotFile(null); setScreenshotPreview(null); setShowAddModal(true); }}
+                className="mt-5 px-5 py-2.5 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-surface-200 hover:bg-surface-700 hover:text-surface-50 transition-colors inline-flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                Add Your First Trade
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-surface-200 text-[15px] font-semibold">No Matching Entries</p>
+              <p className="text-surface-500 text-[13px] mt-1.5">Try adjusting your filters or search terms.</p>
+            </>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -472,11 +511,11 @@ export default function Playbook() {
               <button
                 onClick={handleSubmit}
                 disabled={!form.symbol.trim() || !form.date || saving}
-                className="px-5 py-2.5 rounded-full bg-accent hover:brightness-110 text-white text-sm font-semibold disabled:opacity-40 transition-all"
+                className="px-5 py-2.5 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-surface-200 hover:bg-surface-700 hover:text-surface-50 transition-colors disabled:opacity-40"
               >
                 {saving ? 'Saving...' : 'Save to Database'}
               </button>
-              <button onClick={() => setShowAddModal(false)} className="px-5 py-2.5 rounded-full bg-surface-800 text-surface-300 text-sm font-semibold hover:bg-surface-700 transition-all">
+              <button onClick={() => setShowAddModal(false)} className="px-5 py-2.5 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-surface-400 hover:bg-surface-700 hover:text-surface-200 transition-colors">
                 Cancel
               </button>
             </div>
@@ -543,19 +582,19 @@ export default function Playbook() {
                 {confirmDelete === detailEntry.id ? (
                   <>
                     <span className="text-danger text-sm py-2.5">Delete this entry?</span>
-                    <button onClick={() => handleDelete(detailEntry.id)} className="px-4 py-2 rounded-full bg-danger/15 text-danger text-sm font-semibold hover:bg-danger/25 transition-all">
+                    <button onClick={() => handleDelete(detailEntry.id)} className="px-4 py-2 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-danger hover:bg-surface-700 transition-colors">
                       Confirm
                     </button>
-                    <button onClick={() => setConfirmDelete(null)} className="px-4 py-2 rounded-full bg-surface-800 text-surface-300 text-sm hover:bg-surface-700 transition-all">
+                    <button onClick={() => setConfirmDelete(null)} className="px-4 py-2 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-surface-400 hover:bg-surface-700 hover:text-surface-200 transition-colors">
                       Cancel
                     </button>
                   </>
                 ) : (
                   <>
-                    <button onClick={() => setConfirmDelete(detailEntry.id)} className="px-4 py-2 rounded-full bg-danger/10 border border-danger/20 text-danger text-sm font-semibold hover:bg-danger/20 transition-all">
+                    <button onClick={() => setConfirmDelete(detailEntry.id)} className="px-4 py-2 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-danger hover:bg-surface-700 transition-colors">
                       Delete
                     </button>
-                    <button onClick={() => setDetailEntry(null)} className="px-4 py-2 rounded-full bg-surface-800 text-surface-300 text-sm font-semibold hover:bg-surface-700 transition-all">
+                    <button onClick={() => setDetailEntry(null)} className="px-4 py-2 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-surface-200 hover:bg-surface-700 hover:text-surface-50 transition-colors">
                       Close
                     </button>
                   </>

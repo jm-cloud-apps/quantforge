@@ -12,11 +12,11 @@ export default function BehaviorTab({
   const [heatmapTooltip, setHeatmapTooltip] = useState(null);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Streak & Tilt Detection */}
       {streakData && (
         <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-          <h2 className="font-display font-semibold text-xl text-surface-50 mb-2">Streak & Tilt Detection</h2>
+          <h2 className="font-display font-semibold text-lg text-surface-50 mb-2">Streak & Tilt Detection</h2>
           <p className="text-surface-400 text-sm mb-6">Identifies patterns of consecutive wins/losses and potential revenge trading</p>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
             <div className="space-y-1">
@@ -64,7 +64,7 @@ export default function BehaviorTab({
       {emotionData && (
         <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
           <div className="mb-6">
-            <h2 className="font-display font-semibold text-xl text-surface-50">Emotion & Process Analysis</h2>
+            <h2 className="font-display font-semibold text-lg text-surface-50">Emotion & Process Analysis</h2>
             <p className="text-surface-400 text-sm mt-1">How your mental state and process discipline correlate with P&L</p>
           </div>
 
@@ -193,7 +193,7 @@ export default function BehaviorTab({
       {/* Rolling 30-Trade Performance */}
       {rollingPerformance?.rolling_30_trades && (
         <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-          <h2 className="font-display font-semibold text-xl text-surface-50 mb-4">Rolling 30-Trade Performance (Learning Curve)</h2>
+          <h2 className="font-display font-semibold text-lg text-surface-50 mb-4">Rolling 30-Trade Performance (Learning Curve)</h2>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={rollingPerformance.rolling_30_trades}>
@@ -271,7 +271,7 @@ export default function BehaviorTab({
 
         return (
           <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-            <h2 className="font-display font-semibold text-xl text-surface-50 mb-2">Daily P&L Heatmap</h2>
+            <h2 className="font-display font-semibold text-lg text-surface-50 mb-2">Daily P&L Heatmap</h2>
             <p className="text-surface-400 text-sm mb-4">Each square = one trading day. Green = profit, Red = loss. Hover for details.</p>
             <div className="overflow-x-auto">
               <div className="flex ml-[38px] mb-1" style={{ gap: '3px' }}>
@@ -342,7 +342,7 @@ export default function BehaviorTab({
         <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="font-display font-semibold text-xl text-surface-50">P&L Calendar</h2>
+              <h2 className="font-display font-semibold text-lg text-surface-50">P&L Calendar</h2>
               <p className="text-surface-400 text-sm mt-1">Daily trading performance heatmap</p>
             </div>
             <div className="flex items-center gap-4 text-sm">

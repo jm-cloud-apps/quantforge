@@ -159,9 +159,9 @@ export default function BotTrader() {
             </div>
           </div>
           {connected ? (
-            <button onClick={handleDisconnect} className="px-4 py-2 rounded-full bg-danger/10 border border-danger/20 text-danger text-sm font-semibold hover:bg-danger/20 transition-all">Disconnect</button>
+            <button onClick={handleDisconnect} className="px-4 py-2 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-danger hover:bg-surface-700 transition-colors">Disconnect</button>
           ) : (
-            <button onClick={handleConnect} disabled={connecting} className="px-4 py-2 rounded-full bg-accent hover:brightness-110 text-white text-sm font-semibold disabled:opacity-40 transition-all">
+            <button onClick={handleConnect} disabled={connecting} className="px-4 py-2 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-surface-200 hover:bg-surface-700 hover:text-surface-50 transition-colors disabled:opacity-40">
               {connecting ? 'Connecting...' : 'Connect'}
             </button>
           )}

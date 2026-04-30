@@ -4,6 +4,7 @@ import {
 } from 'recharts';
 import { CustomTooltip } from './shared';
 import PnLCalendar from '../PnLCalendar';
+import SetupComparison from './SetupComparison';
 
 export default function OverviewTab({
   metrics, metricsCards, statistics, streakData, setupStats,
@@ -110,22 +111,22 @@ export default function OverviewTab({
   const hasInsights = strengths.length > 0 || warnings.length > 0 || opportunities.length > 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* P&L Calendar */}
       <PnLCalendar calendarData={calendarData} loading={!calendarData} />
 
-      {/* Performance Metrics */}
+      {/* Performance Metrics — staggered card entrance */}
       {metrics && (
         <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-          <h2 className="font-display font-semibold text-xl text-surface-50 mb-6">
+          <h2 className="font-display font-semibold text-lg text-surface-50 mb-6">
             Performance Metrics
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             {metricsCards.map((metric, index) => (
-              <div key={index} className="rounded-lg bg-surface-900/60 border border-surface-700/20 p-4">
-                <p className="text-surface-400 text-xs mb-1">{metric.label}</p>
-                <p className="font-mono font-bold text-xl text-surface-50 mb-1">{metric.value}</p>
-                <span className={`text-xs font-mono px-2 py-0.5 rounded ${
+              <div key={index} className={`rounded-xl bg-surface-900/60 border border-surface-700/20 p-4 hover:border-accent/20 transition-colors animate-fade-in-up stagger-${index + 1}`}>
+                <p className="text-surface-400 text-[11px] font-medium uppercase tracking-wider mb-1.5">{metric.label}</p>
+                <p className="font-mono font-bold text-xl text-surface-50 mb-1.5">{metric.value}</p>
+                <span className={`text-[11px] font-mono px-2 py-0.5 rounded-md ${
                   metric.positive ? 'bg-accent/15 text-accent' : 'bg-danger/10 text-danger'
                 }`}>
                   {metric.change}
@@ -136,46 +137,49 @@ export default function OverviewTab({
         </div>
       )}
 
+      {/* EP vs HTF Comparison */}
+      <SetupComparison trades={trades} />
+
       {/* Key Insights */}
       {hasInsights && (
         <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-          <h2 className="font-display font-semibold text-xl text-surface-50 mb-6">Key Insights</h2>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <h2 className="font-display font-semibold text-lg text-surface-50 mb-6">Key Insights</h2>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {strengths.length > 0 && (
               <div>
-                <div className="flex items-center gap-2 mb-3">
+                <div className="flex items-center gap-2 mb-4">
                   <div className="w-2 h-2 rounded-full bg-success" />
                   <h3 className="text-success text-sm font-semibold">Keep Doing</h3>
                 </div>
-                <ul className="space-y-2">
+                <ul className="space-y-3">
                   {strengths.map((s, i) => (
-                    <li key={i} className="text-surface-300 text-xs leading-relaxed pl-4 border-l-2 border-success/30">{s}</li>
+                    <li key={i} className="text-surface-300 text-sm leading-relaxed pl-4 border-l-2 border-success/30">{s}</li>
                   ))}
                 </ul>
               </div>
             )}
             {warnings.length > 0 && (
               <div>
-                <div className="flex items-center gap-2 mb-3">
+                <div className="flex items-center gap-2 mb-4">
                   <div className="w-2 h-2 rounded-full bg-danger" />
                   <h3 className="text-danger text-sm font-semibold">Avoid / Fix</h3>
                 </div>
-                <ul className="space-y-2">
+                <ul className="space-y-3">
                   {warnings.map((w, i) => (
-                    <li key={i} className="text-surface-300 text-xs leading-relaxed pl-4 border-l-2 border-danger/30">{w}</li>
+                    <li key={i} className="text-surface-300 text-sm leading-relaxed pl-4 border-l-2 border-danger/30">{w}</li>
                   ))}
                 </ul>
               </div>
             )}
             {opportunities.length > 0 && (
               <div>
-                <div className="flex items-center gap-2 mb-3">
+                <div className="flex items-center gap-2 mb-4">
                   <div className="w-2 h-2 rounded-full bg-cyan" />
                   <h3 className="text-cyan text-sm font-semibold">Opportunities</h3>
                 </div>
-                <ul className="space-y-2">
+                <ul className="space-y-3">
                   {opportunities.map((o, i) => (
-                    <li key={i} className="text-surface-300 text-xs leading-relaxed pl-4 border-l-2 border-cyan/30">{o}</li>
+                    <li key={i} className="text-surface-300 text-sm leading-relaxed pl-4 border-l-2 border-cyan/30">{o}</li>
                   ))}
                 </ul>
               </div>
@@ -185,11 +189,11 @@ export default function OverviewTab({
       )}
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Cumulative P&L */}
         {cumulativePnLData.length > 0 && (
           <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6 lg:col-span-2">
-            <h2 className="font-display font-semibold text-xl text-surface-50 mb-4">Cumulative P&L</h2>
+            <h2 className="font-display font-semibold text-lg text-surface-50 mb-4">Cumulative P&L</h2>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={cumulativePnLData}>
@@ -207,7 +211,7 @@ export default function OverviewTab({
         {/* Monthly P&L */}
         {monthlyPnLData.length > 0 && (
           <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6 lg:col-span-2">
-            <h2 className="font-display font-semibold text-xl text-surface-50 mb-4">Monthly P&L</h2>
+            <h2 className="font-display font-semibold text-lg text-surface-50 mb-4">Monthly P&L</h2>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={monthlyPnLData}>

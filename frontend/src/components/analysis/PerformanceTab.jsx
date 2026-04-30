@@ -66,13 +66,13 @@ export default function PerformanceTab({
   }, [trades]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Win/Loss + P&L Distribution side by side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Win/Loss Distribution */}
         {winLossData.length > 0 && (
           <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-            <h2 className="font-display font-semibold text-xl text-surface-50 mb-4">Win/Loss Distribution</h2>
+            <h2 className="font-display font-semibold text-lg text-surface-50 mb-4">Win/Loss Distribution</h2>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -91,7 +91,7 @@ export default function PerformanceTab({
         {/* P&L Distribution Histogram */}
         {pnlBins.length > 0 && (
           <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-            <h2 className="font-display font-semibold text-xl text-surface-50 mb-2">P&L Distribution</h2>
+            <h2 className="font-display font-semibold text-lg text-surface-50 mb-2">P&L Distribution</h2>
             <p className="text-surface-400 text-sm mb-4">How your trade outcomes are distributed</p>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
@@ -117,7 +117,7 @@ export default function PerformanceTab({
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {/* Setup Statistics */}
           <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-            <h2 className="font-display font-semibold text-xl text-surface-50 mb-4">Performance by Setup</h2>
+            <h2 className="font-display font-semibold text-lg text-surface-50 mb-4">Performance by Setup</h2>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -165,7 +165,7 @@ export default function PerformanceTab({
           {/* Symbol Performance */}
           {symbolStats?.symbols?.length > 0 && (
             <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-              <h2 className="font-display font-semibold text-xl text-surface-50 mb-4">Performance by Symbol (Top 20)</h2>
+              <h2 className="font-display font-semibold text-lg text-surface-50 mb-4">Performance by Symbol (Top 20)</h2>
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
@@ -216,7 +216,7 @@ export default function PerformanceTab({
       {/* Market Cap Performance */}
       {marketCapData?.categories?.length > 0 && (
         <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-          <h2 className="font-display font-semibold text-xl text-surface-50 mb-2">Performance by Market Cap</h2>
+          <h2 className="font-display font-semibold text-lg text-surface-50 mb-2">Performance by Market Cap</h2>
           <p className="text-surface-400 text-sm mb-4">How you perform across different market cap segments</p>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="h-72">

@@ -174,7 +174,7 @@ function PositionSizer() {
         <button
           onClick={handleCalculate}
           disabled={!form.entry_price || !form.stop_loss_price}
-          className="px-5 py-2.5 rounded-full bg-accent hover:brightness-110 text-white text-sm font-semibold disabled:opacity-40 transition-all"
+          className="px-5 py-2.5 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-surface-200 hover:bg-surface-700 hover:text-surface-50 transition-colors disabled:opacity-40"
         >
           Calculate
         </button>
@@ -374,14 +374,14 @@ function PreTradeChecklist() {
               placeholder="Add checklist item..."
               className={`${INPUT_STYLE} flex-1`}
             />
-            <button onClick={addItem} className="px-4 py-2 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25 transition-colors">
+            <button onClick={addItem} className="px-4 py-2 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-surface-200 hover:bg-surface-700 hover:text-surface-50 transition-colors">
               Add
             </button>
           </div>
         )}
 
         {editing && (
-          <button onClick={handleSave} className="px-5 py-2.5 rounded-full bg-accent hover:brightness-110 text-white text-sm font-semibold transition-all">
+          <button onClick={handleSave} className="px-5 py-2.5 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-surface-200 hover:bg-surface-700 hover:text-surface-50 transition-colors">
             Save Template
           </button>
         )}

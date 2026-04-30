@@ -263,3 +263,127 @@ export async function getCalendarHeatmap(tradeData) {
 
   return res.json()
 }
+
+// ---------------------------------------------------------------------------
+// Trade Log Formatter
+// ---------------------------------------------------------------------------
+
+export async function getFormatterMonths() {
+  const res = await fetch(`${API_BASE}/formatter/months`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to get available months')
+  }
+  return res.json()
+}
+
+/**
+ * Run the trade log formatter for a given month, streaming log lines via SSE.
+ * Returns an AbortController — call .abort() to cancel.
+ */
+export function runFormatter(dateStr, { onMessage, onDone, onError }) {
+  const controller = new AbortController()
+
+  fetch(`${API_BASE}/formatter/run/${encodeURIComponent(dateStr)}`, {
+    method: 'POST',
+    signal: controller.signal,
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || 'Formatter request failed')
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() // keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const payload = line.slice(6)
+
+          if (payload === '__DONE__') {
+            onDone?.()
+            return
+          }
+          if (payload.startsWith('__ERROR__')) {
+            onError?.(payload.slice(9))
+            return
+          }
+          // Unescape newlines that were escaped server-side
+          onMessage?.(payload.replace(/\\n/g, '\n'))
+        }
+      }
+      // Stream ended without __DONE__ sentinel
+      onDone?.()
+    })
+    .catch((err) => {
+      if (err.name !== 'AbortError') {
+        onError?.(err.message)
+      }
+    })
+
+  return controller
+}
+
+/**
+ * Reset the master sheet, streaming log lines via SSE.
+ */
+export function resetFormatter({ onMessage, onDone, onError }) {
+  const controller = new AbortController()
+
+  fetch(`${API_BASE}/formatter/reset`, {
+    method: 'POST',
+    signal: controller.signal,
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || 'Reset request failed')
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop()
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const payload = line.slice(6)
+
+          if (payload === '__DONE__') {
+            onDone?.()
+            return
+          }
+          if (payload.startsWith('__ERROR__')) {
+            onError?.(payload.slice(9))
+            return
+          }
+          onMessage?.(payload.replace(/\\n/g, '\n'))
+        }
+      }
+      onDone?.()
+    })
+    .catch((err) => {
+      if (err.name !== 'AbortError') {
+        onError?.(err.message)
+      }
+    })
+
+  return controller
+}

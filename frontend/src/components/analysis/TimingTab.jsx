@@ -18,13 +18,13 @@ export default function TimingTab({
     .map(t => ({ duration: t.duration_days, pnl: t.pnl, symbol: t.symbol, isWin: t.pnl > 0 }));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Time-Based Performance */}
       {timePerformance && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Day of Week */}
           <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-            <h2 className="font-display font-semibold text-xl text-surface-50 mb-4">Performance by Day of Week</h2>
+            <h2 className="font-display font-semibold text-lg text-surface-50 mb-4">Performance by Day of Week</h2>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -53,7 +53,7 @@ export default function TimingTab({
 
           {/* Monthly Performance */}
           <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-            <h2 className="font-display font-semibold text-xl text-surface-50 mb-4">Monthly Performance</h2>
+            <h2 className="font-display font-semibold text-lg text-surface-50 mb-4">Monthly Performance</h2>
             <div className="overflow-x-auto max-h-96">
               <table className="w-full">
                 <thead className="sticky top-0 bg-surface-900">
@@ -84,7 +84,7 @@ export default function TimingTab({
       {entryTimingData && !entryTimingData.error && entryTimingData.entry_timing && (
         <div>
           <div className="flex items-center gap-3 mb-4">
-            <h2 className="font-display font-semibold text-xl text-surface-50">Entry & Exit Timing</h2>
+            <h2 className="font-display font-semibold text-lg text-surface-50">Entry & Exit Timing</h2>
             <select
               value={timingMonthFilter}
               onChange={async (e) => {
@@ -179,7 +179,7 @@ export default function TimingTab({
             {/* Exit Timing */}
             {entryTimingData.exit_timing?.length > 0 && (
               <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-                <h2 className="font-display font-semibold text-xl text-surface-50 mb-4">Exit Timing Analysis</h2>
+                <h2 className="font-display font-semibold text-lg text-surface-50 mb-4">Exit Timing Analysis</h2>
                 <p className="text-surface-400 text-sm mb-4">Performance by time of exit relative to market open</p>
                 <div className="overflow-x-auto">
                   <table className="w-full">
@@ -233,7 +233,7 @@ export default function TimingTab({
       {/* Hold Time vs P&L Scatter */}
       {scatterData.length > 0 && (
         <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-          <h2 className="font-display font-semibold text-xl text-surface-50 mb-2">Hold Time vs P&L</h2>
+          <h2 className="font-display font-semibold text-lg text-surface-50 mb-2">Hold Time vs P&L</h2>
           <p className="text-surface-400 text-sm mb-4">Relationship between how long you hold and your outcome</p>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">

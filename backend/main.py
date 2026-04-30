@@ -2,10 +2,13 @@
 
 import os
 import json
+import math
 import threading
+from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+import httpx
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Body
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -37,6 +40,14 @@ try:
     app.include_router(broker_router)
 except ImportError:
     pass  # ib_insync not installed — broker endpoints will be unavailable
+
+# Register trade log formatter router
+from formatter.router import router as formatter_router
+app.include_router(formatter_router)
+
+# Register stock advisor router
+from advisor.router import router as advisor_router
+app.include_router(advisor_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1210,8 +1221,25 @@ def get_streak_detection(request: TradeDataRequest):
 
 def classify_market_cap(value):
     """Classify a numeric market cap value into standard categories."""
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return 'Unknown'
+    # Handle string labels passed through directly (e.g. "Large-cap")
+    if isinstance(value, str):
+        lower = value.lower()
+        if '#' in lower or 'field' in lower or 'error' in lower or 'n/a' in lower:
+            return 'Unknown'
+        # Already a category label
+        for cat in ['Mega-cap', 'Large-cap', 'Mid-cap', 'Small-cap', 'Micro-cap']:
+            if cat.lower() in lower:
+                return cat + {
+                    'mega-cap': ' (>$200B)', 'large-cap': ' ($10B-$200B)',
+                    'mid-cap': ' ($2B-$10B)', 'small-cap': ' ($500M-$2B)',
+                    'micro-cap': ' (<$500M)',
+                }.get(cat.lower(), '')
     try:
         v = float(value)
+        if math.isnan(v) or math.isinf(v):
+            return 'Unknown'
     except (TypeError, ValueError):
         return 'Unknown'
     if v >= 200_000_000_000:
@@ -1658,14 +1686,14 @@ def calculate_trade_metrics(trades):
     }
 
 
-# Screener Endpoints
+# Screener Endpoints (Finnhub API — free tier: 60 calls/min)
 
-import yfinance as yf
 from datetime import datetime, timedelta
 import time
 import requests
-from functools import lru_cache
 import json
+
+FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 import os
 
 # Cache for sector performance data (2 hour TTL)
@@ -1813,37 +1841,41 @@ def get_fetch_progress():
     return _fetch_progress
 
 @app.get("/api/screener/sector-performance")
-def get_sector_performance():
+def get_sector_performance(force: int = 0):
     """Get performance data for sector and industry ETFs."""
     global _sector_cache, _fetch_progress
 
-    # Check in-memory cache first
-    if _sector_cache["data"] is not None and _sector_cache["timestamp"] is not None:
-        time_since_cache = (datetime.now() - _sector_cache["timestamp"]).total_seconds()
-        if time_since_cache < CACHE_TTL:
-            print(f"Returning in-memory cached data (age: {time_since_cache:.0f}s)")
-            return _sector_cache["data"]
+    # Force refresh: clear all caches so we fetch fresh data from Finnhub
+    if force:
+        print("Force refresh requested — clearing all caches")
+        _sector_cache = {"data": None, "timestamp": None}
+        try:
+            if os.path.exists(CACHE_FILE):
+                os.remove(CACHE_FILE)
+        except Exception:
+            pass
+    else:
+        # Check in-memory cache first
+        if _sector_cache["data"] is not None and _sector_cache["timestamp"] is not None:
+            time_since_cache = (datetime.now() - _sector_cache["timestamp"]).total_seconds()
+            if time_since_cache < CACHE_TTL:
+                print(f"Returning in-memory cached data (age: {time_since_cache:.0f}s)")
+                return _sector_cache["data"]
 
-    # Check file cache
-    cached_data, cached_timestamp = load_cache_from_file()
-    if cached_data is not None:
-        _sector_cache = {"data": cached_data, "timestamp": cached_timestamp}
-        return cached_data
+        # Check file cache
+        cached_data, cached_timestamp = load_cache_from_file()
+        if cached_data is not None:
+            _sector_cache = {"data": cached_data, "timestamp": cached_timestamp}
+            return cached_data
 
     try:
         # Get all ETF tickers
         sectors = get_all_etf_tickers()
+        api_key = os.getenv("FINNHUB_API_KEY", "")
 
-        # Create a session with browser-like headers
-        session = requests.Session()
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
-        })
+        if not api_key:
+            print("FINNHUB_API_KEY not set, using demo data")
+            raise ValueError("FINNHUB_API_KEY not configured")
 
         sector_data = []
         total_tickers = len(sectors)
@@ -1851,79 +1883,98 @@ def get_sector_performance():
         # Set progress tracking
         _fetch_progress = {"loading": True, "current": 0, "total": total_tickers, "current_ticker": "", "current_name": ""}
 
-        # Fetch data for each sector with a small delay to avoid rate limiting
-        for idx, (sector_name, ticker) in enumerate(sectors.items()):
+        # Finnhub free tier: 60 calls/min
+        # We batch in groups of 55 with a 60s pause between batches
+        BATCH_SIZE = 55
+        items = list(sectors.items())
+        now_ts = int(datetime.now().timestamp())
+        one_year_ago_ts = int((datetime.now() - timedelta(days=365)).timestamp())
+
+        for idx, (sector_name, ticker) in enumerate(items):
             _fetch_progress = {"loading": True, "current": idx + 1, "total": total_tickers, "current_ticker": ticker, "current_name": sector_name}
+
+            # Rate-limit pause between batches
+            if idx > 0 and idx % BATCH_SIZE == 0:
+                print(f"Rate limit pause: fetched {idx}/{total_tickers}, waiting 60s...")
+                time.sleep(60)
+
             try:
-                # Create ticker object with custom session
-                etf = yf.Ticker(ticker, session=session)
+                # Fetch daily candles for 1 year from Finnhub
+                resp = requests.get(
+                    f"{FINNHUB_BASE_URL}/stock/candle",
+                    params={
+                        "symbol": ticker,
+                        "resolution": "D",
+                        "from": one_year_ago_ts,
+                        "to": now_ts,
+                        "token": api_key,
+                    },
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                candle = resp.json()
 
-                # Try to get historical data with retry logic
-                max_retries = 2
-                hist = None
-
-                for attempt in range(max_retries):
-                    try:
-                        hist = etf.history(period='1y')
-                        if not hist.empty:
-                            break
-                    except Exception as retry_err:
-                        if attempt < max_retries - 1:
-                            time.sleep(0.5)
-                        else:
-                            raise retry_err
-
-                if hist is None or hist.empty or len(hist) < 2:
-                    print(f"No data available for {sector_name} ({ticker})")
+                if candle.get("s") != "ok" or not candle.get("c"):
+                    print(f"No candle data for {sector_name} ({ticker})")
                     continue
 
-                # Get current price
-                current_price = hist['Close'].iloc[-1]
+                closes = candle["c"]  # list of close prices
+                volumes = candle.get("v", [])
+                timestamps = candle.get("t", [])
+
+                if len(closes) < 2:
+                    continue
+
+                current_price = closes[-1]
 
                 # Calculate returns for different timeframes
                 returns = {}
 
                 # 1 Day
-                if len(hist) >= 2:
-                    returns['1D'] = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-2]) - 1) * 100
+                if len(closes) >= 2:
+                    returns['1D'] = ((closes[-1] / closes[-2]) - 1) * 100
 
                 # 5 Days
-                if len(hist) >= 6:
-                    returns['5D'] = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-6]) - 1) * 100
+                if len(closes) >= 6:
+                    returns['5D'] = ((closes[-1] / closes[-6]) - 1) * 100
 
                 # 1 Month (21 trading days)
-                if len(hist) >= 22:
-                    returns['1M'] = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-22]) - 1) * 100
+                if len(closes) >= 22:
+                    returns['1M'] = ((closes[-1] / closes[-22]) - 1) * 100
 
                 # 3 Months (63 trading days)
-                if len(hist) >= 64:
-                    returns['3M'] = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-64]) - 1) * 100
+                if len(closes) >= 64:
+                    returns['3M'] = ((closes[-1] / closes[-64]) - 1) * 100
 
-                # YTD
+                # YTD — find the first trading day of the current year
                 current_year = datetime.now().year
-                ytd_data = hist[hist.index.year == current_year]
-                if len(ytd_data) >= 2:
-                    returns['YTD'] = ((ytd_data['Close'].iloc[-1] / ytd_data['Close'].iloc[0]) - 1) * 100
+                ytd_start = None
+                for i, ts in enumerate(timestamps):
+                    if datetime.fromtimestamp(ts).year == current_year:
+                        ytd_start = i
+                        break
+                if ytd_start is not None and ytd_start < len(closes) - 1:
+                    returns['YTD'] = ((closes[-1] / closes[ytd_start]) - 1) * 100
 
                 # 1 Year
-                if len(hist) >= 252:
-                    returns['1Y'] = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-252]) - 1) * 100
-                elif len(hist) >= 2:
-                    returns['1Y'] = ((hist['Close'].iloc[-1] / hist['Close'].iloc[0]) - 1) * 100
+                if len(closes) >= 252:
+                    returns['1Y'] = ((closes[-1] / closes[-252]) - 1) * 100
+                elif len(closes) >= 2:
+                    returns['1Y'] = ((closes[-1] / closes[0]) - 1) * 100
 
-                # Volume
-                avg_volume = hist['Volume'].tail(20).mean()
+                # Average volume (last 20 days)
+                avg_volume = int(sum(volumes[-20:]) / min(len(volumes), 20)) if volumes else 0
 
                 sector_data.append({
                     'sector': sector_name,
                     'ticker': ticker,
                     'price': round(float(current_price), 2),
                     'returns': {k: round(float(v), 2) for k, v in returns.items()},
-                    'volume': int(avg_volume),
+                    'volume': avg_volume,
                 })
 
-                # Small delay between requests to avoid rate limiting
-                time.sleep(0.5)
+                # Small delay between requests (~1/sec to stay safely under 60/min)
+                time.sleep(1.1)
 
             except Exception as e:
                 print(f"Error fetching data for {sector_name} ({ticker}): {str(e)}")
@@ -1943,27 +1994,26 @@ def get_sector_performance():
             save_cache_to_file(result)  # Persist to file
             return result
 
-        # If Yahoo Finance failed completely, return demo data (and cache it so we don't retry for 2 hours)
-        print("Yahoo Finance unavailable, using demo data")
+        # If Finnhub failed completely, return demo data
+        print("Finnhub unavailable, using demo data")
         demo_data = get_demo_sector_data()
         result = {
             "sectors": demo_data,
             "last_updated": datetime.now().isoformat(),
             "is_demo": True,
-            "note": "Yahoo Finance is currently unavailable. Showing demo data. Please try again later for live data."
+            "note": "Finnhub API is currently unavailable. Showing demo data. Please try again later for live data."
         }
         _sector_cache = {"data": result, "timestamp": datetime.now()}
         return result
 
     except Exception as e:
         print(f"Error in sector performance endpoint: {str(e)}")
-        # Return demo data on any error (and cache it)
         demo_data = get_demo_sector_data()
         result = {
             "sectors": demo_data,
             "last_updated": datetime.now().isoformat(),
             "is_demo": True,
-            "note": "Yahoo Finance is currently unavailable. Showing demo data. Please try again later for live data."
+            "note": "Finnhub API is currently unavailable. Showing demo data. Please try again later for live data."
         }
         _sector_cache = {"data": result, "timestamp": datetime.now()}
         return result
@@ -2398,3 +2448,652 @@ def get_playbook_screenshot(filename: str):
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Screenshot not found")
     return FileResponse(filepath)
+
+
+# ---------------------------------------------------------------------------
+# News Analysis (Finnhub API)
+# ---------------------------------------------------------------------------
+
+_EARNINGS_KEYWORDS = [
+    "earnings", "eps", "revenue beat", "revenue miss", "quarterly results",
+    "q1 ", "q2 ", "q3 ", "q4 ", "profit", "guidance", "blowout",
+    "beats estimates", "misses estimates", "tops expectations",
+]
+
+
+def _has_earnings_keywords(articles):
+    """Check if any article text mentions earnings."""
+    for a in articles:
+        combined = f"{a.get('title', '')} {a.get('text', '')}".lower()
+        if any(kw in combined for kw in _EARNINGS_KEYWORDS):
+            return True
+    return False
+
+
+def _fetch_earnings_data(symbol: str, api_key: str):
+    """Fetch last 8 quarters of earnings from Finnhub and compute growth."""
+    try:
+        resp = httpx.get(
+            f"{FINNHUB_BASE_URL}/stock/earnings",
+            params={"symbol": symbol, "limit": 8, "token": api_key},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        quarters = resp.json()
+        if not quarters or len(quarters) < 2:
+            return None
+
+        # Finnhub returns most recent first
+        current = quarters[0]
+        if current.get("actual") is None:
+            return None
+
+        result = {
+            "actual": current["actual"],
+            "estimate": current.get("estimate"),
+            "surprise": current.get("surprise"),
+            "surprisePercent": current.get("surprisePercent"),
+            "period": current.get("period"),
+            "quarter": current.get("quarter"),
+            "year": current.get("year"),
+        }
+
+        # QoQ growth (vs previous quarter)
+        prev_q = quarters[1] if len(quarters) > 1 else None
+        if prev_q and prev_q.get("actual") and prev_q["actual"] != 0:
+            result["qoq_growth"] = round(
+                ((current["actual"] - prev_q["actual"]) / abs(prev_q["actual"])) * 100, 1
+            )
+            result["prev_quarter_eps"] = prev_q["actual"]
+
+        # YoY growth (vs same quarter last year = 4 quarters back)
+        yoy_q = quarters[4] if len(quarters) > 4 else None
+        if yoy_q and yoy_q.get("actual") and yoy_q["actual"] != 0:
+            result["yoy_growth"] = round(
+                ((current["actual"] - yoy_q["actual"]) / abs(yoy_q["actual"])) * 100, 1
+            )
+            result["year_ago_eps"] = yoy_q["actual"]
+
+        return result
+    except Exception:
+        return None
+
+
+@app.get("/api/news")
+def get_stock_news(
+    tickers: str = Query(..., description="Comma-separated stock tickers"),
+):
+    """Fetch recent news for one or more stock tickers via Finnhub API."""
+    api_key = os.getenv("FINNHUB_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="FINNHUB_API_KEY is not configured. Add it to backend/.env",
+        )
+
+    symbols = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+    if not symbols:
+        raise HTTPException(status_code=400, detail="No valid tickers provided")
+
+    from datetime import datetime, timedelta
+    today = datetime.now().strftime("%Y-%m-%d")
+    three_days_ago = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+
+    all_articles = []
+    earnings = {}
+
+    for sym in symbols:
+        try:
+            resp = httpx.get(
+                f"{FINNHUB_BASE_URL}/company-news",
+                params={
+                    "symbol": sym,
+                    "from": three_days_ago,
+                    "to": today,
+                    "token": api_key,
+                },
+                timeout=15.0,
+            )
+            resp.raise_for_status()
+            raw_articles = resp.json()
+            normalized = []
+            for a in raw_articles[:5]:
+                normalized.append({
+                    "symbol": sym,
+                    "title": a.get("headline", ""),
+                    "text": a.get("summary", ""),
+                    "url": a.get("url", ""),
+                    "image": a.get("image", ""),
+                    "site": a.get("source", ""),
+                    "publishedDate": datetime.fromtimestamp(a.get("datetime", 0)).strftime("%Y-%m-%d %H:%M:%S") if a.get("datetime") else "",
+                })
+            all_articles.extend(normalized)
+
+            # If articles mention earnings, fetch EPS data
+            if _has_earnings_keywords(normalized):
+                edata = _fetch_earnings_data(sym, api_key)
+                if edata:
+                    earnings[sym] = edata
+
+        except httpx.TimeoutException:
+            all_articles.append({"symbol": sym, "title": f"Timeout fetching news for {sym}", "text": "", "url": "", "image": "", "site": "", "publishedDate": ""})
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=f"Finnhub API error for {sym}: {e.response.text[:200]}",
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to fetch news for {sym}: {str(e)}")
+
+    return {"articles": all_articles, "earnings": earnings}
+
+
+# ---------------------------------------------------------------------------
+# News Search Cache — stores last 30 searches with full article data
+# ---------------------------------------------------------------------------
+NEWS_CACHE_PATH = os.path.join(os.path.dirname(__file__), "data", "news_cache.json")
+NEWS_CACHE_MAX = 30
+
+
+def _load_news_cache():
+    if os.path.exists(NEWS_CACHE_PATH):
+        with open(NEWS_CACHE_PATH, "r") as f:
+            return json.load(f)
+    return []
+
+
+def _save_news_cache(cache):
+    with open(NEWS_CACHE_PATH, "w") as f:
+        json.dump(cache[:NEWS_CACHE_MAX], f, indent=2)
+
+
+@app.get("/api/news/cache")
+def get_news_cache():
+    """Return cached search history (last 30 entries)."""
+    return {"history": _load_news_cache()}
+
+
+@app.post("/api/news/cache")
+def save_news_cache_entry(body: dict = Body(...)):
+    """Save a search result to cache. Body: {tickers, articles, earnings}"""
+    tickers = [t.upper() for t in body.get("tickers", [])]
+    if not tickers:
+        raise HTTPException(status_code=400, detail="No tickers provided")
+
+    entry = {
+        "tickers": tickers,
+        "articles": body.get("articles", []),
+        "earnings": body.get("earnings", {}),
+        "epScores": body.get("epScores", {}),
+        "articleCount": len(body.get("articles", [])),
+        "timestamp": datetime.now().isoformat(),
+    }
+
+    cache = _load_news_cache()
+    # Remove duplicate (same ticker set)
+    key = ",".join(sorted(tickers))
+    cache = [c for c in cache if ",".join(sorted(c.get("tickers", []))) != key]
+    cache.insert(0, entry)
+    _save_news_cache(cache)
+    return {"ok": True}
+
+
+@app.delete("/api/news/cache")
+def clear_news_cache():
+    """Clear all cached search history."""
+    _save_news_cache([])
+    return {"ok": True}
+
+
+@app.delete("/api/news/cache/{index}")
+def delete_news_cache_entry(index: int):
+    """Delete a single cache entry by index."""
+    cache = _load_news_cache()
+    if 0 <= index < len(cache):
+        cache.pop(index)
+        _save_news_cache(cache)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# AI-Powered Criteria Analysis (Anthropic Claude API)
+# ---------------------------------------------------------------------------
+
+import anthropic
+
+CRITERIA_SYSTEM_PROMPT = """You are an expert momentum stock analyst who evaluates stocks against two specific trading frameworks:
+
+## Framework 1: Pradeep Bonde — CAP 10×10 MAGNA53
+
+**CAP:**
+- C — Catalyst: The stock must have a clear, identifiable catalyst (earnings beat, FDA approval, contract win, new product, M&A). No catalyst = no trade.
+- A — Anticipation: Was the move anticipated? Best setups are surprises that catch the market off guard. If analysts priced it in, the edge is gone.
+- P — Price Action: Price must confirm the catalyst — gap up on massive volume, clean breakout, or a powerful trend day.
+
+**10×10 Rule:**
+- 10% Gap: The stock should gap at least 10% at the open.
+- 10× Volume: Volume on the gap day should be at least 10× the average daily volume.
+
+**MAGNA53:**
+- M — Market Cap: Small to mid-cap ($300M–$10B). Explosive potential that mega-caps lack.
+- A — Acceleration: Earnings and revenue growth accelerating quarter over quarter.
+- G — Growth: Minimum 25%+ earnings growth. Revenue must confirm.
+- N — Neglect: Low analyst coverage (fewer than 5 analysts). Under-followed = more room for surprise.
+- A — Actionable Setup: Clean technical pattern — proper base (3–6+ months), tight range near highs, volume contraction before breakout.
+- 5 — 5 Day Return: After gap day, stock should hold gap and not give back more than 50% of day-1 move over 5 days.
+- 3 — 3 Day Close: Stock should close in upper third of range for 3 consecutive days after gap.
+
+## Framework 2: Qullamaggie — Episodic Pivot Setup
+
+**Pre-Conditions:**
+- Prior basing/consolidation (3–6+ months of sideways-to-down). The longer the base, the bigger the move.
+- Identifiable fundamental catalyst significant enough to permanently re-rate the stock.
+- Gap of 10%+ at open.
+
+**Day 1 Confirmation:**
+- Massive volume (5–10×+ average daily volume). Institutional algo buying in pre-market.
+- Strong close in upper half of day's range, ideally near HOD.
+- Range expansion: Day's range 3–5×+ ATR.
+
+**Follow-Through:**
+- Hold above gap-up open price. Gap fill = failure.
+- Volume dry-up on pullback (low volume = healthy, high volume = selling).
+- Higher lows on each pullback.
+
+**Risk Management:**
+- Stop below day-1 low.
+- Risk 0.5–1% of account per trade.
+- Target 2–5× risk minimum.
+
+## Your Task
+Given a stock ticker and its recent data (news, price action, volume), evaluate it against BOTH frameworks above. Be specific — reference actual data points. Give a clear verdict.
+
+## Response Format
+Always respond in this exact format:
+
+**OVERALL RATING: X/10**
+
+### Pradeep Bonde — CAP 10×10 MAGNA53
+For each criterion, state PASS ✓, PARTIAL ~, or FAIL ✗ with a brief explanation using actual data.
+
+### Qullamaggie — Episodic Pivot
+For each criterion, state PASS ✓, PARTIAL ~, or FAIL ✗ with a brief explanation using actual data.
+
+### Verdict
+2-3 sentences: Is this a valid setup? What's the risk? What to watch for.
+"""
+
+
+@app.post("/api/analysis/criteria-check")
+async def criteria_check(body: dict):
+    """Evaluate a stock against Pradeep Bonde and Qullamaggie criteria using Claude."""
+    ticker = body.get("ticker", "").strip().upper()
+    if not ticker:
+        raise HTTPException(status_code=400, detail="Ticker is required")
+
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured. Add it to your .env file.")
+
+    finnhub_key = os.getenv("FINNHUB_API_KEY", "")
+
+    # Gather context data for Claude
+    context_parts = [f"Stock: {ticker}\n"]
+
+    # 1. Fetch recent news from Finnhub
+    if finnhub_key:
+        try:
+            to_date = datetime.now().strftime("%Y-%m-%d")
+            from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+            resp = httpx.get(
+                f"{FINNHUB_BASE_URL}/company-news",
+                params={"symbol": ticker, "from": from_date, "to": to_date, "token": finnhub_key},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                news = resp.json()[:8]
+                if news:
+                    context_parts.append("## Recent News (Last 7 Days)")
+                    for a in news:
+                        headline = a.get("headline", "")
+                        summary = a.get("summary", "")
+                        source = a.get("source", "")
+                        ts = a.get("datetime", 0)
+                        date_str = datetime.fromtimestamp(ts).strftime("%Y-%m-%d") if ts else ""
+                        context_parts.append(f"- [{date_str}] {headline} ({source})")
+                        if summary:
+                            context_parts.append(f"  {summary[:200]}")
+                    context_parts.append("")
+        except Exception as e:
+            context_parts.append(f"(News fetch failed: {str(e)})\n")
+
+    # 2. Fetch price/volume data from Finnhub (90 days of daily candles)
+    if finnhub_key:
+        try:
+            now_ts = int(datetime.now().timestamp())
+            from_ts = int((datetime.now() - timedelta(days=365)).timestamp())
+            resp = httpx.get(
+                f"{FINNHUB_BASE_URL}/stock/candle",
+                params={"symbol": ticker, "resolution": "D", "from": from_ts, "to": now_ts, "token": finnhub_key},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                candle = resp.json()
+                if candle.get("s") == "ok" and candle.get("c"):
+                    closes = candle["c"]
+                    volumes = candle.get("v", [])
+                    highs = candle.get("h", [])
+                    lows = candle.get("l", [])
+                    timestamps = candle.get("t", [])
+
+                    current_price = closes[-1] if closes else None
+                    prev_close = closes[-2] if len(closes) >= 2 else None
+
+                    # Calculate key metrics
+                    context_parts.append("## Price Action Data")
+                    if current_price:
+                        context_parts.append(f"- Current Price: ${current_price:.2f}")
+                    if prev_close and current_price:
+                        day_change = ((current_price / prev_close) - 1) * 100
+                        context_parts.append(f"- 1-Day Change: {day_change:+.2f}%")
+
+                    # Recent returns
+                    if len(closes) >= 6:
+                        ret_5d = ((closes[-1] / closes[-6]) - 1) * 100
+                        context_parts.append(f"- 5-Day Return: {ret_5d:+.2f}%")
+                    if len(closes) >= 22:
+                        ret_1m = ((closes[-1] / closes[-22]) - 1) * 100
+                        context_parts.append(f"- 1-Month Return: {ret_1m:+.2f}%")
+                    if len(closes) >= 64:
+                        ret_3m = ((closes[-1] / closes[-64]) - 1) * 100
+                        context_parts.append(f"- 3-Month Return: {ret_3m:+.2f}%")
+                    if len(closes) >= 2:
+                        ret_1y = ((closes[-1] / closes[0]) - 1) * 100
+                        context_parts.append(f"- 1-Year Return: {ret_1y:+.2f}%")
+
+                    # Volume analysis
+                    if volumes and len(volumes) >= 21:
+                        avg_vol_20 = sum(volumes[-21:-1]) / 20
+                        latest_vol = volumes[-1]
+                        vol_ratio = latest_vol / avg_vol_20 if avg_vol_20 > 0 else 0
+                        context_parts.append(f"\n## Volume Analysis")
+                        context_parts.append(f"- Latest Volume: {latest_vol:,.0f}")
+                        context_parts.append(f"- 20-Day Avg Volume: {avg_vol_20:,.0f}")
+                        context_parts.append(f"- Volume Ratio (latest/avg): {vol_ratio:.1f}×")
+
+                    # Find largest single-day gaps in last 30 days
+                    if len(closes) >= 30:
+                        context_parts.append(f"\n## Recent Gaps (Last 30 Trading Days)")
+                        recent_n = min(30, len(closes) - 1)
+                        gaps = []
+                        for i in range(len(closes) - recent_n, len(closes)):
+                            if i > 0:
+                                gap_pct = ((closes[i] / closes[i-1]) - 1) * 100
+                                vol = volumes[i] if i < len(volumes) else 0
+                                date_str = datetime.fromtimestamp(timestamps[i]).strftime("%Y-%m-%d") if i < len(timestamps) else ""
+                                if abs(gap_pct) >= 3:
+                                    gaps.append((date_str, gap_pct, vol))
+                        if gaps:
+                            for date_str, gap_pct, vol in sorted(gaps, key=lambda x: abs(x[1]), reverse=True)[:5]:
+                                context_parts.append(f"- {date_str}: {gap_pct:+.1f}% gap, volume {vol:,.0f}")
+                        else:
+                            context_parts.append("- No significant gaps (>3%) in last 30 days")
+
+                    # Price range / basing analysis
+                    if len(closes) >= 60:
+                        context_parts.append(f"\n## Basing Analysis")
+                        high_3m = max(highs[-63:]) if len(highs) >= 63 else max(highs)
+                        low_3m = min(lows[-63:]) if len(lows) >= 63 else min(lows)
+                        range_pct = ((high_3m / low_3m) - 1) * 100 if low_3m > 0 else 0
+                        context_parts.append(f"- 3-Month High: ${high_3m:.2f}")
+                        context_parts.append(f"- 3-Month Low: ${low_3m:.2f}")
+                        context_parts.append(f"- 3-Month Range: {range_pct:.1f}%")
+
+                    if len(closes) >= 126:
+                        high_6m = max(highs[-126:])
+                        low_6m = min(lows[-126:])
+                        range_6m = ((high_6m / low_6m) - 1) * 100 if low_6m > 0 else 0
+                        context_parts.append(f"- 6-Month High: ${high_6m:.2f}")
+                        context_parts.append(f"- 6-Month Low: ${low_6m:.2f}")
+                        context_parts.append(f"- 6-Month Range: {range_6m:.1f}%")
+
+                    if len(closes) >= 252:
+                        high_1y = max(highs)
+                        low_1y = min(lows)
+                        range_1y = ((high_1y / low_1y) - 1) * 100 if low_1y > 0 else 0
+                        context_parts.append(f"- 52-Week High: ${high_1y:.2f}")
+                        context_parts.append(f"- 52-Week Low: ${low_1y:.2f}")
+                        context_parts.append(f"- 52-Week Range: {range_1y:.1f}%")
+
+                    context_parts.append("")
+        except Exception as e:
+            context_parts.append(f"(Price data fetch failed: {str(e)})\n")
+
+    # 3. Fetch earnings data from Finnhub
+    if finnhub_key:
+        edata = _fetch_earnings_data(ticker, finnhub_key)
+        if edata:
+            context_parts.append("## Earnings Data (Latest Quarter)")
+            context_parts.append(f"- EPS Actual: ${edata.get('actual', 'N/A')}")
+            context_parts.append(f"- EPS Estimate: ${edata.get('estimate', 'N/A')}")
+            if edata.get('surprisePercent') is not None:
+                context_parts.append(f"- Surprise: {edata['surprisePercent']:+.1f}%")
+            if edata.get('yoy_growth') is not None:
+                context_parts.append(f"- YoY EPS Growth: {edata['yoy_growth']:+.1f}%")
+            if edata.get('qoq_growth') is not None:
+                context_parts.append(f"- QoQ EPS Growth: {edata['qoq_growth']:+.1f}%")
+            context_parts.append("")
+
+    stock_context = "\n".join(context_parts)
+
+    # 4. Call Claude API
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=2000,
+            system=CRITERIA_SYSTEM_PROMPT,
+            messages=[
+                {"role": "user", "content": f"Evaluate {ticker} against both criteria frameworks.\n\n{stock_context}"}
+            ],
+        )
+        analysis_text = message.content[0].text
+        return {"ticker": ticker, "analysis": analysis_text, "context": stock_context}
+    except anthropic.AuthenticationError:
+        raise HTTPException(status_code=401, detail="Invalid ANTHROPIC_API_KEY. Check your .env file.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Claude API error: {str(e)}")
+
+
+# ---------------------------------------------------------------------------
+# Qullamaggie EP Scorer — deterministic letter grade per ticker
+# ---------------------------------------------------------------------------
+
+import time as _time
+from ep_scorer import score_ep as _score_ep
+
+_QULLA_EP_CACHE: dict[str, tuple[float, dict]] = {}
+_QULLA_EP_TTL = 300  # 5 minutes
+
+
+def _build_ep_metrics(ticker: str, finnhub_key: str) -> dict:
+    """Pull all data needed to score a ticker against Qullamaggie's EP criteria."""
+    metrics: dict = {
+        "gap_pct": None, "volume_ratio": None, "dollar_volume": None,
+        "adr_pct": None, "prior_move_pct": None,
+        "float_shares": None, "market_cap": None,
+        "news": [], "eps_surprise": None,
+    }
+
+    # Quote — also serves as ticker-validity check
+    qresp = httpx.get(
+        f"{FINNHUB_BASE_URL}/quote",
+        params={"symbol": ticker, "token": finnhub_key},
+        timeout=10.0,
+    )
+    qresp.raise_for_status()
+    quote = qresp.json()
+    if not quote or quote.get("c") in (None, 0):
+        raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' not found on Finnhub")
+
+    # Gap % from quote (always works on free tier; yfinance fallback below for the rest)
+    today_open = quote.get("o")
+    prev_close = quote.get("pc")
+    if today_open and prev_close:
+        metrics["gap_pct"] = ((today_open / prev_close) - 1) * 100
+
+    # Profile — name + market cap + share-outstanding
+    try:
+        presp = httpx.get(
+            f"{FINNHUB_BASE_URL}/stock/profile2",
+            params={"symbol": ticker, "token": finnhub_key},
+            timeout=10.0,
+        )
+        if presp.status_code == 200:
+            profile = presp.json() or {}
+            if profile.get("marketCapitalization"):
+                # Finnhub returns market cap in millions
+                metrics["market_cap"] = float(profile["marketCapitalization"]) * 1_000_000
+            if profile.get("shareOutstanding"):
+                metrics["float_shares"] = float(profile["shareOutstanding"]) * 1_000_000
+    except Exception:
+        pass
+
+    # Basic financials — use 10DayAverageTradingVolume + share float fallback
+    try:
+        mresp = httpx.get(
+            f"{FINNHUB_BASE_URL}/stock/metric",
+            params={"symbol": ticker, "metric": "all", "token": finnhub_key},
+            timeout=10.0,
+        )
+        if mresp.status_code == 200:
+            mjson = mresp.json() or {}
+            mdata = mjson.get("metric") or {}
+            # Prefer explicit shareFloat if available
+            if metrics["float_shares"] is None and mdata.get("shareFloat"):
+                metrics["float_shares"] = float(mdata["shareFloat"]) * 1_000_000
+    except Exception:
+        pass
+
+    # ~120 days of daily OHLCV via yfinance for gap, volume ratio, ADR, prior move
+    # (Finnhub /stock/candle requires a paid plan — yfinance is free.)
+    try:
+        end_d = datetime.now().date()
+        start_d = end_d - timedelta(days=180)
+        df = fetch_ohlcv(ticker, start_d.strftime("%Y-%m-%d"), end_d.strftime("%Y-%m-%d"))
+        if df is not None and len(df) >= 2:
+            opens = df["open"].tolist()
+            highs = df["high"].tolist()
+            lows = df["low"].tolist()
+            closes = df["close"].tolist()
+            volumes = df["volume"].tolist()
+
+            today_open = opens[-1]
+            prev_close = closes[-2]
+            if prev_close:
+                metrics["gap_pct"] = ((today_open / prev_close) - 1) * 100
+
+            if len(volumes) >= 51:
+                avg_vol_50 = sum(volumes[-51:-1]) / 50
+                today_vol = volumes[-1]
+                if avg_vol_50:
+                    metrics["volume_ratio"] = today_vol / avg_vol_50
+                metrics["dollar_volume"] = today_vol * closes[-1]
+            elif volumes:
+                metrics["dollar_volume"] = volumes[-1] * closes[-1]
+
+            if len(closes) >= 20:
+                ranges = [
+                    (highs[i] - lows[i]) / closes[i] * 100
+                    for i in range(len(closes) - 20, len(closes))
+                    if closes[i]
+                ]
+                if ranges:
+                    metrics["adr_pct"] = sum(ranges) / len(ranges)
+
+            if len(closes) >= 22:
+                base = closes[-22]
+                ref = closes[-2]
+                if base:
+                    metrics["prior_move_pct"] = ((ref / base) - 1) * 100
+    except Exception:
+        pass
+
+    # Earnings surprise (latest quarter) — reuse helper
+    try:
+        edata = _fetch_earnings_data(ticker, finnhub_key)
+        if edata:
+            metrics["eps_surprise"] = edata
+    except Exception:
+        pass
+
+    # Recent news (last 3 days) — for catalyst classification
+    try:
+        to_date = datetime.now().strftime("%Y-%m-%d")
+        from_date = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+        nresp = httpx.get(
+            f"{FINNHUB_BASE_URL}/company-news",
+            params={"symbol": ticker, "from": from_date, "to": to_date, "token": finnhub_key},
+            timeout=10.0,
+        )
+        if nresp.status_code == 200:
+            raw = nresp.json() or []
+            metrics["news"] = [
+                {
+                    "title": a.get("headline", ""),
+                    "site": a.get("source", ""),
+                    "url": a.get("url", ""),
+                    "publishedDate": (
+                        datetime.fromtimestamp(a["datetime"]).strftime("%Y-%m-%d %H:%M:%S")
+                        if a.get("datetime") else ""
+                    ),
+                }
+                for a in raw[:10]
+            ]
+    except Exception:
+        pass
+
+    return metrics
+
+
+@app.get("/api/analysis/qulla-ep/{ticker}")
+def qulla_ep(ticker: str):
+    """Return a Qullamaggie EP letter grade for a single ticker."""
+    ticker = ticker.strip().upper()
+    if not ticker:
+        raise HTTPException(status_code=400, detail="Ticker is required")
+
+    finnhub_key = os.getenv("FINNHUB_API_KEY", "")
+    if not finnhub_key:
+        raise HTTPException(
+            status_code=503,
+            detail="FINNHUB_API_KEY not configured. Add it to backend/.env",
+        )
+
+    # Cache lookup
+    cached = _QULLA_EP_CACHE.get(ticker)
+    if cached and (_time.time() - cached[0]) < _QULLA_EP_TTL:
+        return cached[1]
+
+    metrics = _build_ep_metrics(ticker, finnhub_key)
+    score = _score_ep(metrics)
+
+    result = {
+        "ticker": ticker,
+        "grade": score["grade"],
+        "total_score": score["total_score"],
+        "verdict": score["verdict"],
+        "criteria": score["criteria"],
+        "catalyst": score["catalyst"],
+        "gap_pct": metrics["gap_pct"],
+        "volume_ratio": metrics["volume_ratio"],
+        "dollar_volume": metrics["dollar_volume"],
+        "float_shares": metrics["float_shares"],
+        "market_cap": metrics["market_cap"],
+        "adr_pct": metrics["adr_pct"],
+        "prior_move_pct": metrics["prior_move_pct"],
+        "eps_surprise": metrics["eps_surprise"],
+    }
+
+    _QULLA_EP_CACHE[ticker] = (_time.time(), result)
+    return result

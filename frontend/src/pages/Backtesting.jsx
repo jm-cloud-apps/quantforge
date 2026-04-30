@@ -265,7 +265,7 @@ export default function Backtesting() {
           <button
             onClick={handleRun}
             disabled={loading}
-            className="px-5 py-2.5 rounded-full bg-accent hover:brightness-110 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200"
+            className="px-5 py-2.5 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-surface-200 hover:bg-surface-700 hover:text-surface-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {loading ? 'Running...' : 'Run Backtest'}
           </button>
@@ -322,7 +322,7 @@ export default function Backtesting() {
           <button
             onClick={handleRun}
             disabled={loading}
-            className="px-5 py-2.5 rounded-full bg-accent hover:brightness-110 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200"
+            className="px-5 py-2.5 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-surface-200 hover:bg-surface-700 hover:text-surface-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {loading ? 'Running...' : 'Run Backtest'}
           </button>

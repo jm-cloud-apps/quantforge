@@ -1,5 +1,6 @@
+import { useMemo } from 'react';
 import {
-  LineChart, Line, BarChart, Bar, Cell,
+  LineChart, Line, BarChart, Bar, Cell, Area, ComposedChart,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, ReferenceLine,
 } from 'recharts';
@@ -8,14 +9,31 @@ import { TOOLTIP_STYLE, InfoTooltip, CustomTooltip } from './shared';
 export default function RiskTab({
   statistics, advancedMetrics, drawdownData, rMultipleData, benchmarkData,
 }) {
+  // Compute drawdown area data for the equity curve
+  const equityCurveData = useMemo(() => {
+    if (!drawdownData?.equity_curve) return [];
+    const data = drawdownData.equity_curve.slice(-100);
+    return data.map(d => ({
+      ...d,
+      drawdown: d.cumulative_pnl - d.peak,
+    }));
+  }, [drawdownData]);
+
+  // Recovery factor = total return / max drawdown
+  const recoveryFactor = useMemo(() => {
+    if (!drawdownData || !drawdownData.max_drawdown || drawdownData.max_drawdown === 0) return null;
+    const totalReturn = drawdownData.equity_curve?.[drawdownData.equity_curve.length - 1]?.cumulative_pnl ?? 0;
+    return totalReturn / Math.abs(drawdownData.max_drawdown);
+  }, [drawdownData]);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Trade Statistics Grid */}
       {statistics && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Trade Statistics */}
           <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-            <h2 className="font-display font-semibold text-xl text-surface-50 mb-4">Trade Statistics</h2>
+            <h2 className="font-display font-semibold text-lg text-surface-50 mb-4">Trade Statistics</h2>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <p className="text-surface-400 text-xs">Largest Win</p>
@@ -50,7 +68,7 @@ export default function RiskTab({
 
           {/* Hold Time Analysis */}
           <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-            <h2 className="font-display font-semibold text-xl text-surface-50 mb-4">Hold Time Analysis</h2>
+            <h2 className="font-display font-semibold text-lg text-surface-50 mb-4">Hold Time Analysis</h2>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <p className="text-surface-400 text-xs">Avg Duration</p>
@@ -82,7 +100,7 @@ export default function RiskTab({
           {/* Risk-Adjusted Returns */}
           {advancedMetrics && (
             <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-              <h2 className="font-display font-semibold text-xl text-surface-50 mb-4">Risk-Adjusted Returns</h2>
+              <h2 className="font-display font-semibold text-lg text-surface-50 mb-4">Risk-Adjusted Returns</h2>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <p className="text-surface-400 text-xs flex items-center">
@@ -117,7 +135,7 @@ export default function RiskTab({
       {/* Drawdown Analysis */}
       {drawdownData && !drawdownData.error && (
         <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-          <h2 className="font-display font-semibold text-xl text-surface-50 mb-6">Drawdown Analysis</h2>
+          <h2 className="font-display font-semibold text-lg text-surface-50 mb-6">Drawdown Analysis</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
             <div className="space-y-1">
               <p className="text-surface-400 text-xs flex items-center">Max Drawdown <InfoTooltip text="Your worst peak-to-trough decline. Keep under 30%." /></p>
@@ -146,17 +164,46 @@ export default function RiskTab({
               <p className="text-surface-400 text-xs flex items-center">DD Periods <InfoTooltip text="Number of separate drawdown periods." /></p>
               <p className="font-mono text-surface-100 font-semibold text-lg">{drawdownData.total_drawdown_periods}</p>
             </div>
+            {recoveryFactor !== null && (
+              <div className="space-y-1">
+                <p className="text-surface-400 text-xs flex items-center">Recovery Factor <InfoTooltip text="Total return / max drawdown. >3 is excellent, >5 is exceptional. Measures how well you recover from losses." /></p>
+                <p className={`font-mono font-semibold text-lg ${recoveryFactor >= 3 ? 'text-success' : recoveryFactor >= 1 ? 'text-surface-100' : 'text-danger'}`}>{recoveryFactor.toFixed(2)}x</p>
+              </div>
+            )}
           </div>
+
+          {/* Equity Curve with Drawdown Overlay */}
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={drawdownData.equity_curve?.slice(-100) || []}>
+              <ComposedChart data={equityCurveData}>
+                <defs>
+                  <linearGradient id="drawdownGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#EF4444" stopOpacity={0.0} />
+                    <stop offset="100%" stopColor="#EF4444" stopOpacity={0.15} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" />
                 <XAxis dataKey="date" stroke="#64748B" style={{ fontSize: '12px', fontFamily: 'monospace' }} tickFormatter={(value) => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} />
-                <YAxis stroke="#64748B" style={{ fontSize: '12px', fontFamily: 'monospace' }} tickFormatter={(value) => `$${(value / 1000).toFixed(1)}k`} />
-                <Tooltip content={<CustomTooltip />} />
-                <Line type="monotone" dataKey="cumulative_pnl" stroke="#10B981" strokeWidth={2} dot={false} name="Equity" />
-                <Line type="monotone" dataKey="peak" stroke="#06B6D4" strokeWidth={1} strokeDasharray="5 5" dot={false} name="Peak" />
-              </LineChart>
+                <YAxis yAxisId="equity" stroke="#64748B" style={{ fontSize: '12px', fontFamily: 'monospace' }} tickFormatter={(value) => `$${(value / 1000).toFixed(1)}k`} />
+                <YAxis yAxisId="dd" orientation="right" stroke="#EF4444" style={{ fontSize: '11px', fontFamily: 'monospace' }} tickFormatter={(value) => `$${value.toFixed(0)}`} hide />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0]?.payload;
+                    return (
+                      <div className="rounded-xl bg-surface-900/95 backdrop-blur-xl border border-surface-700/50 p-3 shadow-card">
+                        <p className="text-surface-400 font-mono text-xs mb-1.5">{d?.date ? new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</p>
+                        <p className="text-success font-mono text-sm font-semibold">Equity: ${d?.cumulative_pnl?.toLocaleString()}</p>
+                        <p className="text-cyan font-mono text-xs">Peak: ${d?.peak?.toLocaleString()}</p>
+                        {d?.drawdown < 0 && <p className="text-danger font-mono text-xs">DD: ${d?.drawdown?.toFixed(0)}</p>}
+                      </div>
+                    );
+                  }}
+                />
+                <Area yAxisId="dd" type="monotone" dataKey="drawdown" fill="url(#drawdownGradient)" stroke="none" />
+                <Line yAxisId="equity" type="monotone" dataKey="peak" stroke="#06B6D4" strokeWidth={1} strokeDasharray="5 5" dot={false} name="Peak" />
+                <Line yAxisId="equity" type="monotone" dataKey="cumulative_pnl" stroke="#10B981" strokeWidth={2} dot={false} name="Equity" />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -165,7 +212,7 @@ export default function RiskTab({
       {/* R-Multiple Analysis */}
       {rMultipleData && (
         <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-          <h2 className="font-display font-semibold text-xl text-surface-50 mb-2">R-Multiple Analysis</h2>
+          <h2 className="font-display font-semibold text-lg text-surface-50 mb-2">R-Multiple Analysis</h2>
           <p className="text-surface-400 text-sm mb-6">Risk-normalized returns (1R = 1% portfolio risk per trade)</p>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-6">
             <div className="space-y-1">
@@ -242,7 +289,7 @@ export default function RiskTab({
       {/* Benchmark vs SPY */}
       {benchmarkData && !benchmarkData.error && benchmarkData.spy_data?.length > 0 && (
         <div className="rounded-xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 p-6">
-          <h2 className="font-display font-semibold text-xl text-surface-50 mb-2">Portfolio vs SPY Benchmark</h2>
+          <h2 className="font-display font-semibold text-lg text-surface-50 mb-2">Portfolio vs SPY Benchmark</h2>
           <p className="text-surface-400 text-sm mb-4">Comparing your cumulative returns against the S&P 500</p>
           <div className="grid grid-cols-3 gap-4 mb-6">
             <div className="space-y-1">
