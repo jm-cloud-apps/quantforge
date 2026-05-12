@@ -19,6 +19,11 @@ SCRIPT_PATH = os.getenv(
     "/Users/michaeljacinto/Library/CloudStorage/OneDrive-Personal/Desktop - onedrive/github/trade-log-formatter/trade-log-formatter.py",
 )
 
+RUN_DAILY_PATH = os.getenv(
+    "RUN_DAILY_SCRIPT_PATH",
+    "/Users/michaeljacinto/Library/CloudStorage/OneDrive-Personal/Desktop - onedrive/github/trade-log-formatter/run_daily.py",
+)
+
 
 def list_available_months() -> List[str]:
     """Return MM.YYYY folders under BASE_PATH_TRADES, newest first."""
