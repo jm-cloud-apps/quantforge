@@ -1319,11 +1319,13 @@ export default function NewsAnalysis() {
             </div>
           )}
 
-          {/* Recent Searches — shown below results as a subtle strip */}
+          {/* Recent Searches — vertical list below results */}
           {!loading && searched && history.length > 0 && (
             <div className="rounded-xl bg-surface-900/60 border border-surface-700/30 px-4 py-3">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] text-surface-500 uppercase tracking-wider font-medium">Recent</span>
+                <span className="text-[11px] text-surface-500 uppercase tracking-wider font-medium">
+                  Recent {history.length > 20 ? `(showing 20 of ${history.length})` : ''}
+                </span>
                 <button
                   onClick={async () => { await clearNewsCache(); setHistory([]) }}
                   className="text-[11px] text-surface-600 hover:text-surface-400 transition-colors"
@@ -1331,17 +1333,42 @@ export default function NewsAnalysis() {
                   Clear
                 </button>
               </div>
-              <div className="flex items-center gap-2 overflow-x-auto pb-0.5 scrollbar-none">
-                {history.slice(0, 8).map((entry, i) => (
+              <div className="space-y-1 max-h-96 overflow-y-auto">
+                {history.slice(0, 20).map((entry, i) => (
                   <button
                     key={`${entry.tickers.join(',')}-${i}`}
                     onClick={() => searchTickers(entry.tickers, entry)}
-                    className="group flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-800/60 border border-surface-700/30 hover:border-accent/30 hover:bg-accent/5 transition-all flex-shrink-0"
+                    className="group w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-surface-800/80 transition-all"
                   >
-                    <span className="font-mono text-xs font-medium text-surface-200 group-hover:text-accent transition-colors">
-                      {entry.tickers.join(', ')}
-                    </span>
-                    <span className="text-[10px] text-surface-600">{formatTimestamp(entry.timestamp)}</span>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <svg className="w-3.5 h-3.5 text-surface-600 group-hover:text-accent transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                      <span className="font-mono text-xs font-medium text-surface-200 group-hover:text-accent transition-colors truncate">
+                        {entry.tickers.join(', ')}
+                      </span>
+                      {entry.articleCount > 0 && (
+                        <span className="text-[10px] text-surface-600 bg-surface-800/60 px-1.5 py-0.5 rounded-md flex-shrink-0">
+                          {entry.articleCount} {entry.articleCount === 1 ? 'article' : 'articles'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                      <span className="text-[10px] text-surface-600">{formatTimestamp(entry.timestamp)}</span>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          await deleteNewsCacheEntry(i)
+                          const updated = await getNewsCache()
+                          setHistory(updated)
+                        }}
+                        className="opacity-0 group-hover:opacity-100 text-surface-600 hover:text-surface-300 transition-all p-0.5"
+                      >
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
                   </button>
                 ))}
               </div>

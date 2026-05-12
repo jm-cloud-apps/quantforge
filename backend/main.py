@@ -2537,7 +2537,10 @@ def get_stock_news(
 
     from datetime import datetime, timedelta
     today = datetime.now().strftime("%Y-%m-%d")
-    three_days_ago = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+    # Window of recent news to fetch per ticker. Bumped from 3 to 4 days
+    # to surface a bit more context while still keeping the list fresh.
+    NEWS_LOOKBACK_DAYS = 4
+    three_days_ago = (datetime.now() - timedelta(days=NEWS_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
 
     all_articles = []
     earnings = {}
@@ -2557,7 +2560,8 @@ def get_stock_news(
             resp.raise_for_status()
             raw_articles = resp.json()
             normalized = []
-            for a in raw_articles[:5]:
+            # Top 8 most-recent articles per ticker (Finnhub returns newest first).
+            for a in raw_articles[:8]:
                 normalized.append({
                     "symbol": sym,
                     "title": a.get("headline", ""),
@@ -2589,10 +2593,10 @@ def get_stock_news(
 
 
 # ---------------------------------------------------------------------------
-# News Search Cache — stores last 30 searches with full article data
+# News Search Cache — stores last 500 searches with full article data
 # ---------------------------------------------------------------------------
 NEWS_CACHE_PATH = os.path.join(os.path.dirname(__file__), "data", "news_cache.json")
-NEWS_CACHE_MAX = 30
+NEWS_CACHE_MAX = 500
 
 
 def _load_news_cache():
@@ -3027,10 +3031,10 @@ def _build_ep_metrics(ticker: str, finnhub_key: str) -> dict:
     except Exception:
         pass
 
-    # Recent news (last 3 days) — for catalyst classification
+    # Recent news (last 4 days) — for catalyst classification
     try:
         to_date = datetime.now().strftime("%Y-%m-%d")
-        from_date = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+        from_date = (datetime.now() - timedelta(days=4)).strftime("%Y-%m-%d")
         nresp = httpx.get(
             f"{FINNHUB_BASE_URL}/company-news",
             params={"symbol": ticker, "from": from_date, "to": to_date, "token": finnhub_key},
