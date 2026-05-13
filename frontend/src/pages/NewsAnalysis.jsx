@@ -177,55 +177,51 @@ function EpCriterionTile({ crit }) {
     <button
       type="button"
       onClick={() => setOpen((v) => !v)}
-      className={`text-left rounded-lg border px-2.5 py-2 transition-colors ${
+      aria-expanded={open}
+      className={`group relative text-left rounded-xl border px-3 py-2.5 transition-all duration-150 ${
         passed
-          ? 'border-accent/25 bg-accent/5 hover:bg-accent/10'
-          : 'border-surface-700/40 bg-surface-900/40 hover:bg-surface-900/70'
+          ? 'border-accent/20 bg-accent/[0.04] hover:border-accent/40 hover:bg-accent/[0.07]'
+          : 'border-surface-700/40 bg-surface-900/40 hover:border-surface-600/60 hover:bg-surface-900/70'
       }`}
     >
-      <div className="flex items-center gap-2">
-        <span className={`flex-shrink-0 w-4 h-4 rounded flex items-center justify-center ${
-          passed ? 'bg-accent/20 text-accent' : 'bg-surface-800 text-surface-500'
-        }`}>
-          {passed ? (
-            <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          ) : (
-            <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          )}
-        </span>
-        <span className="text-xs font-semibold text-surface-100 truncate flex-1">{crit.name}</span>
+      {/* Top row: name + score chip */}
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`flex-shrink-0 w-1.5 h-1.5 rounded-full ${passed ? 'bg-accent' : 'bg-surface-600'}`} />
+          <span className="text-[13px] font-medium text-surface-100 truncate">{crit.name}</span>
+        </div>
         <span className={`text-[11px] font-mono font-semibold tabular-nums flex-shrink-0 ${
           passed ? 'text-accent' : 'text-surface-500'
         }`}>
-          {crit.points}/{crit.max}
+          {crit.points}
+          <span className="text-surface-600">/{crit.max}</span>
         </span>
       </div>
 
-      <div className="mt-1.5 h-1 rounded-full bg-surface-800 overflow-hidden">
+      {/* Hairline progress bar */}
+      <div className="mt-2 h-[3px] rounded-full bg-surface-800 overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all ${passed ? 'bg-accent' : 'bg-surface-600'}`}
+          className={`h-full rounded-full transition-[width] duration-300 ease-out ${
+            passed ? 'bg-accent' : 'bg-surface-600/80'
+          }`}
           style={{ width: `${pct * 100}%` }}
         />
       </div>
 
-      {!open && (
-        <p className="text-[10px] text-surface-500 mt-1 truncate" title={crit.why}>
+      {/* Collapsed: single-line preview. Expanded: full why + threshold. */}
+      {!open ? (
+        <p className="text-[11px] text-surface-500 mt-1.5 truncate" title={crit.why}>
           {crit.why}
         </p>
-      )}
-
-      {open && (
-        <div className="mt-1.5 space-y-1">
-          <p className="text-[10px] text-surface-300 leading-snug">{crit.why}</p>
+      ) : (
+        <div className="mt-2 space-y-1">
+          <p className="text-[11px] text-surface-300 leading-snug">{crit.why}</p>
           <p className="text-[10px] text-surface-500">
-            <span className="text-surface-600">Threshold:</span> {crit.threshold}
+            <span className="text-surface-600">Threshold · </span>{crit.threshold}
           </p>
         </div>
       )}
+
     </button>
   )
 }
@@ -306,8 +302,8 @@ function EpBreakdownCard({ epScore, epLoading, epError, ticker }) {
         </div>
       )}
 
-      {/* Criteria checklist — compact grid; click any tile to expand detail */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mb-3">
+      {/* Criteria checklist — responsive card grid; tap any tile to expand */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 mb-3">
         {epScore.criteria.map((crit) => (
           <EpCriterionTile key={crit.name} crit={crit} />
         ))}
