@@ -338,10 +338,10 @@ export function runFormatter(dateStr, { onMessage, onDone, onError }) {
  * Run the full daily pipeline (Gmail fetch → format → summarize) via SSE.
  * Returns an AbortController — call .abort() to cancel.
  */
-export function runDaily({ onMessage, onDone, onError }) {
+export function runDaily(month, { onMessage, onDone, onError }) {
   const controller = new AbortController()
 
-  fetch(`${API_BASE}/formatter/run-daily`, {
+  fetch(`${API_BASE}/formatter/run-daily/${encodeURIComponent(month)}`, {
     method: 'POST',
     signal: controller.signal,
   })

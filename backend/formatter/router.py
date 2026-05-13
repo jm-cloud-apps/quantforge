@@ -64,16 +64,16 @@ async def run_formatter(date_str: str):
     )
 
 
-@router.post("/run-daily")
-async def run_daily():
-    """Run the trade-log-formatter run_daily.py pipeline (fetch Gmail → format → summarize),
-    streaming combined stdout/stderr as Server-Sent Events."""
+@router.post("/run-daily/{month}")
+async def run_daily(month: str):
+    """Run the trade-log-formatter run_daily.py pipeline (fetch Gmail → format → summarize)
+    for the given MM.YYYY month, streaming combined stdout/stderr as Server-Sent Events."""
 
     async def event_generator():
         script_dir = os.path.dirname(RUN_DAILY_PATH)
         try:
             proc = await asyncio.create_subprocess_exec(
-                sys.executable, RUN_DAILY_PATH,
+                sys.executable, RUN_DAILY_PATH, "--month", month,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=script_dir,

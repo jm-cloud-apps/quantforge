@@ -49,6 +49,10 @@ app.include_router(formatter_router)
 from advisor.router import router as advisor_router
 app.include_router(advisor_router)
 
+# Register Qullamaggie breakout screener router
+from screener.qullamaggie.router import router as qullamaggie_router
+app.include_router(qullamaggie_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -2523,73 +2527,50 @@ def _fetch_earnings_data(symbol: str, api_key: str):
 def get_stock_news(
     tickers: str = Query(..., description="Comma-separated stock tickers"),
 ):
-    """Fetch recent news for one or more stock tickers via Finnhub API."""
-    api_key = os.getenv("FINNHUB_API_KEY")
-    if not api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="FINNHUB_API_KEY is not configured. Add it to backend/.env",
-        )
+    """Fetch recent news for one or more stock tickers.
+
+    Uses the news provider configured via QF_NEWS_PROVIDER (default: massive,
+    fallback: finnhub). Response shape is unchanged for backward compatibility
+    with the NewsAnalysis frontend; Massive adds an optional `sentiment` field
+    per article.
+    """
+    from news import get_news_provider
 
     symbols = [t.strip().upper() for t in tickers.split(",") if t.strip()]
     if not symbols:
         raise HTTPException(status_code=400, detail="No valid tickers provided")
 
-    from datetime import datetime, timedelta
-    today = datetime.now().strftime("%Y-%m-%d")
-    # Window of recent news to fetch per ticker. Bumped from 3 to 4 days
-    # to surface a bit more context while still keeping the list fresh.
-    NEWS_LOOKBACK_DAYS = 4
-    three_days_ago = (datetime.now() - timedelta(days=NEWS_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+    provider = get_news_provider()
+    finnhub_key = os.getenv("FINNHUB_API_KEY")  # only used for earnings lookup
 
-    all_articles = []
-    earnings = {}
+    all_articles: list = []
+    earnings: dict = {}
 
     for sym in symbols:
         try:
-            resp = httpx.get(
-                f"{FINNHUB_BASE_URL}/company-news",
-                params={
-                    "symbol": sym,
-                    "from": three_days_ago,
-                    "to": today,
-                    "token": api_key,
-                },
-                timeout=15.0,
-            )
-            resp.raise_for_status()
-            raw_articles = resp.json()
-            normalized = []
-            # Top 8 most-recent articles per ticker (Finnhub returns newest first).
-            for a in raw_articles[:8]:
-                normalized.append({
-                    "symbol": sym,
-                    "title": a.get("headline", ""),
-                    "text": a.get("summary", ""),
-                    "url": a.get("url", ""),
-                    "image": a.get("image", ""),
-                    "site": a.get("source", ""),
-                    "publishedDate": datetime.fromtimestamp(a.get("datetime", 0)).strftime("%Y-%m-%d %H:%M:%S") if a.get("datetime") else "",
-                })
-            all_articles.extend(normalized)
+            articles = provider.fetch_for(sym, lookback_days=4, limit=8)
+            all_articles.extend(articles)
 
-            # If articles mention earnings, fetch EPS data
-            if _has_earnings_keywords(normalized):
-                edata = _fetch_earnings_data(sym, api_key)
+            # Earnings lookup still uses Finnhub (Massive's free-tier endpoints
+            # for fundamentals are limited). Only run when a headline mentions
+            # earnings keywords.
+            if finnhub_key and _has_earnings_keywords(articles):
+                edata = _fetch_earnings_data(sym, finnhub_key)
                 if edata:
                     earnings[sym] = edata
-
-        except httpx.TimeoutException:
-            all_articles.append({"symbol": sym, "title": f"Timeout fetching news for {sym}", "text": "", "url": "", "image": "", "site": "", "publishedDate": ""})
-        except httpx.HTTPStatusError as e:
-            raise HTTPException(
-                status_code=e.response.status_code,
-                detail=f"Finnhub API error for {sym}: {e.response.text[:200]}",
-            )
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to fetch news for {sym}: {str(e)}")
+            all_articles.append({
+                "symbol": sym,
+                "title": f"News fetch failed for {sym}: {e}",
+                "text": "", "url": "", "image": "", "site": "", "publishedDate": "",
+            })
 
-    return {"articles": all_articles, "earnings": earnings}
+    try:
+        provider.close()
+    except Exception:
+        pass
+
+    return {"articles": all_articles, "earnings": earnings, "provider": provider.name}
 
 
 # ---------------------------------------------------------------------------
