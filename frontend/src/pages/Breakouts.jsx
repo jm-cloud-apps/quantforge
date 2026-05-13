@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getBreakouts, getRecentDeveloping } from '../api/breakoutScreener'
 import ChartCard from '../components/screener/ChartCard'
+import TickerLink from '../components/TickerLink'
 
 const MODES = [
   { id: 'breakout', label: 'Breakout',       hint: 'Setting up at the pivot',                limit: 24 },
@@ -43,6 +44,9 @@ const Breakouts = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [cacheStamp, setCacheStamp] = useState(null) // ms timestamp of stored payload (null = live)
+  const [autoRefreshMin, setAutoRefreshMin] = useState(0) // 0 = off
+  const [newSinceLast, setNewSinceLast] = useState(new Set()) // symbols that appeared on the most recent fetch
+  const previousSymbolsRef = useRef(new Set())
 
   const [history, setHistory] = useState([])
   const [showHistory, setShowHistory] = useState(false)
@@ -53,6 +57,7 @@ const Breakouts = () => {
     const ck = cacheKey(modeArg, adrArg, moversArg)
 
     // Client cache — instant response for repeat tab switches / reloads.
+    // (Skipped on fresh refresh so the diff against previous results is meaningful.)
     if (!fresh) {
       const cached = readCache(ck)
       if (cached) {
@@ -69,6 +74,21 @@ const Breakouts = () => {
       const res = await getBreakouts({
         mode: modeArg, limit: limitForMode, minAdr: adrArg, includeMovers: moversArg, fresh,
       })
+      // Diff against the previous fetch — symbols that appeared on this run
+      // but weren't on the last one get a "NEW" badge on their tile.
+      const incoming = new Set((res.results || []).map((r) => r.symbol))
+      const prev = previousSymbolsRef.current
+      if (prev.size > 0) {
+        const fresh = new Set()
+        for (const sym of incoming) if (!prev.has(sym)) fresh.add(sym)
+        setNewSinceLast(fresh)
+        if (fresh.size > 0) {
+          // Auto-clear the badge after 60s so it stays meaningful.
+          setTimeout(() => setNewSinceLast(new Set()), 60_000)
+        }
+      }
+      previousSymbolsRef.current = incoming
+
       setData(res)
       writeCache(ck, res)
       setCacheStamp(Date.now())
@@ -78,6 +98,17 @@ const Breakouts = () => {
       setLoading(false)
     }
   }
+
+  // Auto-refresh — silently re-runs the screener every N minutes when active.
+  // Uses fresh=true so it bypasses the cache and we get a real new-since-last diff.
+  useEffect(() => {
+    if (!autoRefreshMin) return
+    const id = setInterval(() => {
+      load(mode, minAdr, includeMovers, { fresh: true })
+    }, autoRefreshMin * 60_000)
+    return () => clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRefreshMin, mode, minAdr, includeMovers])
 
   const loadHistory = async () => {
     try {
@@ -122,6 +153,25 @@ const Breakouts = () => {
           </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
+          {/* Auto-refresh — off / 1m / 5m / 15m. Fires fresh=true so the
+              "new since last scan" diff stays meaningful. */}
+          <div className="inline-flex items-center gap-1 rounded-lg bg-surface-900/80 border border-surface-700/50 p-1 text-xs">
+            <span className="px-2 text-surface-500 uppercase tracking-wider text-[10px]">Auto</span>
+            {[0, 1, 5, 15].map((min) => (
+              <button
+                key={min}
+                onClick={() => setAutoRefreshMin(min)}
+                className={`px-2 py-1 rounded transition-colors font-medium ${
+                  autoRefreshMin === min
+                    ? 'bg-accent/15 text-accent'
+                    : 'text-surface-400 hover:text-surface-200'
+                }`}
+                title={min === 0 ? 'Manual refresh only' : `Refresh every ${min} minute${min > 1 ? 's' : ''}`}
+              >
+                {min === 0 ? 'Off' : `${min}m`}
+              </button>
+            ))}
+          </div>
           <button
             onClick={() => setShowHistory((v) => !v)}
             className={`px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${
@@ -233,7 +283,7 @@ const Breakouts = () => {
                   className="rounded-lg bg-surface-800/60 border border-surface-700/40 px-3 py-2 text-xs"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-surface-100">{h.symbol}</span>
+                    <TickerLink symbol={h.symbol} className="font-bold text-surface-100" />
                     <span className="font-mono text-success">{h.score?.toFixed(0)}</span>
                   </div>
                   <div className="text-[10px] text-surface-500 mt-0.5">
@@ -257,7 +307,7 @@ const Breakouts = () => {
       {data?.results?.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {data.results.map((c, i) => (
-            <ChartCard key={c.symbol} candidate={c} rank={i + 1} />
+            <ChartCard key={c.symbol} candidate={c} rank={i + 1} isNew={newSinceLast.has(c.symbol)} />
           ))}
         </div>
       )}

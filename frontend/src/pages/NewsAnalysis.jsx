@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { fetchNews, getNewsCache, saveNewsCache, deleteNewsCacheEntry, clearNewsCache, getEpScore, fetchCriteriaCheck } from '../api/news'
+import WatchlistsBar from '../components/WatchlistsBar'
 
 function formatTimestamp(iso) {
   const d = new Date(iso)
@@ -1177,10 +1179,24 @@ export default function NewsAnalysis() {
   const [searched, setSearched] = useState(false)
   const [history, setHistory] = useState([])
 
+  const [searchParams, setSearchParams] = useSearchParams()
+
   // Load search history from backend on mount
   useEffect(() => {
     getNewsCache().then(setHistory).catch(() => {})
   }, [])
+
+  // Deep-link support: ?tickers=AMD,NVDA auto-runs a fresh search so
+  // other pages can drop the user into a pre-filled view.
+  useEffect(() => {
+    const t = searchParams.get('tickers')
+    if (!t) return
+    const tickers = t.split(/[\s,]+/).filter(Boolean).map((s) => s.toUpperCase())
+    if (tickers.length === 0) return
+    setQuery(tickers.join(' '))
+    doFreshSearch(tickers)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams.get('tickers')])
 
   // Fetch Qullamaggie EP grades for a list of tickers in parallel
   async function fetchEpScores(tickers) {
@@ -1310,6 +1326,16 @@ export default function NewsAnalysis() {
       {/* ── News Tab ── */}
       {activeTab === 'news' && (
         <>
+          {/* Watchlists bar */}
+          <WatchlistsBar
+            currentTickers={tickers}
+            onActivate={(syms) => {
+              if (!syms || syms.length === 0) return
+              setQuery(syms.join(' '))
+              doFreshSearch(syms)
+            }}
+          />
+
           {/* Search bar */}
           <form onSubmit={handleSearch} className="flex gap-3 items-center">
             <div className="relative max-w-lg flex-1">
