@@ -275,6 +275,22 @@ function EpBreakdownCard({ epScore, epLoading, epError, ticker }) {
             <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118L2.075 10.1c-.783-.57-.38-1.81.588-1.81h4.915a1 1 0 00.95-.69l1.519-4.674z" />
           </svg>
           <span className="text-xs font-semibold text-surface-100">Qullamaggie EP Score</span>
+          {epScore.data_source && (
+            <span
+              className={`text-[9px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded border ${
+                epScore.data_source === 'massive'
+                  ? 'border-accent/30 bg-accent/10 text-accent'
+                  : 'border-warning/30 bg-warning/10 text-warning'
+              }`}
+              title={
+                epScore.data_source === 'massive'
+                  ? 'OHLCV from Massive — full data path'
+                  : 'OHLCV from yfinance fallback — Massive key not loaded. Volume/ADR may be missing.'
+              }
+            >
+              {epScore.data_source}
+            </span>
+          )}
         </div>
         <div className={`px-2.5 py-1 rounded-lg border ${c.border} ${c.bg}`}>
           <span className={`text-sm font-bold ${c.text}`}>{epScore.grade}</span>
@@ -313,7 +329,7 @@ function EpBreakdownCard({ epScore, epLoading, epError, ticker }) {
         </div>
         <div
           className="grid gap-2"
-          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}
+          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 220px), 1fr))' }}
         >
           {epScore.criteria.map((crit) => (
             <EpCriterionTile key={crit.name} crit={crit} />
