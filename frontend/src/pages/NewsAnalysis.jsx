@@ -302,11 +302,23 @@ function EpBreakdownCard({ epScore, epLoading, epError, ticker }) {
         </div>
       )}
 
-      {/* Criteria checklist — responsive card grid; tap any tile to expand */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 mb-3">
-        {epScore.criteria.map((crit) => (
-          <EpCriterionTile key={crit.name} crit={crit} />
-        ))}
+      {/* Criteria checklist — auto-fit card grid; each tile ≥220px wide so
+          they pack as tiles at any viewport. Tap a tile to expand detail. */}
+      <div className="mb-3">
+        <div className="flex items-baseline justify-between mb-2">
+          <span className="text-[10px] uppercase tracking-wider font-bold text-surface-500">
+            Setup checklist · {epScore.criteria.length} criteria
+          </span>
+          <span className="text-[10px] text-surface-600">Tap a tile for detail</span>
+        </div>
+        <div
+          className="grid gap-2"
+          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}
+        >
+          {epScore.criteria.map((crit) => (
+            <EpCriterionTile key={crit.name} crit={crit} />
+          ))}
+        </div>
       </div>
 
       {/* Raw metrics grid */}

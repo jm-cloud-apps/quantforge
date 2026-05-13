@@ -2866,7 +2866,35 @@ def _build_ep_metrics(ticker: str, finnhub_key: str) -> dict:
         "adr_pct": None, "prior_move_pct": None,
         "float_shares": None, "market_cap": None,
         "news": [], "eps_surprise": None,
+        "_data_source": None,  # internal: which provider supplied OHLCV
     }
+
+    # Massive financial ratios — primary source for market cap, price, and
+    # 30-day average volume. Shares outstanding is derived as market_cap/price.
+    try:
+        from screener.qullamaggie.providers.massive import MassiveProvider
+        _mp = MassiveProvider()
+        try:
+            ratios = _mp.fetch_ratios(ticker)
+            if ratios:
+                if ratios.get("market_cap"):
+                    metrics["market_cap"] = float(ratios["market_cap"])
+                if ratios.get("market_cap") and ratios.get("price"):
+                    shares_out = float(ratios["market_cap"]) / float(ratios["price"])
+                    # Default float = shares outstanding; refined below if
+                    # Massive's free-float endpoint succeeds.
+                    metrics["float_shares"] = shares_out
+            ff = _mp.fetch_float(ticker)
+            if ff is not None and metrics.get("market_cap") and ratios and ratios.get("price"):
+                shares_out = float(ratios["market_cap"]) / float(ratios["price"])
+                metrics["float_shares"] = shares_out * (ff / 100.0 if ff > 1 else ff)
+        finally:
+            try:
+                _mp.close()
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"massive ratios/float unavailable for {ticker}: {e}")
 
     # Quote — best-effort gap %; OHLCV below is the real source of truth.
     if finnhub_key:
@@ -2894,10 +2922,10 @@ def _build_ep_metrics(ticker: str, finnhub_key: str) -> dict:
         )
         if presp.status_code == 200:
             profile = presp.json() or {}
-            if profile.get("marketCapitalization"):
+            if metrics["market_cap"] is None and profile.get("marketCapitalization"):
                 # Finnhub returns market cap in millions
                 metrics["market_cap"] = float(profile["marketCapitalization"]) * 1_000_000
-            if profile.get("shareOutstanding"):
+            if metrics["float_shares"] is None and profile.get("shareOutstanding"):
                 metrics["float_shares"] = float(profile["shareOutstanding"]) * 1_000_000
     except Exception:
         pass
@@ -2923,11 +2951,17 @@ def _build_ep_metrics(ticker: str, finnhub_key: str) -> dict:
     try:
         from screener.qullamaggie.providers import get_provider as _get_data_provider
         _data_provider = _get_data_provider()
+        metrics["_data_source"] = getattr(_data_provider, "name", "unknown")
         df = _data_provider.fetch(ticker, lookback_days=180)
         try:
             _data_provider.close()
         except Exception:
             pass
+        if df is None or len(df) < 2:
+            print(
+                f"OHLCV fetch returned no rows for {ticker} via "
+                f"{metrics['_data_source']} — volume/ADR/prior-move will be null"
+            )
         if df is not None and len(df) >= 2:
             opens = df["open"].tolist()
             highs = df["high"].tolist()
@@ -3036,6 +3070,7 @@ def qulla_ep(ticker: str):
         "adr_pct": metrics["adr_pct"],
         "prior_move_pct": metrics["prior_move_pct"],
         "eps_surprise": metrics["eps_surprise"],
+        "data_source": metrics.get("_data_source"),
     }
 
     _QULLA_EP_CACHE[ticker] = (_time.time(), result)

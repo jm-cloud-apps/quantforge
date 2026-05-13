@@ -132,6 +132,55 @@ class MassiveProvider:
             logger.debug("massive RSI error for %s: %s", symbol, e)
             return None
 
+    def fetch_ratios(self, symbol: str) -> dict | None:
+        """Fetch latest financial ratios — market cap, price, 30d avg volume.
+        Shares outstanding can be derived as market_cap / price.
+
+        Endpoint: /stocks/financials/v1/ratios?ticker=X&limit=1
+        """
+        try:
+            r = self._client.get(
+                BASE_URL + "/stocks/financials/v1/ratios",
+                params={"ticker": symbol.upper(), "limit": 1, "apiKey": self.api_key},
+            )
+            if r.status_code != 200:
+                logger.debug("massive ratios HTTP %d for %s", r.status_code, symbol)
+                return None
+            results = (r.json() or {}).get("results") or []
+            if not results:
+                return None
+            row = results[0]
+            return {
+                "market_cap": row.get("market_cap"),
+                "price": row.get("price"),
+                "average_volume": row.get("average_volume"),
+                "earnings_per_share": row.get("earnings_per_share"),
+                "date": row.get("date"),
+            }
+        except Exception as e:
+            logger.debug("massive ratios error for %s: %s", symbol, e)
+            return None
+
+    def fetch_float(self, symbol: str) -> float | None:
+        """Fetch free-float percentage (0-1) from Massive's float endpoint.
+
+        Endpoint: /stocks/vX/float?ticker=X
+        """
+        try:
+            r = self._client.get(
+                BASE_URL + "/stocks/vX/float",
+                params={"ticker": symbol.upper(), "limit": 1, "apiKey": self.api_key},
+            )
+            if r.status_code != 200:
+                return None
+            results = (r.json() or {}).get("results") or []
+            if not results:
+                return None
+            return results[0].get("free_float_percent")
+        except Exception as e:
+            logger.debug("massive float error for %s: %s", symbol, e)
+            return None
+
     def fetch_calendar(self, symbol: str) -> dict:
         """Return the next upcoming earnings date and ex-dividend date (if any).
 
