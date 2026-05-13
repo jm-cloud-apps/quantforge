@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createChart, CandlestickSeries, LineSeries, HistogramSeries } from 'lightweight-charts'
 import IntradayModal from './IntradayModal'
+import TickerLink from '../TickerLink'
 
 const STATUS_COLORS = {
   READY: 'text-success',
@@ -58,7 +59,7 @@ const tagClassFor = (t) => {
   return 'border-surface-700/50 text-surface-300 bg-surface-800'
 }
 
-const ChartCard = ({ candidate, rank }) => {
+const ChartCard = ({ candidate, rank, isNew = false }) => {
   const containerRef = useRef(null)
   const [showIntraday, setShowIntraday] = useState(false)
 
@@ -181,13 +182,23 @@ const ChartCard = ({ candidate, rank }) => {
 
   return (
     <>
-      <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-3 flex flex-col gap-2 hover:border-accent/30 transition-colors">
+      <div className={`relative rounded-xl bg-surface-900/60 border p-3 flex flex-col gap-2 transition-colors ${
+        isNew ? 'border-accent/50 ring-1 ring-accent/30' : 'border-surface-700/40 hover:border-accent/30'
+      }`}>
+        {isNew && (
+          <span
+            className="absolute -top-1.5 -right-1.5 z-10 px-1.5 py-0.5 rounded-full bg-accent text-white text-[9px] font-bold uppercase tracking-wider shadow-lg shadow-accent/30 animate-pulse"
+            title="Appeared on the latest auto-refresh"
+          >
+            New
+          </span>
+        )}
         {/* Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-baseline gap-2">
               <span className="text-xs font-mono text-surface-500">#{rank}</span>
-              <span className="text-base font-bold text-surface-100">{candidate.symbol}</span>
+              <TickerLink symbol={candidate.symbol} className="text-base font-bold text-surface-100" />
             </div>
             <div className="text-[10px] text-surface-500 mt-0.5 flex items-center gap-2">
               <span>${candidate.last_close?.toFixed(2)}</span>
