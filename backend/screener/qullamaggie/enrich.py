@@ -44,6 +44,47 @@ def enrich_with_news(candidates: list[dict], top_n: int = 20) -> None:
         pass
 
 
+def enrich_with_calendar(candidates: list[dict], top_n: int = 20) -> None:
+    """Attach upcoming earnings + ex-dividend dates from Massive's calendar
+    feeds, and surface a 'Earnings <date>' / 'Ex-dividend <date>' tag when the
+    event lands within the next 14 days."""
+    from datetime import date, datetime as _dt
+
+    provider = get_provider()
+    if not hasattr(provider, "fetch_calendar"):
+        return
+    today = date.today()
+    for c in candidates[:top_n]:
+        try:
+            cal = provider.fetch_calendar(c["symbol"])
+        except Exception as e:
+            logger.debug("calendar enrich failed for %s: %s", c.get("symbol"), e)
+            continue
+        ed = cal.get("earnings_date")
+        xd = cal.get("ex_dividend_date")
+        if ed:
+            c["earnings_date"] = ed
+        if xd:
+            c["ex_dividend_date"] = xd
+        tags = c.setdefault("tags", [])
+
+        def _within(day_str, n):
+            try:
+                d = _dt.strptime(day_str, "%Y-%m-%d").date()
+                return 0 <= (d - today).days <= n
+            except Exception:
+                return False
+
+        if ed and _within(ed, 14):
+            tag = f"Earnings {ed}"
+            if tag not in tags:
+                tags.insert(0, tag)
+        if xd and _within(xd, 14):
+            tag = f"Ex-dividend {xd}"
+            if tag not in tags:
+                tags.append(tag)
+
+
 def enrich_with_rsi(candidates: list[dict], top_n: int = 20) -> None:
     """Attach 14-period daily RSI from Massive's indicators endpoint."""
     provider = get_provider()

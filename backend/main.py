@@ -1839,6 +1839,70 @@ def get_demo_sector_data():
 
     return sector_data
 
+def _returns_from_closes(closes, dates):
+    """Compute period returns (%) from a list of closes + matching dates."""
+    def r(n):
+        return ((closes[-1] / closes[-1 - n]) - 1) * 100 if len(closes) > n else None
+
+    returns = {"1D": r(1), "5D": r(5), "1M": r(21), "3M": r(63)}
+
+    current_year = datetime.now().year
+    ytd_i = next((i for i, d in enumerate(dates) if d.year == current_year), None)
+    if ytd_i is not None and ytd_i < len(closes) - 1:
+        returns["YTD"] = ((closes[-1] / closes[ytd_i]) - 1) * 100
+
+    if len(closes) > 252:
+        returns["1Y"] = ((closes[-1] / closes[-253]) - 1) * 100
+    elif len(closes) >= 2:
+        returns["1Y"] = ((closes[-1] / closes[0]) - 1) * 100
+
+    return {k: round(float(v), 2) for k, v in returns.items() if v is not None}
+
+
+def _fetch_sectors_via_provider(sectors):
+    """Fetch sector/industry ETF performance via the configured data provider
+    (Massive.com by default, yfinance fallback). Replaces the deprecated
+    Finnhub /stock/candle endpoint."""
+    global _fetch_progress
+    from screener.qullamaggie.providers import get_provider
+
+    provider = get_provider()
+    items = list(sectors.items())
+    total = len(items)
+    out = []
+    for idx, (sector_name, ticker) in enumerate(items):
+        _fetch_progress = {
+            "loading": True, "current": idx + 1, "total": total,
+            "current_ticker": ticker, "current_name": sector_name,
+        }
+        try:
+            df = provider.fetch(ticker, lookback_days=400)
+            if df is None or len(df) < 2:
+                print(f"No candle data for {sector_name} ({ticker})")
+                continue
+            closes = [float(c) for c in df["close"].tolist()]
+            dates = list(df.index)
+            volumes = [float(v) for v in df["volume"].tolist()]
+            avg_volume = int(np.mean(volumes[-20:])) if volumes else 0
+            out.append({
+                "sector": sector_name,
+                "ticker": ticker,
+                "price": round(closes[-1], 2),
+                "returns": _returns_from_closes(closes, dates),
+                "volume": avg_volume,
+            })
+        except Exception as e:
+            print(f"Error fetching data for {sector_name} ({ticker}): {str(e)}")
+        if getattr(provider, "name", "") == "massive":
+            time.sleep(0.12)  # be polite to the API
+    try:
+        provider.close()
+    except Exception:
+        pass
+    _fetch_progress = {"loading": False, "current": total, "total": total, "current_ticker": "", "current_name": ""}
+    return out, getattr(provider, "name", "unknown")
+
+
 @app.get("/api/screener/sector-performance/progress")
 def get_fetch_progress():
     """Get the current progress of sector data fetching."""
@@ -1873,151 +1937,45 @@ def get_sector_performance(force: int = 0):
             return cached_data
 
     try:
-        # Get all ETF tickers
         sectors = get_all_etf_tickers()
-        api_key = os.getenv("FINNHUB_API_KEY", "")
-
-        if not api_key:
-            print("FINNHUB_API_KEY not set, using demo data")
-            raise ValueError("FINNHUB_API_KEY not configured")
-
-        sector_data = []
         total_tickers = len(sectors)
-
-        # Set progress tracking
         _fetch_progress = {"loading": True, "current": 0, "total": total_tickers, "current_ticker": "", "current_name": ""}
 
-        # Finnhub free tier: 60 calls/min
-        # We batch in groups of 55 with a 60s pause between batches
-        BATCH_SIZE = 55
-        items = list(sectors.items())
-        now_ts = int(datetime.now().timestamp())
-        one_year_ago_ts = int((datetime.now() - timedelta(days=365)).timestamp())
-
-        for idx, (sector_name, ticker) in enumerate(items):
-            _fetch_progress = {"loading": True, "current": idx + 1, "total": total_tickers, "current_ticker": ticker, "current_name": sector_name}
-
-            # Rate-limit pause between batches
-            if idx > 0 and idx % BATCH_SIZE == 0:
-                print(f"Rate limit pause: fetched {idx}/{total_tickers}, waiting 60s...")
-                time.sleep(60)
-
-            try:
-                # Fetch daily candles for 1 year from Finnhub
-                resp = requests.get(
-                    f"{FINNHUB_BASE_URL}/stock/candle",
-                    params={
-                        "symbol": ticker,
-                        "resolution": "D",
-                        "from": one_year_ago_ts,
-                        "to": now_ts,
-                        "token": api_key,
-                    },
-                    timeout=10,
-                )
-                resp.raise_for_status()
-                candle = resp.json()
-
-                if candle.get("s") != "ok" or not candle.get("c"):
-                    print(f"No candle data for {sector_name} ({ticker})")
-                    continue
-
-                closes = candle["c"]  # list of close prices
-                volumes = candle.get("v", [])
-                timestamps = candle.get("t", [])
-
-                if len(closes) < 2:
-                    continue
-
-                current_price = closes[-1]
-
-                # Calculate returns for different timeframes
-                returns = {}
-
-                # 1 Day
-                if len(closes) >= 2:
-                    returns['1D'] = ((closes[-1] / closes[-2]) - 1) * 100
-
-                # 5 Days
-                if len(closes) >= 6:
-                    returns['5D'] = ((closes[-1] / closes[-6]) - 1) * 100
-
-                # 1 Month (21 trading days)
-                if len(closes) >= 22:
-                    returns['1M'] = ((closes[-1] / closes[-22]) - 1) * 100
-
-                # 3 Months (63 trading days)
-                if len(closes) >= 64:
-                    returns['3M'] = ((closes[-1] / closes[-64]) - 1) * 100
-
-                # YTD — find the first trading day of the current year
-                current_year = datetime.now().year
-                ytd_start = None
-                for i, ts in enumerate(timestamps):
-                    if datetime.fromtimestamp(ts).year == current_year:
-                        ytd_start = i
-                        break
-                if ytd_start is not None and ytd_start < len(closes) - 1:
-                    returns['YTD'] = ((closes[-1] / closes[ytd_start]) - 1) * 100
-
-                # 1 Year
-                if len(closes) >= 252:
-                    returns['1Y'] = ((closes[-1] / closes[-252]) - 1) * 100
-                elif len(closes) >= 2:
-                    returns['1Y'] = ((closes[-1] / closes[0]) - 1) * 100
-
-                # Average volume (last 20 days)
-                avg_volume = int(sum(volumes[-20:]) / min(len(volumes), 20)) if volumes else 0
-
-                sector_data.append({
-                    'sector': sector_name,
-                    'ticker': ticker,
-                    'price': round(float(current_price), 2),
-                    'returns': {k: round(float(v), 2) for k, v in returns.items()},
-                    'volume': avg_volume,
-                })
-
-                # Small delay between requests (~1/sec to stay safely under 60/min)
-                time.sleep(1.1)
-
-            except Exception as e:
-                print(f"Error fetching data for {sector_name} ({ticker}): {str(e)}")
-                continue
-
-        # Reset progress
-        _fetch_progress = {"loading": False, "current": total_tickers, "total": total_tickers, "current_ticker": "", "current_name": ""}
+        sector_data, provider_name = _fetch_sectors_via_provider(sectors)
 
         # If we got at least some real data, cache and return it
         if sector_data:
             result = {
                 "sectors": sector_data,
                 "last_updated": datetime.now().isoformat(),
-                "is_demo": False
+                "is_demo": False,
+                "provider": provider_name,
             }
             _sector_cache = {"data": result, "timestamp": datetime.now()}
             save_cache_to_file(result)  # Persist to file
             return result
 
-        # If Finnhub failed completely, return demo data
-        print("Finnhub unavailable, using demo data")
+        # If the provider failed completely, return demo data
+        print("Data provider unavailable, using demo data")
         demo_data = get_demo_sector_data()
         result = {
             "sectors": demo_data,
             "last_updated": datetime.now().isoformat(),
             "is_demo": True,
-            "note": "Finnhub API is currently unavailable. Showing demo data. Please try again later for live data."
+            "note": "Live market data is currently unavailable. Showing demo data. Please try again later.",
         }
         _sector_cache = {"data": result, "timestamp": datetime.now()}
         return result
 
     except Exception as e:
         print(f"Error in sector performance endpoint: {str(e)}")
+        _fetch_progress = {"loading": False, "current": 0, "total": 0, "current_ticker": "", "current_name": ""}
         demo_data = get_demo_sector_data()
         result = {
             "sectors": demo_data,
             "last_updated": datetime.now().isoformat(),
             "is_demo": True,
-            "note": "Finnhub API is currently unavailable. Showing demo data. Please try again later for live data."
+            "note": "Live market data is currently unavailable. Showing demo data. Please try again later.",
         }
         _sector_cache = {"data": result, "timestamp": datetime.now()}
         return result

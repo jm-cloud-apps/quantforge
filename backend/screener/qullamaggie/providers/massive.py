@@ -132,6 +132,54 @@ class MassiveProvider:
             logger.debug("massive RSI error for %s: %s", symbol, e)
             return None
 
+    def fetch_calendar(self, symbol: str) -> dict:
+        """Return the next upcoming earnings date and ex-dividend date (if any).
+
+        Both are best-effort — Massive's calendar feeds (Benzinga earnings,
+        stocks dividends) are queried for the first record on/after today.
+        Returns {"earnings_date": "YYYY-MM-DD" | None, "ex_dividend_date": ... | None}.
+        """
+        today = datetime.now().date().isoformat()
+        out = {"earnings_date": None, "ex_dividend_date": None}
+
+        try:
+            r = self._client.get(
+                BASE_URL + "/benzinga/v1/earnings",
+                params={
+                    "ticker": symbol.upper(),
+                    "date.gte": today,
+                    "sort": "date.asc",
+                    "limit": 1,
+                    "apiKey": self.api_key,
+                },
+            )
+            if r.status_code == 200:
+                results = r.json().get("results") or []
+                if results:
+                    out["earnings_date"] = results[0].get("date")
+        except Exception as e:
+            logger.debug("massive earnings error for %s: %s", symbol, e)
+
+        try:
+            r = self._client.get(
+                BASE_URL + "/stocks/v1/dividends",
+                params={
+                    "ticker": symbol.upper(),
+                    "ex_dividend_date.gte": today,
+                    "sort": "ex_dividend_date.asc",
+                    "limit": 1,
+                    "apiKey": self.api_key,
+                },
+            )
+            if r.status_code == 200:
+                results = r.json().get("results") or []
+                if results:
+                    out["ex_dividend_date"] = results[0].get("ex_dividend_date")
+        except Exception as e:
+            logger.debug("massive dividends error for %s: %s", symbol, e)
+
+        return out
+
     def fetch_intraday(self, symbol: str, days_back: int = 2) -> list[dict]:
         """Pull 5-minute bars for the last `days_back` trading days.
 

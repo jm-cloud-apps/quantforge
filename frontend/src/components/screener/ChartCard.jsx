@@ -27,7 +27,36 @@ function ema(values, span) {
   return out
 }
 
+// Least-squares fit y = a + b·x over values; returns endpoint y-values [y0, y_last].
+function linearFitEndpoints(values) {
+  const n = values.length
+  if (n < 2) return null
+  let sx = 0, sy = 0, sxx = 0, sxy = 0
+  for (let i = 0; i < n; i++) {
+    sx += i; sy += values[i]
+    sxx += i * i; sxy += i * values[i]
+  }
+  const denom = n * sxx - sx * sx
+  if (denom === 0) return null
+  const b = (n * sxy - sx * sy) / denom
+  const a = (sy - b * sx) / n
+  return [a, a + b * (n - 1)]
+}
+
 const fmtPct = (v, digits = 1) => (v == null ? '–' : `${(v * 100).toFixed(digits)}%`)
+
+// Tags that deserve a colored outline rather than the neutral chip style.
+const ACCENT_TAG_PATTERNS = [
+  { match: (t) => t === 'Breaking out', cls: 'border-danger/60 text-danger bg-danger/10' },
+  { match: (t) => t === 'Extended', cls: 'border-warning/60 text-warning bg-warning/10' },
+  { match: (t) => t.startsWith('Earnings '), cls: 'border-danger/60 text-danger bg-danger/10' },
+  { match: (t) => t.startsWith('Ex-dividend '), cls: 'border-warning/60 text-warning bg-warning/10' },
+]
+
+const tagClassFor = (t) => {
+  for (const p of ACCENT_TAG_PATTERNS) if (p.match(t)) return p.cls
+  return 'border-surface-700/50 text-surface-300 bg-surface-800'
+}
 
 const ChartCard = ({ candidate, rank }) => {
   const containerRef = useRef(null)
@@ -97,6 +126,29 @@ const ChartCard = ({ candidate, rank }) => {
       })
     }
 
+    // Flag lines — fit a line to the highs and lows of the detected base region.
+    if (candidate.base_length && bars.length >= candidate.base_length) {
+      const baseBars = bars.slice(-candidate.base_length)
+      const upper = linearFitEndpoints(baseBars.map((b) => b.high))
+      const lower = linearFitEndpoints(baseBars.map((b) => b.low))
+      const t0 = baseBars[0].time
+      const t1 = baseBars[baseBars.length - 1].time
+      if (upper) {
+        const s = chart.addSeries(LineSeries, {
+          color: '#14b8a6', lineWidth: 2, lineStyle: 0,
+          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        })
+        s.setData([{ time: t0, value: upper[0] }, { time: t1, value: upper[1] }])
+      }
+      if (lower) {
+        const s = chart.addSeries(LineSeries, {
+          color: '#14b8a6', lineWidth: 2, lineStyle: 0,
+          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        })
+        s.setData([{ time: t0, value: lower[0] }, { time: t1, value: lower[1] }])
+      }
+    }
+
     chart.timeScale().fitContent()
     const handleResize = () => containerRef.current && chart.applyOptions({ width: containerRef.current.clientWidth })
     window.addEventListener('resize', handleResize)
@@ -146,18 +198,39 @@ const ChartCard = ({ candidate, rank }) => {
               )}
             </div>
           </div>
-          <div className="text-right">
+          <div className="relative group text-right cursor-help">
             <div className="text-lg font-bold text-success leading-none">{candidate.score?.toFixed(1)}</div>
             <div className={`text-[10px] font-mono uppercase tracking-wider mt-0.5 ${statusClass}`}>
               {candidate.status}
             </div>
+            {candidate.score_breakdown?.length > 0 && (
+              <div className="absolute right-0 top-full mt-1 z-20 hidden group-hover:block w-60 rounded-lg bg-surface-950 border border-surface-700 shadow-xl p-2.5 text-left">
+                <div className="text-[10px] uppercase tracking-wider text-surface-500 mb-1.5">Score breakdown</div>
+                {candidate.score_breakdown.map((row) => (
+                  <div key={row.component} className="flex items-baseline justify-between gap-2 text-[11px] py-0.5">
+                    <span className="text-surface-300 truncate">{row.component}</span>
+                    <span className="font-mono text-surface-500 shrink-0">
+                      <span className="text-surface-400">{(row.value * 100).toFixed(0)}%</span>
+                      <span className="mx-1 text-surface-700">×</span>
+                      <span className="text-surface-400">{row.weight}</span>
+                      <span className="mx-1 text-surface-700">=</span>
+                      <span className="text-surface-100">{row.points.toFixed(1)}</span>
+                    </span>
+                  </div>
+                ))}
+                <div className="border-t border-surface-700/50 mt-1.5 pt-1.5 flex items-baseline justify-between text-[11px]">
+                  <span className="text-surface-400 font-medium">Total</span>
+                  <span className="font-mono font-bold text-success">{candidate.score?.toFixed(1)}</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Tags */}
         <div className="flex flex-wrap gap-1">
           {candidate.tags?.map((t) => (
-            <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-md bg-surface-800 border border-surface-700/50 text-surface-300">
+            <span key={t} className={`text-[10px] px-1.5 py-0.5 rounded-md border ${tagClassFor(t)}`}>
               {t}
             </span>
           ))}

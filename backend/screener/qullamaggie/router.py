@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Query
 
 from .cache import refresh_universe
-from .enrich import enrich_with_news, enrich_with_rsi
+from .enrich import enrich_with_calendar, enrich_with_news, enrich_with_rsi
 from .providers import get_provider
 from .scorer import rank_candidates, DEFAULT_MIN_ADR
 from .snapshot import recent_developing, save_snapshot, snapshot_stats, symbol_history
@@ -26,6 +26,7 @@ async def get_breakouts(
     include_movers: bool = Query(False, description="Merge today's top gainers into universe"),
     enrich_news: bool = Query(True, description="Attach top headline + sentiment"),
     enrich_rsi: bool = Query(True, description="Attach 14-day RSI from Massive"),
+    enrich_calendar: bool = Query(True, description="Attach upcoming earnings / ex-dividend dates"),
     persist: bool = Query(True),
 ):
     """Run the screener and return top `limit` ranked candidates."""
@@ -54,6 +55,11 @@ async def get_breakouts(
             enrich_with_rsi(top, top_n=limit)
         except Exception as e:
             logger.warning("rsi enrichment failed: %s", e)
+    if enrich_calendar:
+        try:
+            enrich_with_calendar(top, top_n=limit)
+        except Exception as e:
+            logger.warning("calendar enrichment failed: %s", e)
 
     elapsed = (datetime.now() - started).total_seconds()
     logger.info(

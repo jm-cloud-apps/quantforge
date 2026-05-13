@@ -58,6 +58,34 @@ class Candidate:
 
     tags: list[str]
     ohlcv_tail: list[dict]
+    score_breakdown: list[dict]
+
+
+def _build_breakdown(mode: str, leader: float, thrust: float, base: float,
+                     pivot: float, emerging: bool) -> list[dict]:
+    """Return [{component, weight, value (0-1), points}] explaining the score."""
+    def row(name, weight, value):
+        return {
+            "component": name,
+            "weight": weight,
+            "value": round(float(value), 3),
+            "points": round(weight * float(value), 1),
+        }
+
+    if mode == "leaders":
+        return [row("Relative strength", 100, leader)]
+    if mode == "emerging":
+        return [
+            row("Parent thrust", 60, thrust),
+            row("Relative strength", 30, leader),
+            row("Early base", 10, 1.0 if emerging else 0.0),
+        ]
+    return [
+        row("Relative strength", W_LEADER, leader),
+        row("Parent thrust", W_THRUST, thrust),
+        row("Base quality", W_BASE, base),
+        row("Near pivot", W_PIVOT, pivot),
+    ]
 
 
 def _status_from_score(score: float, breaking: bool, emerging: bool) -> str:
@@ -197,6 +225,10 @@ def rank_candidates(
             ret_1m=r["ret_1m"], ret_3m=r["ret_3m"], ret_6m=r["ret_6m"],
             tags=_tags(thrust, base, pivot, bo["breaking_out"], extended, emerging, r["adr"]),
             ohlcv_tail=_ohlcv_tail(df),
+            score_breakdown=_build_breakdown(
+                mode, leader, float(thrust["score"]), float(base.get("score", 0)),
+                float(pivot["score"]), emerging,
+            ),
         ))
 
     candidates.sort(key=lambda c: c.score, reverse=True)
