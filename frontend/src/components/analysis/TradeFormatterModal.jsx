@@ -53,10 +53,11 @@ const TradeFormatterModal = ({ onClose, onComplete }) => {
   };
 
   const handleRunDaily = () => {
+    if (!selectedMonth) return;
     setStatus('running');
-    setLogs([{ type: 'info', text: '▶ Starting daily pipeline: Gmail fetch → format → summarize' }]);
+    setLogs([{ type: 'info', text: `▶ Starting daily pipeline for ${selectedMonth}: Gmail fetch → format → summarize` }]);
 
-    controllerRef.current = runDaily({
+    controllerRef.current = runDaily(selectedMonth, {
       onMessage: (msg) => {
         setLogs((prev) => [...prev, { type: 'info', text: msg }]);
       },
@@ -184,7 +185,7 @@ const TradeFormatterModal = ({ onClose, onComplete }) => {
           </div>
           <button
             onClick={handleRunDaily}
-            disabled={isRunning}
+            disabled={isRunning || !selectedMonth}
             className="px-4 py-2 rounded-lg bg-accent/10 border border-accent/40 text-accent text-sm font-medium hover:bg-accent/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 flex-shrink-0"
             title="Run run_daily.py: fetch Gmail → format → summarize"
           >

@@ -30,6 +30,15 @@ const navItems = [
     ),
   },
   {
+    path: '/breakouts',
+    label: 'Breakouts',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 17l6-6 4 4 8-8m0 0v6m0-6h-6" />
+      </svg>
+    ),
+  },
+  {
     path: '/signal-lab',
     label: 'Signal Lab',
     icon: (
