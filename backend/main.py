@@ -2506,7 +2506,7 @@ def get_stock_news(
 
     for sym in symbols:
         try:
-            articles = provider.fetch_for(sym, lookback_days=4, limit=8)
+            articles = provider.fetch_for(sym, lookback_days=7, limit=25)
             all_articles.extend(articles)
 
             # Earnings lookup still uses Finnhub (Massive's free-tier endpoints
@@ -2868,22 +2868,22 @@ def _build_ep_metrics(ticker: str, finnhub_key: str) -> dict:
         "news": [], "eps_surprise": None,
     }
 
-    # Quote — also serves as ticker-validity check
-    qresp = httpx.get(
-        f"{FINNHUB_BASE_URL}/quote",
-        params={"symbol": ticker, "token": finnhub_key},
-        timeout=10.0,
-    )
-    qresp.raise_for_status()
-    quote = qresp.json()
-    if not quote or quote.get("c") in (None, 0):
-        raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' not found on Finnhub")
-
-    # Gap % from quote (always works on free tier; yfinance fallback below for the rest)
-    today_open = quote.get("o")
-    prev_close = quote.get("pc")
-    if today_open and prev_close:
-        metrics["gap_pct"] = ((today_open / prev_close) - 1) * 100
+    # Quote — best-effort gap %; OHLCV below is the real source of truth.
+    if finnhub_key:
+        try:
+            qresp = httpx.get(
+                f"{FINNHUB_BASE_URL}/quote",
+                params={"symbol": ticker, "token": finnhub_key},
+                timeout=10.0,
+            )
+            if qresp.status_code == 200:
+                quote = qresp.json() or {}
+                today_open = quote.get("o")
+                prev_close = quote.get("pc")
+                if today_open and prev_close:
+                    metrics["gap_pct"] = ((today_open / prev_close) - 1) * 100
+        except Exception:
+            pass
 
     # Profile — name + market cap + share-outstanding
     try:
@@ -2918,12 +2918,16 @@ def _build_ep_metrics(ticker: str, finnhub_key: str) -> dict:
     except Exception:
         pass
 
-    # ~120 days of daily OHLCV via yfinance for gap, volume ratio, ADR, prior move
-    # (Finnhub /stock/candle requires a paid plan — yfinance is free.)
+    # ~180 days of daily OHLCV via the configured data provider (Massive
+    # default, yfinance fallback) — used for gap, volume ratio, ADR, prior move.
     try:
-        end_d = datetime.now().date()
-        start_d = end_d - timedelta(days=180)
-        df = fetch_ohlcv(ticker, start_d.strftime("%Y-%m-%d"), end_d.strftime("%Y-%m-%d"))
+        from screener.qullamaggie.providers import get_provider as _get_data_provider
+        _data_provider = _get_data_provider()
+        df = _data_provider.fetch(ticker, lookback_days=180)
+        try:
+            _data_provider.close()
+        except Exception:
+            pass
         if df is not None and len(df) >= 2:
             opens = df["open"].tolist()
             highs = df["high"].tolist()
@@ -2970,29 +2974,28 @@ def _build_ep_metrics(ticker: str, finnhub_key: str) -> dict:
     except Exception:
         pass
 
-    # Recent news (last 4 days) — for catalyst classification
+    # Recent news (last 7 days) via the configured news provider — Massive's
+    # feed is substantially richer than Finnhub's for the same tickers, and
+    # the keyword-based catalyst classifier benefits from a longer window.
     try:
-        to_date = datetime.now().strftime("%Y-%m-%d")
-        from_date = (datetime.now() - timedelta(days=4)).strftime("%Y-%m-%d")
-        nresp = httpx.get(
-            f"{FINNHUB_BASE_URL}/company-news",
-            params={"symbol": ticker, "from": from_date, "to": to_date, "token": finnhub_key},
-            timeout=10.0,
-        )
-        if nresp.status_code == 200:
-            raw = nresp.json() or []
-            metrics["news"] = [
-                {
-                    "title": a.get("headline", ""),
-                    "site": a.get("source", ""),
-                    "url": a.get("url", ""),
-                    "publishedDate": (
-                        datetime.fromtimestamp(a["datetime"]).strftime("%Y-%m-%d %H:%M:%S")
-                        if a.get("datetime") else ""
-                    ),
-                }
-                for a in raw[:10]
-            ]
+        from news import get_news_provider as _get_news_provider
+        _news_provider = _get_news_provider()
+        try:
+            articles = _news_provider.fetch_for(ticker, lookback_days=7, limit=25)
+        finally:
+            try:
+                _news_provider.close()
+            except Exception:
+                pass
+        metrics["news"] = [
+            {
+                "title": a.get("title", ""),
+                "site": a.get("site", ""),
+                "url": a.get("url", ""),
+                "publishedDate": a.get("publishedDate", ""),
+            }
+            for a in (articles or [])
+        ]
     except Exception:
         pass
 
@@ -3006,12 +3009,9 @@ def qulla_ep(ticker: str):
     if not ticker:
         raise HTTPException(status_code=400, detail="Ticker is required")
 
+    # Finnhub is now optional — Massive handles OHLCV + news; Finnhub still
+    # supplies profile (market cap, float) and quarterly earnings when keyed.
     finnhub_key = os.getenv("FINNHUB_API_KEY", "")
-    if not finnhub_key:
-        raise HTTPException(
-            status_code=503,
-            detail="FINNHUB_API_KEY not configured. Add it to backend/.env",
-        )
 
     # Cache lookup
     cached = _QULLA_EP_CACHE.get(ticker)
