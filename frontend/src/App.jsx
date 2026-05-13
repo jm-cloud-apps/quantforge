@@ -10,6 +10,7 @@ import Journal from './pages/Journal'
 import Tools from './pages/Tools'
 import NewsAnalysis from './pages/NewsAnalysis'
 import Suggestions from './pages/Suggestions'
+import Breakouts from './pages/Breakouts'
 
 function AnimatedRoutes() {
   const location = useLocation()
@@ -20,6 +21,7 @@ function AnimatedRoutes() {
           <Route index element={<TradingAnalysis />} />
           <Route path="backtesting" element={<Backtesting />} />
           <Route path="screener" element={<Screener />} />
+          <Route path="breakouts" element={<Breakouts />} />
           <Route path="bot-trader" element={<BotTrader />} />
           <Route path="trading-analysis" element={<TradingAnalysis />} />
           <Route path="playbook" element={<Playbook />} />

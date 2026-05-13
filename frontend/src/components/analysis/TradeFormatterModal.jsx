@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { getFormatterMonths, runFormatter, resetFormatter } from '../../api/tradingAnalysis';
+import { getFormatterMonths, runFormatter, resetFormatter, runDaily } from '../../api/tradingAnalysis';
 
 const TradeFormatterModal = ({ onClose, onComplete }) => {
   const [months, setMonths] = useState([]);
@@ -44,6 +44,26 @@ const TradeFormatterModal = ({ onClose, onComplete }) => {
       onDone: () => {
         setStatus('done');
         setLogs((prev) => [...prev, { type: 'success', text: '\n✅ Formatter completed successfully.' }]);
+      },
+      onError: (err) => {
+        setStatus('error');
+        setLogs((prev) => [...prev, { type: 'error', text: `\n❌ Error: ${err}` }]);
+      },
+    });
+  };
+
+  const handleRunDaily = () => {
+    if (!selectedMonth) return;
+    setStatus('running');
+    setLogs([{ type: 'info', text: `▶ Starting daily pipeline for ${selectedMonth}: Gmail fetch → format → summarize` }]);
+
+    controllerRef.current = runDaily(selectedMonth, {
+      onMessage: (msg) => {
+        setLogs((prev) => [...prev, { type: 'info', text: msg }]);
+      },
+      onDone: () => {
+        setStatus('done');
+        setLogs((prev) => [...prev, { type: 'success', text: '\n✅ Daily pipeline completed.' }]);
       },
       onError: (err) => {
         setStatus('error');
@@ -154,6 +174,25 @@ const TradeFormatterModal = ({ onClose, onComplete }) => {
             title="Reset all trade data"
           >
             Reset
+          </button>
+        </div>
+
+        {/* Run Daily — full pipeline (Gmail fetch → format → summarize) */}
+        <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-800/40 border border-surface-700/40 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-surface-100">Run Daily Pipeline</p>
+            <p className="text-xs text-surface-400">Fetch new IB reports from Gmail, format, and append daily summary.</p>
+          </div>
+          <button
+            onClick={handleRunDaily}
+            disabled={isRunning || !selectedMonth}
+            className="px-4 py-2 rounded-lg bg-accent/10 border border-accent/40 text-accent text-sm font-medium hover:bg-accent/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 flex-shrink-0"
+            title="Run run_daily.py: fetch Gmail → format → summarize"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 12a9 9 0 1018 0 9 9 0 00-18 0zm0 0l3-3m-3 3l3 3" />
+            </svg>
+            Run Daily
           </button>
         </div>
 

@@ -8,7 +8,9 @@ import sys
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from .core import list_available_months, SCRIPT_PATH
+import os
+
+from .core import list_available_months, SCRIPT_PATH, RUN_DAILY_PATH
 
 router = APIRouter(prefix="/api/formatter", tags=["formatter"])
 
@@ -49,6 +51,50 @@ async def run_formatter(date_str: str):
 
         if proc.returncode != 0:
             yield f"data: __ERROR__Script exited with code {proc.returncode}\n\n"
+
+        yield "data: __DONE__\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/run-daily/{month}")
+async def run_daily(month: str):
+    """Run the trade-log-formatter run_daily.py pipeline (fetch Gmail → format → summarize)
+    for the given MM.YYYY month, streaming combined stdout/stderr as Server-Sent Events."""
+
+    async def event_generator():
+        script_dir = os.path.dirname(RUN_DAILY_PATH)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, RUN_DAILY_PATH, "--month", month,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=script_dir,
+            )
+        except FileNotFoundError as e:
+            yield f"data: __ERROR__Could not launch run_daily.py: {e}\n\n"
+            yield "data: __DONE__\n\n"
+            return
+
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                break
+            text = line.decode("utf-8", errors="replace").rstrip("\n")
+            safe = text.replace("\n", "\\n")
+            yield f"data: {safe}\n\n"
+
+        await proc.wait()
+
+        if proc.returncode != 0:
+            yield f"data: __ERROR__run_daily exited with code {proc.returncode}\n\n"
 
         yield "data: __DONE__\n\n"
 
