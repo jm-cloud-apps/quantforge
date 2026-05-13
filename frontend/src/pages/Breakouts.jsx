@@ -3,10 +3,37 @@ import { getBreakouts, getRecentDeveloping } from '../api/breakoutScreener'
 import ChartCard from '../components/screener/ChartCard'
 
 const MODES = [
-  { id: 'breakout', label: 'Breakout', hint: 'Setting up at the pivot' },
-  { id: 'emerging', label: 'On The Come Up', hint: 'Thrust done, base just starting' },
-  { id: 'leaders',  label: 'Leaders',  hint: 'Top-percentile trailing returns' },
+  { id: 'breakout', label: 'Breakout',       hint: 'Setting up at the pivot',                limit: 24 },
+  { id: 'emerging', label: 'On The Come Up', hint: 'Thrust done, base just starting',        limit: 24 },
+  { id: 'leaders',  label: 'Leaders',        hint: 'Top-percentile trailing returns',        limit: 24 },
+  { id: 'volume',   label: 'Volume Surge',   hint: 'Today’s volume vs each ticker’s 50d avg', limit: 15 },
 ]
+
+const CACHE_PREFIX = 'breakouts:'
+const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes — matches the backend TTL
+
+const cacheKey = (mode, minAdr, includeMovers) =>
+  `${CACHE_PREFIX}${mode}|adr=${minAdr.toFixed(3)}|movers=${includeMovers ? 1 : 0}`
+
+const readCache = (key) => {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed?.cachedAt || Date.now() - parsed.cachedAt > CACHE_TTL_MS) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+const writeCache = (key, data) => {
+  try {
+    localStorage.setItem(key, JSON.stringify({ cachedAt: Date.now(), data }))
+  } catch {
+    /* quota — ignore */
+  }
+}
 
 const Breakouts = () => {
   const [mode, setMode] = useState('breakout')
@@ -15,18 +42,36 @@ const Breakouts = () => {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [cacheStamp, setCacheStamp] = useState(null) // ms timestamp of stored payload (null = live)
 
   const [history, setHistory] = useState([])
   const [showHistory, setShowHistory] = useState(false)
 
-  const load = async (modeArg = mode, adrArg = minAdr, moversArg = includeMovers) => {
+  const load = async (modeArg = mode, adrArg = minAdr, moversArg = includeMovers, opts = {}) => {
+    const { fresh = false } = opts
+    const limitForMode = MODES.find((m) => m.id === modeArg)?.limit ?? 24
+    const ck = cacheKey(modeArg, adrArg, moversArg)
+
+    // Client cache — instant response for repeat tab switches / reloads.
+    if (!fresh) {
+      const cached = readCache(ck)
+      if (cached) {
+        setData(cached.data)
+        setCacheStamp(cached.cachedAt)
+        setLoading(false)
+        return
+      }
+    }
+
     setLoading(true)
     setError(null)
     try {
       const res = await getBreakouts({
-        mode: modeArg, limit: 24, minAdr: adrArg, includeMovers: moversArg,
+        mode: modeArg, limit: limitForMode, minAdr: adrArg, includeMovers: moversArg, fresh,
       })
       setData(res)
+      writeCache(ck, res)
+      setCacheStamp(Date.now())
     } catch (e) {
       setError(e.message)
     } finally {
@@ -88,9 +133,10 @@ const Breakouts = () => {
             Last 30 Days ({history.length})
           </button>
           <button
-            onClick={() => load()}
+            onClick={() => load(mode, minAdr, includeMovers, { fresh: true })}
             disabled={loading}
             className="px-4 py-2 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-surface-200 hover:bg-surface-700 transition-colors disabled:opacity-50"
+            title="Bypass the 10-minute cache and re-run the screener"
           >
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
@@ -155,6 +201,19 @@ const Breakouts = () => {
           <span>Universe: {data.universe_size}</span>
           <span>As of {new Date(data.as_of).toLocaleString()}</span>
           <span>({data.elapsed_seconds}s)</span>
+          {cacheStamp && (
+            <span
+              className="px-1.5 py-0.5 rounded border border-surface-700/40 bg-surface-900/60 text-surface-400 font-mono text-[10px]"
+              title="Served from local cache. Click Refresh to bypass."
+            >
+              cached · {Math.round((Date.now() - cacheStamp) / 60000)}m ago
+            </span>
+          )}
+          {data.cached && !cacheStamp && (
+            <span className="px-1.5 py-0.5 rounded border border-surface-700/40 bg-surface-900/60 text-surface-400 font-mono text-[10px]">
+              server cache · {Math.round((data.cache_age_seconds || 0) / 60)}m old
+            </span>
+          )}
         </div>
       )}
 

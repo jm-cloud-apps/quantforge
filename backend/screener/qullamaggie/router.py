@@ -1,6 +1,7 @@
 """FastAPI router for the Qullamaggie breakout screener."""
 
 import logging
+import time
 from datetime import datetime
 
 from fastapi import APIRouter, Query
@@ -16,20 +17,38 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/screener/qullamaggie", tags=["screener-qullamaggie"])
 
+# In-memory response cache, keyed by query signature. The full rank pipeline
+# takes 10-30 seconds (universe-wide OHLCV refresh + scoring), so caching the
+# response for ~10 minutes is a major UX win — repeat tab switches and reloads
+# are instant. Set fresh=1 on the request to bypass.
+_RESPONSE_CACHE: dict[str, tuple[float, dict]] = {}
+_CACHE_TTL_SEC = 600  # 10 minutes
+
 
 @router.get("")
 async def get_breakouts(
-    mode: str = Query("breakout", pattern="^(breakout|leaders|emerging)$"),
+    mode: str = Query("breakout", pattern="^(breakout|leaders|emerging|volume)$"),
     limit: int = Query(20, ge=1, le=100),
     min_dollar_vol: float = Query(5_000_000, ge=0),
     min_adr: float = Query(DEFAULT_MIN_ADR, ge=0.0, le=1.0),
+    min_rvol: float = Query(1.5, ge=1.0, le=20.0, description="Volume mode: minimum today/50d ratio"),
     include_movers: bool = Query(False, description="Merge today's top gainers into universe"),
     enrich_news: bool = Query(True, description="Attach top headline + sentiment"),
     enrich_rsi: bool = Query(True, description="Attach 14-day RSI from Massive"),
     enrich_calendar: bool = Query(True, description="Attach upcoming earnings / ex-dividend dates"),
     persist: bool = Query(True),
+    fresh: bool = Query(False, description="Bypass the 10-minute response cache"),
 ):
     """Run the screener and return top `limit` ranked candidates."""
+    cache_key = f"{mode}|{limit}|{min_dollar_vol}|{min_adr}|{min_rvol}|{include_movers}|{enrich_news}|{enrich_rsi}|{enrich_calendar}"
+    if not fresh:
+        entry = _RESPONSE_CACHE.get(cache_key)
+        if entry and (time.time() - entry[0]) < _CACHE_TTL_SEC:
+            cached = dict(entry[1])
+            cached["cached"] = True
+            cached["cache_age_seconds"] = int(time.time() - entry[0])
+            return cached
+
     started = datetime.now()
     symbols = get_universe(include_movers=include_movers)
     logger.info(
@@ -40,6 +59,7 @@ async def get_breakouts(
     frames = refresh_universe(symbols)
     candidates = rank_candidates(
         frames, mode=mode, min_dollar_vol=min_dollar_vol, min_adr=min_adr,
+        min_rvol=min_rvol,
     )
 
     top = candidates[:limit]
@@ -73,16 +93,21 @@ async def get_breakouts(
         except Exception as e:
             logger.warning("snapshot save failed: %s", e)
 
-    return {
+    response = {
         "mode": mode,
         "universe_size": len(symbols),
         "scored": len(candidates),
         "elapsed_seconds": round(elapsed, 1),
         "as_of": datetime.now().isoformat(timespec="seconds"),
         "min_adr": min_adr,
+        "min_rvol": min_rvol,
         "include_movers": include_movers,
         "results": top,
+        "cached": False,
+        "cache_age_seconds": 0,
     }
+    _RESPONSE_CACHE[cache_key] = (time.time(), response)
+    return response
 
 
 @router.get("/universe")

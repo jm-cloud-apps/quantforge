@@ -5,20 +5,24 @@ export async function getBreakouts({
   limit = 20,
   minDollarVol = 5_000_000,
   minAdr = 0.05,
+  minRvol = 1.5,
   includeMovers = false,
   enrichNews = true,
   enrichRsi = true,
   persist = true,
+  fresh = false,
 } = {}) {
   const params = new URLSearchParams({
     mode,
     limit,
     min_dollar_vol: minDollarVol,
     min_adr: minAdr,
+    min_rvol: minRvol,
     include_movers: includeMovers,
     enrich_news: enrichNews,
     enrich_rsi: enrichRsi,
     persist,
+    fresh,
   })
   const res = await fetch(`${API_BASE}/screener/qullamaggie?${params}`)
   if (!res.ok) {
