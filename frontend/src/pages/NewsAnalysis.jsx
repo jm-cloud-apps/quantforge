@@ -168,74 +168,67 @@ function fmtFloat(val) {
   return `${(val / 1_000_000).toFixed(0)}M`
 }
 
+// Criterion tile — visually modeled on the Sector Rotation 1-Day Heatmap.
+// Each tile is bordered + colored by fill ratio, with the score as the
+// dominant element. Click to expand for the rationale + threshold.
+function epTileFill(pct, passed) {
+  if (passed) {
+    if (pct >= 0.95) return 'bg-[#10B981]/30 border-[#10B981]/40'
+    if (pct >= 0.75) return 'bg-[#10B981]/20 border-[#10B981]/25'
+    return 'bg-[#10B981]/12 border-[#10B981]/15'
+  }
+  if (pct >= 0.5) return 'bg-[#F59E0B]/12 border-[#F59E0B]/20'
+  if (pct > 0) return 'bg-surface-800/80 border-surface-700/50'
+  return 'bg-surface-900/60 border-surface-800'
+}
+
 function EpCriterionTile({ crit }) {
   const [open, setOpen] = useState(false)
   const passed = crit.passed
   const pct = crit.max > 0 ? Math.max(0, Math.min(1, crit.points / crit.max)) : 0
+  const fill = epTileFill(pct, passed)
+
+  const scoreColor = passed
+    ? 'text-success'
+    : crit.points > 0
+      ? 'text-warning'
+      : 'text-surface-500'
 
   return (
     <button
       type="button"
       onClick={() => setOpen((v) => !v)}
       aria-expanded={open}
-      className={`group text-left rounded-xl bg-surface-900/80 border backdrop-blur-sm p-4 transition-all duration-150 ${
-        passed
-          ? 'border-success/20 hover:border-success/40'
-          : 'border-surface-700/50 hover:border-accent/20'
-      }`}
+      className={`group relative text-left p-3.5 cursor-pointer transition-all duration-150 border ${fill} hover:brightness-125`}
+      style={{ minHeight: '110px' }}
     >
-      {/* Performance-Metrics-style label */}
-      <p className="text-[10px] font-medium text-surface-400 uppercase tracking-wider truncate">
-        {crit.name}
-      </p>
-
-      {/* Big numeric score — mirrors the Total Return / Win Rate cards */}
-      <p className={`text-2xl font-bold tracking-tight mt-1 tabular-nums ${
-        passed ? 'text-success' : crit.points > 0 ? 'text-surface-200' : 'text-surface-500'
-      }`}>
-        {crit.points}
-        <span className="text-surface-600 text-lg font-semibold">/{crit.max}</span>
-      </p>
-
-      {/* Pass / Below-threshold chip + caret */}
-      <div className="mt-1.5 flex items-center justify-between gap-2">
-        <span
-          className={`px-1.5 py-0.5 rounded text-[10px] font-medium border whitespace-nowrap ${
-            passed
-              ? 'border-success/25 bg-success/10 text-success'
-              : 'border-surface-700/50 bg-surface-800/60 text-surface-500'
-          }`}
-        >
-          {passed ? 'Pass' : 'Below threshold'}
-        </span>
-        <svg
-          className={`w-3 h-3 transition-all duration-150 ${
-            open ? 'rotate-180 text-surface-400' : 'text-surface-600 group-hover:text-surface-400'
-          }`}
-          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
+      <div className="flex flex-col justify-between h-full gap-2">
+        <div className="min-w-0">
+          <p className="text-surface-50 text-sm font-semibold leading-tight truncate">
+            {crit.name}
+          </p>
+          <p className="text-surface-400 text-[11px] leading-snug mt-0.5 line-clamp-2">
+            {open ? crit.why : crit.why}
+          </p>
+        </div>
+        <div className="flex items-baseline justify-between gap-2">
+          <p className={`font-mono text-xl font-bold tracking-tight tabular-nums ${scoreColor}`}>
+            {crit.points}
+            <span className="text-surface-600 text-sm font-semibold">/{crit.max}</span>
+          </p>
+          <span
+            className={`text-[9px] uppercase tracking-wider font-mono ${
+              passed ? 'text-success' : 'text-surface-500'
+            }`}
+          >
+            {passed ? '✓ pass' : '✗ low'}
+          </span>
+        </div>
       </div>
 
-      {/* Hairline progress bar */}
-      <div className="mt-2 h-[3px] rounded-full bg-surface-800 overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-[width] duration-300 ease-out ${
-            passed ? 'bg-success' : 'bg-surface-600/80'
-          }`}
-          style={{ width: `${pct * 100}%` }}
-        />
-      </div>
-
-      {/* Detail — collapsed: 1 line; expanded: full why + threshold */}
-      {!open ? (
-        <p className="text-[11px] text-surface-500 mt-2 truncate" title={crit.why}>
-          {crit.why}
-        </p>
-      ) : (
-        <div className="mt-2 space-y-1">
-          <p className="text-[11px] text-surface-300 leading-snug">{crit.why}</p>
+      {/* Expanded threshold detail */}
+      {open && (
+        <div className="mt-2 pt-2 border-t border-surface-700/30">
           <p className="text-[10px] text-surface-500">
             <span className="text-surface-600">Threshold · </span>{crit.threshold}
           </p>
@@ -359,8 +352,8 @@ function EpBreakdownCard({ epScore, epLoading, epError, ticker }) {
         </div>
       )}
 
-      {/* Criteria checklist — auto-fit card grid; each tile ≥220px wide so
-          they pack as tiles at any viewport. Tap a tile to expand detail. */}
+      {/* Criteria — modeled on the Sector Rotation 1-Day Heatmap.
+          Tiles are bordered + tinted by fill ratio; tap to expand. */}
       <div className="mb-3">
         <div className="flex items-baseline justify-between mb-2">
           <span className="text-[10px] uppercase tracking-wider font-bold text-surface-500">
@@ -368,10 +361,7 @@ function EpBreakdownCard({ epScore, epLoading, epError, ticker }) {
           </span>
           <span className="text-[10px] text-surface-600">Tap a tile for detail</span>
         </div>
-        <div
-          className="grid gap-2"
-          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 220px), 1fr))' }}
-        >
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-px bg-surface-700/20 rounded-lg overflow-hidden">
           {epScore.criteria.map((crit) => (
             <EpCriterionTile key={crit.name} crit={crit} />
           ))}

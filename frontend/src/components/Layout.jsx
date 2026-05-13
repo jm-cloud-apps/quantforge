@@ -118,6 +118,15 @@ export default function Layout() {
                 </svg>
               </div>
               <span className="text-surface-50">QuantForge</span>
+              {/* Build stamp — shows when this bundle was compiled. If the
+                  date here doesn't match a recent rebuild, you're seeing a
+                  stale bundle: restart Vite and hard-reload. */}
+              <span
+                className="hidden md:inline text-[9px] font-mono text-surface-600 ml-1 px-1.5 py-0.5 rounded bg-surface-800/60 border border-surface-700/40"
+                title="Frontend build timestamp"
+              >
+                build {typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'dev'}
+              </span>
             </NavLink>
 
             {/* Desktop nav */}
