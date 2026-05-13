@@ -178,39 +178,59 @@ function EpCriterionTile({ crit }) {
       type="button"
       onClick={() => setOpen((v) => !v)}
       aria-expanded={open}
-      className={`group relative text-left rounded-xl border px-3 py-2.5 transition-all duration-150 ${
+      className={`group text-left rounded-xl bg-surface-900/80 border backdrop-blur-sm p-4 transition-all duration-150 ${
         passed
-          ? 'border-accent/20 bg-accent/[0.04] hover:border-accent/40 hover:bg-accent/[0.07]'
-          : 'border-surface-700/40 bg-surface-900/40 hover:border-surface-600/60 hover:bg-surface-900/70'
+          ? 'border-success/20 hover:border-success/40'
+          : 'border-surface-700/50 hover:border-accent/20'
       }`}
     >
-      {/* Top row: name + score chip */}
-      <div className="flex items-baseline justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className={`flex-shrink-0 w-1.5 h-1.5 rounded-full ${passed ? 'bg-accent' : 'bg-surface-600'}`} />
-          <span className="text-[13px] font-medium text-surface-100 truncate">{crit.name}</span>
-        </div>
-        <span className={`text-[11px] font-mono font-semibold tabular-nums flex-shrink-0 ${
-          passed ? 'text-accent' : 'text-surface-500'
-        }`}>
-          {crit.points}
-          <span className="text-surface-600">/{crit.max}</span>
+      {/* Performance-Metrics-style label */}
+      <p className="text-[10px] font-medium text-surface-400 uppercase tracking-wider truncate">
+        {crit.name}
+      </p>
+
+      {/* Big numeric score — mirrors the Total Return / Win Rate cards */}
+      <p className={`text-2xl font-bold tracking-tight mt-1 tabular-nums ${
+        passed ? 'text-success' : crit.points > 0 ? 'text-surface-200' : 'text-surface-500'
+      }`}>
+        {crit.points}
+        <span className="text-surface-600 text-lg font-semibold">/{crit.max}</span>
+      </p>
+
+      {/* Pass / Below-threshold chip + caret */}
+      <div className="mt-1.5 flex items-center justify-between gap-2">
+        <span
+          className={`px-1.5 py-0.5 rounded text-[10px] font-medium border whitespace-nowrap ${
+            passed
+              ? 'border-success/25 bg-success/10 text-success'
+              : 'border-surface-700/50 bg-surface-800/60 text-surface-500'
+          }`}
+        >
+          {passed ? 'Pass' : 'Below threshold'}
         </span>
+        <svg
+          className={`w-3 h-3 transition-all duration-150 ${
+            open ? 'rotate-180 text-surface-400' : 'text-surface-600 group-hover:text-surface-400'
+          }`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
       </div>
 
       {/* Hairline progress bar */}
       <div className="mt-2 h-[3px] rounded-full bg-surface-800 overflow-hidden">
         <div
           className={`h-full rounded-full transition-[width] duration-300 ease-out ${
-            passed ? 'bg-accent' : 'bg-surface-600/80'
+            passed ? 'bg-success' : 'bg-surface-600/80'
           }`}
           style={{ width: `${pct * 100}%` }}
         />
       </div>
 
-      {/* Collapsed: single-line preview. Expanded: full why + threshold. */}
+      {/* Detail — collapsed: 1 line; expanded: full why + threshold */}
       {!open ? (
-        <p className="text-[11px] text-surface-500 mt-1.5 truncate" title={crit.why}>
+        <p className="text-[11px] text-surface-500 mt-2 truncate" title={crit.why}>
           {crit.why}
         </p>
       ) : (
@@ -221,7 +241,6 @@ function EpCriterionTile({ crit }) {
           </p>
         </div>
       )}
-
     </button>
   )
 }
@@ -245,10 +264,32 @@ function EpBreakdownCard({ epScore, epLoading, epError, ticker }) {
   }
 
   if (epLoading) {
+    // Skeleton mirrors the real layout so the page doesn't jump when data lands.
     return (
-      <div className="mx-5 mb-3 rounded-xl border border-surface-700/40 bg-surface-800/40 p-4 animate-pulse">
-        <div className="h-4 bg-surface-700/40 rounded w-1/3 mb-3" />
-        <div className="h-3 bg-surface-700/30 rounded w-2/3" />
+      <div className="mx-5 mb-3 rounded-xl border border-surface-700/40 bg-surface-800/40 p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <svg className="w-3.5 h-3.5 text-accent animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+          </svg>
+          <span className="text-xs font-medium text-surface-200">Scoring {ticker}…</span>
+          <span className="text-[10px] text-surface-500">
+            fetching OHLCV · ratios · float · news · earnings
+          </span>
+        </div>
+        <div
+          className="grid gap-2 animate-pulse"
+          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 220px), 1fr))' }}
+        >
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-4">
+              <div className="h-2 bg-surface-700/40 rounded w-1/2 mb-2" />
+              <div className="h-6 bg-surface-700/50 rounded w-1/3 mb-2" />
+              <div className="h-3 bg-surface-700/30 rounded w-2/3 mb-2" />
+              <div className="h-[3px] bg-surface-700/40 rounded" />
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
