@@ -168,60 +168,72 @@ function fmtFloat(val) {
   return `${(val / 1_000_000).toFixed(0)}M`
 }
 
+// Criterion tile — visually modeled on the Sector Rotation 1-Day Heatmap.
+// Each tile is bordered + colored by fill ratio, with the score as the
+// dominant element. Click to expand for the rationale + threshold.
+function epTileFill(pct, passed) {
+  if (passed) {
+    if (pct >= 0.95) return 'bg-[#10B981]/30 border-[#10B981]/40'
+    if (pct >= 0.75) return 'bg-[#10B981]/20 border-[#10B981]/25'
+    return 'bg-[#10B981]/12 border-[#10B981]/15'
+  }
+  if (pct >= 0.5) return 'bg-[#F59E0B]/12 border-[#F59E0B]/20'
+  if (pct > 0) return 'bg-surface-800/80 border-surface-700/50'
+  return 'bg-surface-900/60 border-surface-800'
+}
+
 function EpCriterionTile({ crit }) {
   const [open, setOpen] = useState(false)
   const passed = crit.passed
   const pct = crit.max > 0 ? Math.max(0, Math.min(1, crit.points / crit.max)) : 0
+  const fill = epTileFill(pct, passed)
+
+  const scoreColor = passed
+    ? 'text-success'
+    : crit.points > 0
+      ? 'text-warning'
+      : 'text-surface-500'
 
   return (
     <button
       type="button"
       onClick={() => setOpen((v) => !v)}
       aria-expanded={open}
-      className={`group relative text-left rounded-xl border px-3 py-2.5 transition-all duration-150 ${
-        passed
-          ? 'border-accent/20 bg-accent/[0.04] hover:border-accent/40 hover:bg-accent/[0.07]'
-          : 'border-surface-700/40 bg-surface-900/40 hover:border-surface-600/60 hover:bg-surface-900/70'
-      }`}
+      className={`group relative text-left p-3.5 cursor-pointer transition-all duration-150 border ${fill} hover:brightness-125`}
+      style={{ minHeight: '110px' }}
     >
-      {/* Top row: name + score chip */}
-      <div className="flex items-baseline justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className={`flex-shrink-0 w-1.5 h-1.5 rounded-full ${passed ? 'bg-accent' : 'bg-surface-600'}`} />
-          <span className="text-[13px] font-medium text-surface-100 truncate">{crit.name}</span>
+      <div className="flex flex-col justify-between h-full gap-2">
+        <div className="min-w-0">
+          <p className="text-surface-50 text-sm font-semibold leading-tight truncate">
+            {crit.name}
+          </p>
+          <p className="text-surface-400 text-[11px] leading-snug mt-0.5 line-clamp-2">
+            {open ? crit.why : crit.why}
+          </p>
         </div>
-        <span className={`text-[11px] font-mono font-semibold tabular-nums flex-shrink-0 ${
-          passed ? 'text-accent' : 'text-surface-500'
-        }`}>
-          {crit.points}
-          <span className="text-surface-600">/{crit.max}</span>
-        </span>
+        <div className="flex items-baseline justify-between gap-2">
+          <p className={`font-mono text-xl font-bold tracking-tight tabular-nums ${scoreColor}`}>
+            {crit.points}
+            <span className="text-surface-600 text-sm font-semibold">/{crit.max}</span>
+          </p>
+          <span
+            className={`text-[9px] uppercase tracking-wider font-mono ${
+              passed ? 'text-success' : 'text-surface-500'
+            }`}
+          >
+            {passed ? '✓ pass' : '✗ low'}
+          </span>
+        </div>
       </div>
 
-      {/* Hairline progress bar */}
-      <div className="mt-2 h-[3px] rounded-full bg-surface-800 overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-[width] duration-300 ease-out ${
-            passed ? 'bg-accent' : 'bg-surface-600/80'
-          }`}
-          style={{ width: `${pct * 100}%` }}
-        />
-      </div>
-
-      {/* Collapsed: single-line preview. Expanded: full why + threshold. */}
-      {!open ? (
-        <p className="text-[11px] text-surface-500 mt-1.5 truncate" title={crit.why}>
-          {crit.why}
-        </p>
-      ) : (
-        <div className="mt-2 space-y-1">
-          <p className="text-[11px] text-surface-300 leading-snug">{crit.why}</p>
+      {/* Expanded threshold detail */}
+      {open && (
+        <div className="mt-2 pt-2 border-t border-surface-700/30">
           <p className="text-[10px] text-surface-500">
             <span className="text-surface-600">Threshold · </span>{crit.threshold}
           </p>
         </div>
       )}
-
     </button>
   )
 }
@@ -245,10 +257,32 @@ function EpBreakdownCard({ epScore, epLoading, epError, ticker }) {
   }
 
   if (epLoading) {
+    // Skeleton mirrors the real layout so the page doesn't jump when data lands.
     return (
-      <div className="mx-5 mb-3 rounded-xl border border-surface-700/40 bg-surface-800/40 p-4 animate-pulse">
-        <div className="h-4 bg-surface-700/40 rounded w-1/3 mb-3" />
-        <div className="h-3 bg-surface-700/30 rounded w-2/3" />
+      <div className="mx-5 mb-3 rounded-xl border border-surface-700/40 bg-surface-800/40 p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <svg className="w-3.5 h-3.5 text-accent animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+          </svg>
+          <span className="text-xs font-medium text-surface-200">Scoring {ticker}…</span>
+          <span className="text-[10px] text-surface-500">
+            fetching OHLCV · ratios · float · news · earnings
+          </span>
+        </div>
+        <div
+          className="grid gap-2 animate-pulse"
+          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 220px), 1fr))' }}
+        >
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-4">
+              <div className="h-2 bg-surface-700/40 rounded w-1/2 mb-2" />
+              <div className="h-6 bg-surface-700/50 rounded w-1/3 mb-2" />
+              <div className="h-3 bg-surface-700/30 rounded w-2/3 mb-2" />
+              <div className="h-[3px] bg-surface-700/40 rounded" />
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
@@ -318,8 +352,8 @@ function EpBreakdownCard({ epScore, epLoading, epError, ticker }) {
         </div>
       )}
 
-      {/* Criteria checklist — auto-fit card grid; each tile ≥220px wide so
-          they pack as tiles at any viewport. Tap a tile to expand detail. */}
+      {/* Criteria — modeled on the Sector Rotation 1-Day Heatmap.
+          Tiles are bordered + tinted by fill ratio; tap to expand. */}
       <div className="mb-3">
         <div className="flex items-baseline justify-between mb-2">
           <span className="text-[10px] uppercase tracking-wider font-bold text-surface-500">
@@ -327,10 +361,7 @@ function EpBreakdownCard({ epScore, epLoading, epError, ticker }) {
           </span>
           <span className="text-[10px] text-surface-600">Tap a tile for detail</span>
         </div>
-        <div
-          className="grid gap-2"
-          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 220px), 1fr))' }}
-        >
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-px bg-surface-700/20 rounded-lg overflow-hidden">
           {epScore.criteria.map((crit) => (
             <EpCriterionTile key={crit.name} crit={crit} />
           ))}

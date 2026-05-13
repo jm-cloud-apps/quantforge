@@ -2723,25 +2723,25 @@ async def criteria_check(body: dict):
         except Exception as e:
             context_parts.append(f"(News fetch failed: {str(e)})\n")
 
-    # 2. Fetch price/volume data from Finnhub (90 days of daily candles)
-    if finnhub_key:
+    # 2. Fetch price/volume data via the configured data provider (Massive
+    # primary, yfinance fallback) — Finnhub's free-tier /stock/candle returns
+    # 403, so this path no longer depends on a Finnhub key at all.
+    try:
+        from screener.qullamaggie.providers import get_provider as _get_data_provider
+        _dp = _get_data_provider()
+        df = _dp.fetch(ticker, lookback_days=365)
         try:
-            now_ts = int(datetime.now().timestamp())
-            from_ts = int((datetime.now() - timedelta(days=365)).timestamp())
-            resp = httpx.get(
-                f"{FINNHUB_BASE_URL}/stock/candle",
-                params={"symbol": ticker, "resolution": "D", "from": from_ts, "to": now_ts, "token": finnhub_key},
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                candle = resp.json()
-                if candle.get("s") == "ok" and candle.get("c"):
-                    closes = candle["c"]
-                    volumes = candle.get("v", [])
-                    highs = candle.get("h", [])
-                    lows = candle.get("l", [])
-                    timestamps = candle.get("t", [])
-
+            _dp.close()
+        except Exception:
+            pass
+        if df is not None and len(df) >= 2:
+            closes = [float(c) for c in df["close"].tolist()]
+            volumes = [float(v) for v in df["volume"].tolist()]
+            highs = [float(h) for h in df["high"].tolist()]
+            lows = [float(l) for l in df["low"].tolist()]
+            timestamps = [int(d.timestamp()) for d in df.index]
+            if True:
+                if True:
                     current_price = closes[-1] if closes else None
                     prev_close = closes[-2] if len(closes) >= 2 else None
 
@@ -2822,8 +2822,8 @@ async def criteria_check(body: dict):
                         context_parts.append(f"- 52-Week Range: {range_1y:.1f}%")
 
                     context_parts.append("")
-        except Exception as e:
-            context_parts.append(f"(Price data fetch failed: {str(e)})\n")
+    except Exception as e:
+        context_parts.append(f"(Price data fetch failed: {str(e)})\n")
 
     # 3. Fetch earnings data from Finnhub
     if finnhub_key:
