@@ -117,16 +117,7 @@ export default function Layout() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                 </svg>
               </div>
-              <span className="text-surface-50">QuantForge</span>
-              {/* Build stamp — shows when this bundle was compiled. If the
-                  date here doesn't match a recent rebuild, you're seeing a
-                  stale bundle: restart Vite and hard-reload. */}
-              <span
-                className="hidden md:inline text-[9px] font-mono text-surface-600 ml-1 px-1.5 py-0.5 rounded bg-surface-800/60 border border-surface-700/40"
-                title="Frontend build timestamp"
-              >
-                build {typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'dev'}
-              </span>
+              <span className="text-surface-50 whitespace-nowrap">QuantForge</span>
             </NavLink>
 
             {/* Desktop nav */}
@@ -137,7 +128,7 @@ export default function Layout() {
                   to={path}
                   end={path === '/'}
                   className={({ isActive }) =>
-                    `px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-200 flex items-center gap-2 ${
+                    `px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-200 flex items-center gap-2 whitespace-nowrap ${
                       isActive
                         ? 'bg-accent/10 text-accent border border-accent/20'
                         : 'text-surface-400 hover:text-surface-200 hover:bg-surface-800/60 border border-transparent'
@@ -148,6 +139,15 @@ export default function Layout() {
                   {label}
                 </NavLink>
               ))}
+              {/* Build stamp — sits at the end of the nav, well out of the
+                  way. If the timestamp doesn't match a recent rebuild,
+                  you're on a stale bundle: restart Vite and hard-reload. */}
+              <span
+                className="hidden xl:inline text-[9px] font-mono text-surface-600 ml-2 px-1.5 py-0.5 rounded bg-surface-800/60 border border-surface-700/40 whitespace-nowrap"
+                title="Frontend build timestamp"
+              >
+                {typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'dev'}
+              </span>
             </nav>
 
             {/* Mobile hamburger */}

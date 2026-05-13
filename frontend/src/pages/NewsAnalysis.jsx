@@ -168,25 +168,14 @@ function fmtFloat(val) {
   return `${(val / 1_000_000).toFixed(0)}M`
 }
 
-// Criterion tile — visually modeled on the Sector Rotation 1-Day Heatmap.
-// Each tile is bordered + colored by fill ratio, with the score as the
-// dominant element. Click to expand for the rationale + threshold.
-function epTileFill(pct, passed) {
-  if (passed) {
-    if (pct >= 0.95) return 'bg-[#10B981]/30 border-[#10B981]/40'
-    if (pct >= 0.75) return 'bg-[#10B981]/20 border-[#10B981]/25'
-    return 'bg-[#10B981]/12 border-[#10B981]/15'
-  }
-  if (pct >= 0.5) return 'bg-[#F59E0B]/12 border-[#F59E0B]/20'
-  if (pct > 0) return 'bg-surface-800/80 border-surface-700/50'
-  return 'bg-surface-900/60 border-surface-800'
-}
-
+// EP criterion tile — same surface treatment as PerformanceMetrics cards:
+// subtle rounded surface, hairline border, calm typography. The accent is
+// applied minimally — green when passed, amber when partial, muted when
+// failing — via the progress bar and score color, not a heat-map background.
 function EpCriterionTile({ crit }) {
   const [open, setOpen] = useState(false)
   const passed = crit.passed
   const pct = crit.max > 0 ? Math.max(0, Math.min(1, crit.points / crit.max)) : 0
-  const fill = epTileFill(pct, passed)
 
   const scoreColor = passed
     ? 'text-success'
@@ -194,43 +183,66 @@ function EpCriterionTile({ crit }) {
       ? 'text-warning'
       : 'text-surface-500'
 
+  const barColor = passed
+    ? 'bg-success'
+    : crit.points > 0
+      ? 'bg-warning/70'
+      : 'bg-surface-700'
+
+  const hoverBorder = passed
+    ? 'hover:border-success/30'
+    : crit.points > 0
+      ? 'hover:border-warning/30'
+      : 'hover:border-surface-600/60'
+
   return (
     <button
       type="button"
       onClick={() => setOpen((v) => !v)}
       aria-expanded={open}
-      className={`group relative text-left p-3.5 cursor-pointer transition-all duration-150 border ${fill} hover:brightness-125`}
-      style={{ minHeight: '110px' }}
+      className={`group relative text-left rounded-xl bg-surface-900/60 border border-surface-700/40 backdrop-blur-sm p-4 transition-all duration-200 ${hoverBorder}`}
     >
-      <div className="flex flex-col justify-between h-full gap-2">
-        <div className="min-w-0">
-          <p className="text-surface-50 text-sm font-semibold leading-tight truncate">
-            {crit.name}
-          </p>
-          <p className="text-surface-400 text-[11px] leading-snug mt-0.5 line-clamp-2">
-            {open ? crit.why : crit.why}
-          </p>
-        </div>
-        <div className="flex items-baseline justify-between gap-2">
-          <p className={`font-mono text-xl font-bold tracking-tight tabular-nums ${scoreColor}`}>
-            {crit.points}
-            <span className="text-surface-600 text-sm font-semibold">/{crit.max}</span>
-          </p>
-          <span
-            className={`text-[9px] uppercase tracking-wider font-mono ${
-              passed ? 'text-success' : 'text-surface-500'
-            }`}
-          >
-            {passed ? '✓ pass' : '✗ low'}
-          </span>
-        </div>
+      {/* Label — matches the uppercase tracking-wider style used on metric cards */}
+      <p className="text-[10px] font-medium text-surface-400 uppercase tracking-wider truncate">
+        {crit.name}
+      </p>
+
+      {/* Score — calm typography, color carries the signal */}
+      <div className="mt-1.5 flex items-baseline gap-2">
+        <span className={`text-2xl font-bold tracking-tight tabular-nums leading-none ${scoreColor}`}>
+          {crit.points}
+        </span>
+        <span className="text-sm text-surface-600 font-semibold tabular-nums">
+          / {crit.max}
+        </span>
+        <span
+          className={`ml-auto text-[10px] font-medium ${
+            passed ? 'text-success/80' : 'text-surface-500'
+          }`}
+        >
+          {passed ? 'Pass' : crit.points > 0 ? 'Partial' : '—'}
+        </span>
       </div>
 
-      {/* Expanded threshold detail */}
-      {open && (
-        <div className="mt-2 pt-2 border-t border-surface-700/30">
+      {/* Hairline progress bar — the only chromatic accent */}
+      <div className="mt-3 h-[2px] rounded-full bg-surface-800 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-[width] duration-500 ease-out ${barColor}`}
+          style={{ width: `${pct * 100}%` }}
+        />
+      </div>
+
+      {/* Reason — single quiet line, full detail on tap */}
+      {!open ? (
+        <p className="text-[11px] text-surface-500 mt-3 truncate" title={crit.why}>
+          {crit.why}
+        </p>
+      ) : (
+        <div className="mt-3 space-y-1.5">
+          <p className="text-[11px] text-surface-200 leading-snug">{crit.why}</p>
           <p className="text-[10px] text-surface-500">
-            <span className="text-surface-600">Threshold · </span>{crit.threshold}
+            <span className="text-surface-600">Threshold · </span>
+            {crit.threshold}
           </p>
         </div>
       )}
@@ -352,38 +364,51 @@ function EpBreakdownCard({ epScore, epLoading, epError, ticker }) {
         </div>
       )}
 
-      {/* Criteria — modeled on the Sector Rotation 1-Day Heatmap.
-          Tiles are bordered + tinted by fill ratio; tap to expand. */}
+      {/* Criteria — auto-fit tile grid with same surface treatment as
+          PerformanceMetrics cards. Tap a tile to expand for detail. */}
       <div className="mb-3">
-        <div className="flex items-baseline justify-between mb-2">
-          <span className="text-[10px] uppercase tracking-wider font-bold text-surface-500">
-            Setup checklist · {epScore.criteria.length} criteria
+        <div className="flex items-baseline justify-between mb-3">
+          <span className="text-[10px] uppercase tracking-wider font-medium text-surface-500">
+            Setup Checklist
+            <span className="text-surface-700 mx-1.5">·</span>
+            <span className="text-surface-600 normal-case tracking-normal">{epScore.criteria.length} criteria</span>
           </span>
-          <span className="text-[10px] text-surface-600">Tap a tile for detail</span>
+          <span className="text-[10px] text-surface-600">Tap to expand</span>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-px bg-surface-700/20 rounded-lg overflow-hidden">
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 240px), 1fr))' }}
+        >
           {epScore.criteria.map((crit) => (
             <EpCriterionTile key={crit.name} crit={crit} />
           ))}
         </div>
       </div>
 
-      {/* Raw metrics grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
-        {[
-          { label: 'Gap', val: epScore.gap_pct != null ? `${epScore.gap_pct >= 0 ? '+' : ''}${epScore.gap_pct.toFixed(1)}%` : '—' },
-          { label: 'Vol Ratio', val: epScore.volume_ratio != null ? `${epScore.volume_ratio.toFixed(1)}×` : '—' },
-          { label: '$ Volume', val: fmtMillions(epScore.dollar_volume) },
-          { label: 'ADR (20d)', val: epScore.adr_pct != null ? `${epScore.adr_pct.toFixed(1)}%` : '—' },
-          { label: 'Float', val: fmtFloat(epScore.float_shares) },
-          { label: 'Mkt Cap', val: fmtMillions(epScore.market_cap) },
-          { label: 'Prior 20d', val: epScore.prior_move_pct != null ? `${epScore.prior_move_pct >= 0 ? '+' : ''}${epScore.prior_move_pct.toFixed(1)}%` : '—' },
-        ].map(({ label, val }) => (
-          <div key={label} className="rounded-lg bg-surface-900/60 border border-surface-700/30 px-2.5 py-1.5">
-            <p className="text-[9px] text-surface-500 uppercase tracking-wider">{label}</p>
-            <p className="text-xs font-mono font-semibold text-surface-100">{val}</p>
-          </div>
-        ))}
+      {/* Raw metrics — secondary detail strip, set apart from the checklist */}
+      <div className="mb-3">
+        <p className="text-[10px] uppercase tracking-wider font-medium text-surface-500 mb-2">
+          Snapshot
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+          {[
+            { label: 'Gap', val: epScore.gap_pct != null ? `${epScore.gap_pct >= 0 ? '+' : ''}${epScore.gap_pct.toFixed(1)}%` : '—' },
+            { label: 'Vol Ratio', val: epScore.volume_ratio != null ? `${epScore.volume_ratio.toFixed(1)}×` : '—' },
+            { label: '$ Volume', val: fmtMillions(epScore.dollar_volume) },
+            { label: 'ADR (20d)', val: epScore.adr_pct != null ? `${epScore.adr_pct.toFixed(1)}%` : '—' },
+            { label: 'Float', val: fmtFloat(epScore.float_shares) },
+            { label: 'Mkt Cap', val: fmtMillions(epScore.market_cap) },
+            { label: 'Prior 20d', val: epScore.prior_move_pct != null ? `${epScore.prior_move_pct >= 0 ? '+' : ''}${epScore.prior_move_pct.toFixed(1)}%` : '—' },
+          ].map(({ label, val }) => (
+            <div
+              key={label}
+              className="rounded-lg bg-surface-900/40 border border-surface-700/30 px-3 py-2"
+            >
+              <p className="text-[9px] text-surface-500 uppercase tracking-wider">{label}</p>
+              <p className="text-sm font-mono font-semibold text-surface-100 mt-0.5 tabular-nums">{val}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Ask Claude */}
