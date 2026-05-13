@@ -19,7 +19,20 @@ from dotenv import load_dotenv
 from backtester import BacktestEngine, fetch_ohlcv, get_available_strategies
 from backtester.breakout_engine import run_breakout_backtest
 
-load_dotenv()
+# Load .env from the backend directory first (where the file template lives),
+# then fall back to the project-root .env. Either location works without the
+# user needing to remember which one.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_HERE, ".env"))
+load_dotenv(os.path.join(os.path.dirname(_HERE), ".env"), override=False)
+
+# One-shot startup log so it's easy to see which providers are wired.
+print(
+    f"[startup] MASSIVE_API_KEY={'set' if os.getenv('MASSIVE_API_KEY') else 'MISSING'} "
+    f"FINNHUB_API_KEY={'set' if os.getenv('FINNHUB_API_KEY') else 'missing'} "
+    f"QF_DATA_PROVIDER={os.getenv('QF_DATA_PROVIDER', 'massive')} "
+    f"QF_NEWS_PROVIDER={os.getenv('QF_NEWS_PROVIDER', 'massive')}"
+)
 
 # In-memory cache for trading analysis data
 _trades_cache = {
