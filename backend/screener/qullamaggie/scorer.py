@@ -62,7 +62,7 @@ class Candidate:
 
 
 def _build_breakdown(mode: str, leader: float, thrust: float, base: float,
-                     pivot: float, emerging: bool) -> list[dict]:
+                     pivot: float, emerging: bool, rvol: float | None = None) -> list[dict]:
     """Return [{component, weight, value (0-1), points}] explaining the score."""
     def row(name, weight, value):
         return {
@@ -80,6 +80,10 @@ def _build_breakdown(mode: str, leader: float, thrust: float, base: float,
             row("Relative strength", 30, leader),
             row("Early base", 10, 1.0 if emerging else 0.0),
         ]
+    if mode == "volume":
+        # rvol of 5× ⇒ full 100; below that scales linearly. Capped at 1.0.
+        norm = min(float(rvol or 0) / 5.0, 1.0)
+        return [row(f"Volume vs 50d avg ({(rvol or 0):.1f}×)", 100, norm)]
     return [
         row("Relative strength", W_LEADER, leader),
         row("Parent thrust", W_THRUST, thrust),
@@ -141,11 +145,23 @@ def _ohlcv_tail(df: pd.DataFrame, n: int = 120) -> list[dict]:
     ]
 
 
+def _rvol(df: pd.DataFrame, window: int = 50) -> float | None:
+    """Latest volume relative to the prior `window`-day average."""
+    if df is None or len(df) < window + 1:
+        return None
+    vols = df["volume"].tail(window + 1).tolist()
+    avg = float(np.mean(vols[:-1]))
+    if avg <= 0:
+        return None
+    return float(vols[-1]) / avg
+
+
 def rank_candidates(
     frames: dict[str, pd.DataFrame],
     mode: str = "breakout",
     min_dollar_vol: float = 5_000_000,
     min_adr: float = DEFAULT_MIN_ADR,
+    min_rvol: float = 1.5,
 ) -> list[dict]:
     """Score every symbol; return list sorted descending by score."""
     # Pass 1: liquidity + ADR gate + trailing returns
@@ -159,10 +175,20 @@ def rank_candidates(
         if mode in ("breakout", "emerging") and (adr is None or adr < min_adr):
             continue
         rets = C.trailing_returns(df)
-        if rets["ret_3m"] is None:
+        # `volume` mode doesn't require 3M history — we just need today's
+        # bar relative to its own 50d average.
+        if mode != "volume" and rets["ret_3m"] is None:
             continue
-        avg_ret = float(np.mean([v for v in rets.values() if v is not None]))
-        rows.append({"symbol": sym, "df": df, "adr": adr, "avg_ret": avg_ret, **rets})
+        avg_ret = float(np.mean([v for v in rets.values() if v is not None])) if any(v is not None for v in rets.values()) else 0.0
+
+        if mode == "volume":
+            rvol_today = _rvol(df, window=50)
+            if rvol_today is None or rvol_today < min_rvol:
+                continue
+            rows.append({"symbol": sym, "df": df, "adr": adr, "avg_ret": avg_ret,
+                         "rvol_today": rvol_today, **rets})
+        else:
+            rows.append({"symbol": sym, "df": df, "adr": adr, "avg_ret": avg_ret, **rets})
 
     if not rows:
         return []
@@ -190,6 +216,10 @@ def rank_candidates(
                 60 * thrust["score"] + 30 * leader + 10 * (1.0 if emerging else 0.0),
                 1,
             )
+        elif mode == "volume":
+            # Score scales with relative volume — 5× avg ⇒ 100 points.
+            rv = r.get("rvol_today") or 1.0
+            score = round(min(rv * 20.0, 100.0), 1)
         else:  # breakout
             score = round(
                 W_LEADER * leader + W_THRUST * thrust["score"]
@@ -214,7 +244,7 @@ def rank_candidates(
             pivot=round(pivot["pivot"], 2) if pivot.get("pivot") else None,
             distance_pct=pivot.get("distance_pct"),
             adr_pct=r["adr"],
-            rvol=bo.get("rvol"),
+            rvol=r.get("rvol_today") if mode == "volume" else bo.get("rvol"),
             base_length=base.get("base_length"),
             base_top=round(base["base_top"], 2) if base.get("base_top") else None,
             base_bottom=round(base["base_bottom"], 2) if base.get("base_bottom") else None,
@@ -228,6 +258,7 @@ def rank_candidates(
             score_breakdown=_build_breakdown(
                 mode, leader, float(thrust["score"]), float(base.get("score", 0)),
                 float(pivot["score"]), emerging,
+                rvol=r.get("rvol_today"),
             ),
         ))
 
