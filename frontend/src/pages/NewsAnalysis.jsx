@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { fetchNews, getNewsCache, saveNewsCache, deleteNewsCacheEntry, clearNewsCache, getEpScore, fetchCriteriaCheck } from '../api/news'
+import { fetchNews, getNewsCache, saveNewsCache, deleteNewsCacheEntry, clearNewsCache, getEpScore, fetchCriteriaCheck, getPremarket, refreshNewsCachePrices } from '../api/news'
 
 function formatTimestamp(iso) {
   const d = new Date(iso)
@@ -250,6 +250,117 @@ function EpCriterionTile({ crit }) {
     </button>
   )
 }
+
+// ─── Pre-Market snapshot card ──────────────────────────────────────────────
+// Sits alongside the EP score; one Massive snapshot call gives latest
+// minute-bar price + accumulated session volume + change vs prev close.
+// Useful pre-open: shows how a name is gapping before 9:30am ET.
+function PreMarketCard({ ticker }) {
+  const [snap, setSnap] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [lastFetched, setLastFetched] = useState(null)
+
+  const load = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await getPremarket(ticker)
+      setSnap(data)
+      setLastFetched(Date.now())
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [ticker]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (loading && !snap) {
+    return (
+      <div className="mx-5 mb-3 rounded-xl border border-surface-700/40 bg-surface-800/40 p-4 animate-pulse">
+        <div className="h-3 bg-surface-700/40 rounded w-1/4 mb-2" />
+        <div className="h-6 bg-surface-700/50 rounded w-1/3" />
+      </div>
+    )
+  }
+
+  if (error || !snap) {
+    return null  // Quietly hide on failure — Massive can be flaky in extended hours
+  }
+
+  const sessionLabel = {
+    'pre-market': 'Pre-Market',
+    extended: 'Extended Hours',
+    regular: 'Regular Session',
+    closed: 'Market Closed',
+  }[snap.session] || snap.session
+
+  const sessionTint =
+    snap.session === 'extended' || snap.session === 'pre-market'
+      ? 'border-accent/25 bg-accent/[0.04]'
+      : 'border-surface-700/40 bg-surface-900/60'
+
+  const fmtPriceLocal = (v) => (v == null ? '—' : `$${v.toFixed(2)}`)
+  const fmtChange = (v) =>
+    v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
+  const fmtVol = (v) =>
+    v == null ? '—'
+      : v >= 1e6 ? `${(v / 1e6).toFixed(2)}M`
+      : v >= 1e3 ? `${(v / 1e3).toFixed(1)}K`
+      : `${v.toFixed(0)}`
+
+  const changeColor =
+    snap.change_pct == null ? 'text-surface-200'
+    : snap.change_pct > 0 ? 'text-success'
+    : snap.change_pct < 0 ? 'text-danger'
+    : 'text-surface-300'
+
+  return (
+    <div className={`mx-5 mb-3 rounded-xl border backdrop-blur-sm p-4 ${sessionTint}`}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span className="text-xs font-semibold text-surface-100">{sessionLabel}</span>
+          {lastFetched && (
+            <span className="text-[10px] text-surface-500">
+              · {new Date(lastFetched).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={load}
+          disabled={loading}
+          className="text-[10px] text-surface-500 hover:text-surface-200 transition-colors disabled:opacity-50"
+          title="Refresh snapshot"
+        >
+          {loading ? '…' : '↻ Refresh'}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {[
+          { label: 'Last',       val: fmtPriceLocal(snap.last_price), cls: 'text-surface-100' },
+          { label: 'Change',     val: fmtChange(snap.change_pct),     cls: changeColor },
+          { label: 'Prev Close', val: fmtPriceLocal(snap.prev_close), cls: 'text-surface-300' },
+          { label: 'Session Vol', val: fmtVol(snap.minute_av || snap.day_volume), cls: 'text-surface-200' },
+        ].map(({ label, val, cls }) => (
+          <div
+            key={label}
+            className="rounded-lg bg-surface-900/40 border border-surface-700/30 px-3 py-2"
+          >
+            <p className="text-[9px] text-surface-500 uppercase tracking-wider">{label}</p>
+            <p className={`text-sm font-mono font-semibold mt-0.5 tabular-nums ${cls}`}>{val}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 
 function EpBreakdownCard({ epScore, epLoading, epError, ticker }) {
   const [claudeResult, setClaudeResult] = useState(null)
@@ -592,6 +703,9 @@ function TickerSection({ sym, articles, earningsData, epScore, epLoading, epErro
           open ? 'max-h-[6000px] opacity-100' : 'max-h-0 opacity-0'
         }`}
       >
+        {/* Pre-market / extended-hours snapshot — sits above the EP card */}
+        <PreMarketCard ticker={sym} />
+
         {/* Qullamaggie EP breakdown — top of body */}
         <EpBreakdownCard
           epScore={epScore}
@@ -1165,6 +1279,37 @@ const TABS = [
   { id: 'criteria', label: 'Criteria' },
 ]
 
+// Recent-searches list cap. Backend persists up to NEWS_CACHE_MAX (500); the
+// UI shows the top RECENT_LIMIT scrollable entries.
+const RECENT_LIMIT = 150
+
+// Compute the avg return since the search was made, comparing the snapshot
+// price stored on the cache entry to the latest live price the user fetched
+// via the "Refresh prices" button. Returns `null` when not enough data is
+// available — we don't synthesize numbers from partial coverage.
+function computeReturnSinceSearch(entry, livePrices) {
+  const snap = entry?.snapshot_prices
+  if (!snap || !livePrices || Object.keys(livePrices).length === 0) return null
+  const pairs = []
+  for (const sym of entry.tickers || []) {
+    const then = snap[sym]
+    const now = livePrices[sym]?.price
+    if (then && now && then > 0) pairs.push((now / then - 1) * 100)
+  }
+  if (pairs.length === 0) return null
+  return pairs.reduce((a, b) => a + b, 0) / pairs.length
+}
+
+function ReturnSinceChip({ value }) {
+  if (value == null) return null
+  const cls = value > 0 ? 'text-success' : value < 0 ? 'text-danger' : 'text-surface-400'
+  return (
+    <span className={`text-[10px] font-mono tabular-nums font-semibold ${cls}`} title="Average return across tickers since this search">
+      {value >= 0 ? '+' : ''}{value.toFixed(2)}%
+    </span>
+  )
+}
+
 export default function NewsAnalysis() {
   const [activeTab, setActiveTab] = useState('news')
   const [query, setQuery] = useState('')
@@ -1177,6 +1322,11 @@ export default function NewsAnalysis() {
   const [error, setError] = useState(null)
   const [searched, setSearched] = useState(false)
   const [history, setHistory] = useState([])
+  // Latest-price map keyed by symbol — populated by "Refresh prices" so the
+  // recent-searches list can show return-since-search without auto-polling.
+  const [livePrices, setLivePrices] = useState({})
+  const [livePricesAt, setLivePricesAt] = useState(null)
+  const [refreshingPrices, setRefreshingPrices] = useState(false)
 
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -1276,6 +1426,27 @@ export default function NewsAnalysis() {
     const tickers = query.trim().split(/[\s,]+/).filter(Boolean)
     if (tickers.length === 0) return
     await doFreshSearch(tickers)
+  }
+
+  // Manual refresh — fetches the latest price for every ticker in the visible
+  // recent-searches list in a single Massive bulk-snapshot call. Triggered
+  // only by user click so we don't hammer the API.
+  async function handleRefreshPrices() {
+    if (history.length === 0) return
+    const allSymbols = Array.from(
+      new Set(history.slice(0, RECENT_LIMIT).flatMap((h) => h.tickers || []))
+    )
+    if (allSymbols.length === 0) return
+    setRefreshingPrices(true)
+    try {
+      const res = await refreshNewsCachePrices(allSymbols)
+      setLivePrices(res.prices || {})
+      setLivePricesAt(res.as_of ? new Date(res.as_of).getTime() : Date.now())
+    } catch (err) {
+      console.error('Refresh prices failed', err)
+    } finally {
+      setRefreshingPrices(false)
+    }
   }
 
   // Group articles by symbol
@@ -1448,17 +1619,34 @@ export default function NewsAnalysis() {
             <div className="rounded-xl bg-surface-900/60 border border-surface-700/30 px-4 py-3">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[11px] text-surface-500 uppercase tracking-wider font-medium">
-                  Recent {history.length > 20 ? `(showing 20 of ${history.length})` : ''}
+                  Recent {history.length > RECENT_LIMIT ? `(showing ${RECENT_LIMIT} of ${history.length})` : `(${history.length})`}
                 </span>
-                <button
-                  onClick={async () => { await clearNewsCache(); setHistory([]) }}
-                  className="text-[11px] text-surface-600 hover:text-surface-400 transition-colors"
-                >
-                  Clear
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleRefreshPrices}
+                    disabled={refreshingPrices}
+                    className="text-[11px] text-surface-500 hover:text-accent transition-colors disabled:opacity-50"
+                    title="Bulk-fetch latest price for every ticker in the list"
+                  >
+                    {refreshingPrices ? 'Refreshing…' : '↻ Refresh prices'}
+                  </button>
+                  {livePricesAt && (
+                    <span className="text-[10px] text-surface-600">
+                      {new Date(livePricesAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
+                  <button
+                    onClick={async () => { await clearNewsCache(); setHistory([]) }}
+                    className="text-[11px] text-surface-600 hover:text-surface-400 transition-colors"
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
-              <div className="space-y-1 max-h-96 overflow-y-auto">
-                {history.slice(0, 20).map((entry, i) => (
+              <div className="space-y-1 max-h-[480px] overflow-y-auto">
+                {history.slice(0, RECENT_LIMIT).map((entry, i) => {
+                  const retSince = computeReturnSinceSearch(entry, livePrices)
+                  return (
                   <button
                     key={`${entry.tickers.join(',')}-${i}`}
                     onClick={() => searchTickers(entry.tickers, entry)}
@@ -1476,6 +1664,7 @@ export default function NewsAnalysis() {
                           {entry.articleCount} {entry.articleCount === 1 ? 'article' : 'articles'}
                         </span>
                       )}
+                      <ReturnSinceChip value={retSince} />
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0 ml-3">
                       <span className="text-[10px] text-surface-600">{formatTimestamp(entry.timestamp)}</span>
@@ -1494,7 +1683,8 @@ export default function NewsAnalysis() {
                       </button>
                     </div>
                   </button>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
@@ -1510,17 +1700,36 @@ export default function NewsAnalysis() {
                       <svg className="w-4 h-4 text-surface-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                      <span className="text-xs text-surface-400 font-medium">Recent Searches</span>
+                      <span className="text-xs text-surface-400 font-medium">
+                        Recent Searches {history.length > RECENT_LIMIT ? `(showing ${RECENT_LIMIT} of ${history.length})` : `(${history.length})`}
+                      </span>
                     </div>
-                    <button
-                      onClick={async () => { await clearNewsCache(); setHistory([]) }}
-                      className="text-[11px] text-surface-600 hover:text-surface-400 transition-colors"
-                    >
-                      Clear All
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={handleRefreshPrices}
+                        disabled={refreshingPrices}
+                        className="text-[11px] text-surface-500 hover:text-accent transition-colors disabled:opacity-50"
+                        title="Bulk-fetch latest price for every ticker — one Massive snapshot call"
+                      >
+                        {refreshingPrices ? 'Refreshing…' : '↻ Refresh prices'}
+                      </button>
+                      {livePricesAt && (
+                        <span className="text-[10px] text-surface-600">
+                          {new Date(livePricesAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                      <button
+                        onClick={async () => { await clearNewsCache(); setHistory([]) }}
+                        className="text-[11px] text-surface-600 hover:text-surface-400 transition-colors"
+                      >
+                        Clear All
+                      </button>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    {history.map((entry, i) => (
+                  <div className="space-y-1 max-h-[600px] overflow-y-auto">
+                    {history.slice(0, RECENT_LIMIT).map((entry, i) => {
+                      const retSince = computeReturnSinceSearch(entry, livePrices)
+                      return (
                       <button
                         key={`${entry.tickers.join(',')}-${i}`}
                         onClick={() => searchTickers(entry.tickers, entry)}
@@ -1538,6 +1747,7 @@ export default function NewsAnalysis() {
                               {entry.articleCount} {entry.articleCount === 1 ? 'article' : 'articles'}
                             </span>
                           )}
+                          <ReturnSinceChip value={retSince} />
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0 ml-3">
                           <span className="text-[11px] text-surface-600">{formatTimestamp(entry.timestamp)}</span>
@@ -1556,7 +1766,8 @@ export default function NewsAnalysis() {
                           </button>
                         </div>
                       </button>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               )}
