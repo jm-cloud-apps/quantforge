@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { fetchNews, getNewsCache, saveNewsCache, deleteNewsCacheEntry, clearNewsCache, getEpScore, fetchCriteriaCheck } from '../api/news'
-import WatchlistsBar from '../components/WatchlistsBar'
 
 function formatTimestamp(iso) {
   const d = new Date(iso)
@@ -1326,16 +1325,6 @@ export default function NewsAnalysis() {
       {/* ── News Tab ── */}
       {activeTab === 'news' && (
         <>
-          {/* Watchlists bar */}
-          <WatchlistsBar
-            currentTickers={tickers}
-            onActivate={(syms) => {
-              if (!syms || syms.length === 0) return
-              setQuery(syms.join(' '))
-              doFreshSearch(syms)
-            }}
-          />
-
           {/* Search bar */}
           <form onSubmit={handleSearch} className="flex gap-3 items-center">
             <div className="relative max-w-lg flex-1">

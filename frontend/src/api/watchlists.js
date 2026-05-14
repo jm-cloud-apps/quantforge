@@ -45,3 +45,7 @@ export async function removeSymbol(id, symbol) {
     method: 'DELETE',
   }))
 }
+
+export async function benchmarkWatchlist(id) {
+  return handle(await fetch(`${API_BASE}/${id}/benchmark`))
+}
