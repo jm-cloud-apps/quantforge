@@ -2548,6 +2548,57 @@ def get_stock_news(
 
 
 # ---------------------------------------------------------------------------
+# Pre-market snapshot — surfaces extended-hours price + volume + gap vs prev
+# close. Designed to drop alongside the EP score card on /news.
+# ---------------------------------------------------------------------------
+
+def _classify_session(snap: dict | None) -> str:
+    """Heuristically classify which session a snapshot reflects.
+
+    Massive's snapshot doesn't carry a session flag, but we can infer:
+    - day_open == 0 + minute bar exists  → pre-market (or after-hours later in day)
+    - day_open > 0                       → regular session (or just after close)
+    - no minute bar at all               → market closed, weekend, or stale
+    """
+    if not snap:
+        return "closed"
+    if snap.get("day_open"):
+        return "regular"
+    if snap.get("minute_close") is not None:
+        # Without a session timestamp we can't tell pre-market from post-market
+        # by data alone, but the UI labels it as "extended hours" which covers both.
+        return "extended"
+    return "closed"
+
+
+@app.get("/api/analysis/premarket/{ticker}")
+def get_premarket(ticker: str):
+    """Pre-market / extended-hours snapshot for a single ticker."""
+    ticker = ticker.strip().upper()
+    if not ticker:
+        raise HTTPException(status_code=400, detail="Ticker is required")
+    try:
+        from screener.qullamaggie.providers.massive import MassiveProvider
+        mp = MassiveProvider()
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Massive provider unavailable: {e}",
+        )
+    try:
+        snap = mp.fetch_snapshot(ticker)
+    finally:
+        try:
+            mp.close()
+        except Exception:
+            pass
+    if not snap:
+        raise HTTPException(status_code=404, detail=f"No snapshot for '{ticker}'")
+    snap["session"] = _classify_session(snap)
+    return snap
+
+
+# ---------------------------------------------------------------------------
 # News Search Cache — stores last 500 searches with full article data
 # ---------------------------------------------------------------------------
 NEWS_CACHE_PATH = os.path.join(os.path.dirname(__file__), "data", "news_cache.json")
@@ -2572,12 +2623,49 @@ def get_news_cache():
     return {"history": _load_news_cache()}
 
 
+def _bulk_snapshot_prices(symbols: list[str]) -> dict[str, dict]:
+    """Best-effort bulk snapshot — one Massive call serves the prices for
+    every symbol. Returns a {sym: {price, change_pct, prev_close}} mapping.
+    On failure returns an empty dict; callers should treat as best-effort.
+    """
+    if not symbols:
+        return {}
+    try:
+        from screener.qullamaggie.providers.massive import MassiveProvider
+        mp = MassiveProvider()
+    except Exception:
+        return {}
+    try:
+        snaps = mp.fetch_snapshots(symbols)
+    finally:
+        try:
+            mp.close()
+        except Exception:
+            pass
+    return {
+        sym: {
+            "price": s.get("last_price"),
+            "change_pct": s.get("change_pct"),
+            "prev_close": s.get("prev_close"),
+        }
+        for sym, s in snaps.items()
+    }
+
+
 @app.post("/api/news/cache")
 def save_news_cache_entry(body: dict = Body(...)):
-    """Save a search result to cache. Body: {tickers, articles, earnings}"""
+    """Save a search result to cache. Body: {tickers, articles, earnings}
+
+    On save we also snapshot the latest price for each ticker so the
+    history list can compute return-since-search later.
+    """
     tickers = [t.upper() for t in body.get("tickers", [])]
     if not tickers:
         raise HTTPException(status_code=400, detail="No tickers provided")
+
+    # Snapshot prices once at search time (single Massive call for all tickers).
+    snap = _bulk_snapshot_prices(tickers)
+    snapshot_prices = {sym: snap.get(sym, {}).get("price") for sym in tickers}
 
     entry = {
         "tickers": tickers,
@@ -2586,6 +2674,7 @@ def save_news_cache_entry(body: dict = Body(...)):
         "epScores": body.get("epScores", {}),
         "articleCount": len(body.get("articles", [])),
         "timestamp": datetime.now().isoformat(),
+        "snapshot_prices": snapshot_prices,
     }
 
     cache = _load_news_cache()
@@ -2594,7 +2683,26 @@ def save_news_cache_entry(body: dict = Body(...)):
     cache = [c for c in cache if ",".join(sorted(c.get("tickers", []))) != key]
     cache.insert(0, entry)
     _save_news_cache(cache)
-    return {"ok": True}
+    return {"ok": True, "snapshot_prices": snapshot_prices}
+
+
+@app.post("/api/news/cache/refresh-prices")
+def refresh_news_cache_prices(body: dict = Body(...)):
+    """Bulk-fetch the latest price for `symbols` in one Massive snapshot call.
+
+    The frontend calls this when the user clicks "Refresh prices" on the
+    recent-searches list. Returning {sym: {price, change_pct}} keeps the
+    response small even for 150 entries.
+    """
+    raw = body.get("symbols") or []
+    symbols = sorted({(s or "").strip().upper() for s in raw if s})
+    if not symbols:
+        raise HTTPException(status_code=400, detail="symbols required")
+    snap = _bulk_snapshot_prices(list(symbols))
+    return {
+        "as_of": datetime.now().isoformat(timespec="seconds"),
+        "prices": snap,
+    }
 
 
 @app.delete("/api/news/cache")

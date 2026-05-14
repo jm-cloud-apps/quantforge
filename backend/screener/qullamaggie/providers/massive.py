@@ -26,6 +26,48 @@ BASE_URL = "https://api.massive.com"
 ENDPOINT = "/v2/aggs/ticker/{symbol}/range/1/day/{frm}/{to}"
 
 
+def _normalize_snapshot(t: dict) -> dict:
+    """Massive snapshot rows nest current / minute / day / prevDay. Pull
+    the fields that matter for pre-market scoring + simple price refresh."""
+    day = t.get("day") or {}
+    minute = t.get("min") or {}
+    prev = t.get("prevDay") or {}
+
+    # `day.c` is the today's regular-session close (0 before close).
+    # Latest tradeable price = minute close while regular session is open OR
+    # in extended hours; falls back to prevDay close when the market hasn't
+    # opened yet at all.
+    last_price = (
+        minute.get("c") if minute.get("c") else day.get("c") or prev.get("c") or None
+    )
+    prev_close = prev.get("c") or None
+    change_pct = None
+    if last_price and prev_close:
+        try:
+            change_pct = (float(last_price) / float(prev_close) - 1) * 100
+        except Exception:
+            change_pct = None
+
+    return {
+        "symbol": (t.get("ticker") or "").upper(),
+        "last_price": float(last_price) if last_price else None,
+        "prev_close": float(prev_close) if prev_close else None,
+        "change_pct": round(change_pct, 2) if change_pct is not None else None,
+        # "minute" is the most recent 1-min bar; in pre/post market this is
+        # the live extended-hours quote.
+        "minute_close": float(minute.get("c")) if minute.get("c") else None,
+        "minute_volume": float(minute.get("v")) if minute.get("v") else None,
+        "minute_av": float(minute.get("av")) if minute.get("av") else None,  # accumulated session volume
+        "minute_timestamp": int(minute.get("t") / 1000) if minute.get("t") else None,
+        # Today's regular session — populated after 9:30am ET
+        "day_open": float(day.get("o")) if day.get("o") else None,
+        "day_high": float(day.get("h")) if day.get("h") else None,
+        "day_low": float(day.get("l")) if day.get("l") else None,
+        "day_close": float(day.get("c")) if day.get("c") else None,
+        "day_volume": float(day.get("v")) if day.get("v") else None,
+    }
+
+
 class MassiveProvider:
     name = "massive"
 
@@ -87,6 +129,52 @@ class MassiveProvider:
     # ------------------------------------------------------------------
     # Edge enhancements (gainers / RSI / intraday)
     # ------------------------------------------------------------------
+
+    def fetch_snapshot(self, symbol: str) -> dict | None:
+        """Single-ticker snapshot. Includes latest minute bar (which carries
+        the current pre-market / after-hours quote when the regular session
+        is closed) plus today's OHLCV and the previous-day reference close.
+        """
+        path = f"/v2/snapshot/locale/us/markets/stocks/tickers/{symbol.upper()}"
+        try:
+            r = self._client.get(BASE_URL + path, params={"apiKey": self.api_key})
+            if r.status_code != 200:
+                logger.debug("massive snapshot HTTP %d for %s", r.status_code, symbol)
+                return None
+            data = r.json() or {}
+            t = data.get("ticker") or {}
+            if not t:
+                return None
+            return _normalize_snapshot(t)
+        except Exception as e:
+            logger.debug("massive snapshot error for %s: %s", symbol, e)
+            return None
+
+    def fetch_snapshots(self, symbols: list[str]) -> dict[str, dict]:
+        """Bulk snapshot — one HTTP call returns the latest quote for every
+        symbol in `symbols`. Returned dict is keyed by symbol.
+        """
+        if not symbols:
+            return {}
+        path = "/v2/snapshot/locale/us/markets/stocks/tickers"
+        # Massive caps URL length; chunk in groups of 100 just in case.
+        out: dict[str, dict] = {}
+        for i in range(0, len(symbols), 100):
+            chunk = symbols[i : i + 100]
+            params = {"tickers": ",".join(s.upper() for s in chunk), "apiKey": self.api_key}
+            try:
+                r = self._client.get(BASE_URL + path, params=params)
+                if r.status_code != 200:
+                    logger.debug("massive bulk snapshot HTTP %d", r.status_code)
+                    continue
+                data = r.json() or {}
+                for t in data.get("tickers") or []:
+                    sym = (t.get("ticker") or "").upper()
+                    if sym:
+                        out[sym] = _normalize_snapshot(t)
+            except Exception as e:
+                logger.debug("massive bulk snapshot error: %s", e)
+        return out
 
     def fetch_gainers(self, kind: str = "gainers", limit: int = 50) -> list[str]:
         """Pull today's top gainers or most-active US stocks.

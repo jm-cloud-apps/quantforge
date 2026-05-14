@@ -47,6 +47,28 @@ export async function getEpScore(ticker) {
   return res.json()
 }
 
+export async function getPremarket(ticker) {
+  const sym = ticker.trim().toUpperCase()
+  if (!sym) throw new Error('Ticker required')
+  const res = await fetch(`${API_BASE}/analysis/premarket/${encodeURIComponent(sym)}`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to fetch pre-market snapshot')
+  }
+  return res.json()
+}
+
+export async function refreshNewsCachePrices(symbols) {
+  if (!symbols?.length) return { prices: {}, as_of: null }
+  const res = await fetch(`${API_BASE}/news/cache/refresh-prices`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ symbols }),
+  })
+  if (!res.ok) throw new Error('Refresh prices failed')
+  return res.json()
+}
+
 export async function fetchCriteriaCheck(ticker) {
   const res = await fetch(`${API_BASE}/analysis/criteria-check`, {
     method: 'POST',
