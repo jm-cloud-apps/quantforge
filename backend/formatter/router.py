@@ -81,15 +81,26 @@ async def run_formatter(date_str: str, confirm: str = "no"):
 
 
 @router.post("/run-daily/{month}")
-async def run_daily(month: str):
+async def run_daily(month: str, confirm: str = "yes"):
     """Run the trade-log-formatter run_daily.py pipeline (fetch Gmail → format → summarize)
-    for the given MM.YYYY month, streaming combined stdout/stderr as Server-Sent Events."""
+    for the given MM.YYYY month, streaming combined stdout/stderr as Server-Sent Events.
+
+    `confirm=yes` (default) writes to Trades.xlsx; `confirm=no` does a dry-run
+    so the user can review before committing. The default differs from the
+    formatter endpoint: Run Daily is automation — most callers expect it to
+    apply by default and only opt into preview mode explicitly.
+    """
+
+    apply = (confirm or "").strip().lower() in ("yes", "y", "true", "1")
 
     async def event_generator():
         script_dir = os.path.dirname(RUN_DAILY_PATH)
+        args = [sys.executable, RUN_DAILY_PATH, "--month", month]
+        if not apply:
+            args.append("--no-apply")
         try:
             proc = await asyncio.create_subprocess_exec(
-                sys.executable, RUN_DAILY_PATH, "--month", month,
+                *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=script_dir,
@@ -112,6 +123,7 @@ async def run_daily(month: str):
         if proc.returncode != 0:
             yield f"data: __ERROR__run_daily exited with code {proc.returncode}\n\n"
 
+        yield f"data: __MODE__{'applied' if apply else 'preview'}\n\n"
         yield "data: __DONE__\n\n"
 
     return StreamingResponse(

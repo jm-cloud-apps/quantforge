@@ -44,6 +44,7 @@ const TradeFormatterModal = ({ onClose, onComplete }) => {
 
   const handleRun = (confirm = 'no') => {
     if (!selectedMonth) return;
+    lastRunRef.current = 'formatter';
     setStatus('running');
     setMode(null);
     setLogs([]);
@@ -70,25 +71,45 @@ const TradeFormatterModal = ({ onClose, onComplete }) => {
     });
   };
 
-  const handleApply = () => handleRun('yes');
+  // Track which pipeline produced the most recent preview so the Apply
+  // button re-runs the right one (formatter vs full Gmail→format→summarize).
+  const lastRunRef = useRef('formatter'); // 'formatter' | 'daily'
+  const handleApply = () => {
+    if (lastRunRef.current === 'daily') handleRunDaily('yes');
+    else handleRun('yes');
+  };
   const handleDiscard = () => {
     setLogs([]);
     setStatus('idle');
     setMode(null);
   };
 
-  const handleRunDaily = () => {
+  const handleRunDaily = (confirm = 'no') => {
     if (!selectedMonth) return;
+    lastRunRef.current = 'daily';
     setStatus('running');
-    setLogs([{ type: 'info', text: `▶ Starting daily pipeline for ${selectedMonth}: Gmail fetch → format → summarize` }]);
+    setMode(null);
+    setLogs([{
+      type: 'info',
+      text: confirm === 'yes'
+        ? `▶ Starting daily pipeline for ${selectedMonth}: Gmail fetch → format → apply`
+        : `▶ Previewing daily pipeline for ${selectedMonth}: Gmail fetch → format → dry-run`,
+    }]);
 
     controllerRef.current = runDaily(selectedMonth, {
+      confirm,
       onMessage: (msg) => {
         setLogs((prev) => [...prev, { type: 'info', text: msg }]);
       },
+      onMode: (m) => setMode(m),
       onDone: () => {
         setStatus('done');
-        setLogs((prev) => [...prev, { type: 'success', text: '\n✅ Daily pipeline completed.' }]);
+        setLogs((prev) => [...prev, {
+          type: 'success',
+          text: confirm === 'yes'
+            ? '\n✅ Daily pipeline completed — changes applied.'
+            : '\n✅ Preview complete — no changes written yet.',
+        }]);
       },
       onError: (err) => {
         setStatus('error');
@@ -209,7 +230,7 @@ const TradeFormatterModal = ({ onClose, onComplete }) => {
             <p className="text-xs text-surface-400">Fetch new IB reports from Gmail, format, and append daily summary.</p>
           </div>
           <button
-            onClick={handleRunDaily}
+            onClick={() => handleRunDaily('no')}
             disabled={isRunning || !selectedMonth}
             className="px-4 py-2 rounded-lg bg-accent/10 border border-accent/40 text-accent text-sm font-medium hover:bg-accent/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 flex-shrink-0"
             title="Run run_daily.py: fetch Gmail → format → summarize"
