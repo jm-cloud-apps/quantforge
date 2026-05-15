@@ -5,10 +5,20 @@ const TradeFormatterModal = ({ onClose, onComplete }) => {
   const [months, setMonths] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState('');
   const [status, setStatus] = useState('idle'); // idle | running | done | error
+  const [mode, setMode] = useState(null); // null | 'preview' | 'applied' — set by __MODE__ event
   const [logs, setLogs] = useState([]);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const logEndRef = useRef(null);
   const controllerRef = useRef(null);
+
+  // Detect whether the preview contained any actual changes. If the script
+  // reported no rows in any of the three sections, applying is a no-op and
+  // we should hide the Apply button.
+  const previewHasChanges = logs.some((l) =>
+    /NEW POSITIONS TO OPEN\s*\((\d+)\s+row/.test(l.text) ||
+    /EXISTING POSITIONS TO CLOSE\s*\((\d+)\s+row/.test(l.text) ||
+    /DAY-TRADES.*\((\d+)\s+row/.test(l.text)
+  );
 
   // Load available months on mount
   useEffect(() => {
@@ -32,24 +42,39 @@ const TradeFormatterModal = ({ onClose, onComplete }) => {
     return () => controllerRef.current?.abort();
   }, []);
 
-  const handleRun = () => {
+  const handleRun = (confirm = 'no') => {
     if (!selectedMonth) return;
     setStatus('running');
+    setMode(null);
     setLogs([]);
 
     controllerRef.current = runFormatter(selectedMonth, {
+      confirm,
       onMessage: (msg) => {
         setLogs((prev) => [...prev, { type: 'info', text: msg }]);
       },
+      onMode: (m) => setMode(m),
       onDone: () => {
         setStatus('done');
-        setLogs((prev) => [...prev, { type: 'success', text: '\n✅ Formatter completed successfully.' }]);
+        setLogs((prev) => [...prev, {
+          type: 'success',
+          text: confirm === 'yes'
+            ? '\n✅ Changes applied to Trades.xlsx.'
+            : '\n✅ Preview complete — no changes written yet.',
+        }]);
       },
       onError: (err) => {
         setStatus('error');
         setLogs((prev) => [...prev, { type: 'error', text: `\n❌ Error: ${err}` }]);
       },
     });
+  };
+
+  const handleApply = () => handleRun('yes');
+  const handleDiscard = () => {
+    setLogs([]);
+    setStatus('idle');
+    setMode(null);
   };
 
   const handleRunDaily = () => {
@@ -145,7 +170,7 @@ const TradeFormatterModal = ({ onClose, onComplete }) => {
           </select>
 
           <button
-            onClick={handleRun}
+            onClick={() => handleRun('no')}
             disabled={isRunning || !selectedMonth}
             className="px-5 py-2.5 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
@@ -162,7 +187,7 @@ const TradeFormatterModal = ({ onClose, onComplete }) => {
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 3l14 9-14 9V3z" />
                 </svg>
-                Run
+                Preview
               </>
             )}
           </button>
@@ -255,8 +280,44 @@ const TradeFormatterModal = ({ onClose, onComplete }) => {
           </div>
         </div>
 
-        {/* Footer */}
-        {status === 'done' && (
+        {/* Footer — preview gets Apply/Discard; applied/no-changes gets Reload */}
+        {status === 'done' && mode === 'preview' && previewHasChanges && (
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-accent/[0.06] border border-accent/30 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-surface-100">Preview ready</p>
+              <p className="text-xs text-surface-400">
+                Review the journal update above. Click Apply to write the changes to Trades.xlsx.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={handleDiscard}
+                className="px-4 py-2 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-surface-200 hover:bg-surface-700 transition-colors"
+              >
+                Discard
+              </button>
+              <button
+                onClick={handleApply}
+                className="px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/90 transition-colors flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Apply changes
+              </button>
+            </div>
+          </div>
+        )}
+
+        {status === 'done' && mode === 'preview' && !previewHasChanges && (
+          <div className="rounded-lg bg-surface-800/40 border border-surface-700/40 px-4 py-3">
+            <p className="text-sm text-surface-300">
+              No changes detected for this month — nothing to apply.
+            </p>
+          </div>
+        )}
+
+        {status === 'done' && mode === 'applied' && (
           <div className="flex justify-end">
             <button
               onClick={handleReloadAndClose}
