@@ -22,8 +22,20 @@ async def get_available_months():
 
 
 @router.post("/run/{date_str}")
-async def run_formatter(date_str: str):
-    """Run the formatter script for a given month, streaming output as SSE."""
+async def run_formatter(date_str: str, confirm: str = "no"):
+    """Run the formatter script for a given month, streaming output as SSE.
+
+    The script prompts twice via input():
+      1. month folder  → we pipe `date_str`
+      2. "Apply these changes? (y/N):" → we pipe `y` or `n` based on `confirm`
+
+    The default `confirm=no` performs a safe dry-run preview (the script
+    exits without writing). The frontend then re-runs with `confirm=yes`
+    after the user clicks "Apply changes" on the preview.
+    """
+
+    apply = (confirm or "").strip().lower() in ("yes", "y", "true", "1")
+    response = "y\n" if apply else "n\n"
 
     async def event_generator():
         proc = await asyncio.create_subprocess_exec(
@@ -33,8 +45,9 @@ async def run_formatter(date_str: str):
             stderr=asyncio.subprocess.STDOUT,
         )
 
-        # Send the date string as input (the script does input(...))
-        proc.stdin.write(f"{date_str}\n".encode())
+        # Pre-feed both prompts and close stdin — the script reads them in
+        # order. With both lines buffered the script never hits EOF.
+        proc.stdin.write(f"{date_str}\n{response}".encode())
         await proc.stdin.drain()
         proc.stdin.close()
 
@@ -52,6 +65,9 @@ async def run_formatter(date_str: str):
         if proc.returncode != 0:
             yield f"data: __ERROR__Script exited with code {proc.returncode}\n\n"
 
+        # Signal preview-vs-applied to the client so it can decide whether
+        # to show the "Apply changes" button.
+        yield f"data: __MODE__{'applied' if apply else 'preview'}\n\n"
         yield "data: __DONE__\n\n"
 
     return StreamingResponse(

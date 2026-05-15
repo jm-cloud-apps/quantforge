@@ -281,10 +281,13 @@ export async function getFormatterMonths() {
  * Run the trade log formatter for a given month, streaming log lines via SSE.
  * Returns an AbortController — call .abort() to cancel.
  */
-export function runFormatter(dateStr, { onMessage, onDone, onError }) {
+export function runFormatter(dateStr, opts = {}) {
+  const { onMessage, onDone, onError, onMode, confirm = 'no' } = opts
   const controller = new AbortController()
 
-  fetch(`${API_BASE}/formatter/run/${encodeURIComponent(dateStr)}`, {
+  const params = new URLSearchParams({ confirm })
+
+  fetch(`${API_BASE}/formatter/run/${encodeURIComponent(dateStr)}?${params}`, {
     method: 'POST',
     signal: controller.signal,
   })
@@ -317,6 +320,10 @@ export function runFormatter(dateStr, { onMessage, onDone, onError }) {
           if (payload.startsWith('__ERROR__')) {
             onError?.(payload.slice(9))
             return
+          }
+          if (payload.startsWith('__MODE__')) {
+            onMode?.(payload.slice(8)) // 'preview' | 'applied'
+            continue
           }
           // Unescape newlines that were escaped server-side
           onMessage?.(payload.replace(/\\n/g, '\n'))
