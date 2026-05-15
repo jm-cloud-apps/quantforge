@@ -345,10 +345,13 @@ export function runFormatter(dateStr, opts = {}) {
  * Run the full daily pipeline (Gmail fetch → format → summarize) via SSE.
  * Returns an AbortController — call .abort() to cancel.
  */
-export function runDaily(month, { onMessage, onDone, onError }) {
+export function runDaily(month, opts = {}) {
+  const { onMessage, onDone, onError, onMode, confirm = 'yes' } = opts
   const controller = new AbortController()
 
-  fetch(`${API_BASE}/formatter/run-daily/${encodeURIComponent(month)}`, {
+  const params = new URLSearchParams({ confirm })
+
+  fetch(`${API_BASE}/formatter/run-daily/${encodeURIComponent(month)}?${params}`, {
     method: 'POST',
     signal: controller.signal,
   })
@@ -382,6 +385,10 @@ export function runDaily(month, { onMessage, onDone, onError }) {
             onError?.(payload.slice(9))
             return
           }
+          if (payload.startsWith('__MODE__')) {
+            onMode?.(payload.slice(8))
+            continue
+          }
           onMessage?.(payload.replace(/\\n/g, '\n'))
         }
       }
@@ -399,7 +406,7 @@ export function runDaily(month, { onMessage, onDone, onError }) {
 /**
  * Reset the master sheet, streaming log lines via SSE.
  */
-export function resetFormatter({ onMessage, onDone, onError }) {
+export function resetFormatter({ onMessage, onDone, onError, onMode }) {
   const controller = new AbortController()
 
   fetch(`${API_BASE}/formatter/reset`, {
@@ -435,6 +442,10 @@ export function resetFormatter({ onMessage, onDone, onError }) {
           if (payload.startsWith('__ERROR__')) {
             onError?.(payload.slice(9))
             return
+          }
+          if (payload.startsWith('__MODE__')) {
+            onMode?.(payload.slice(8))
+            continue
           }
           onMessage?.(payload.replace(/\\n/g, '\n'))
         }
