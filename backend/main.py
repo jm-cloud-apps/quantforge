@@ -16,6 +16,8 @@ from typing import Optional, List
 import io
 from dotenv import load_dotenv
 
+import yfinance as yf
+
 from backtester import BacktestEngine, fetch_ohlcv, get_available_strategies
 from backtester.breakout_engine import run_breakout_backtest
 
@@ -378,15 +380,22 @@ def get_file_status():
 
 
 @app.get("/api/trading-analysis/load-default")
-def load_default_trades():
-    """Load trades from the default file path. Uses in-memory cache if file hasn't changed."""
+def load_default_trades(force: int = 0):
+    """Load trades from the default file path. Uses in-memory cache if file
+    hasn't changed. Pass ?force=1 to bypass the cache after an out-of-band
+    edit (e.g., a hand edit in Excel that didn't bump mtime visibly)."""
     default_path = os.getenv("DEFAULT_TRADES_PATH", "trades/Trades.xlsx")
 
     try:
         current_mtime = os.path.getmtime(default_path)
 
-        # Return cached data if file hasn't been modified
-        if _trades_cache["file_mtime"] == current_mtime and _trades_cache["data"] is not None:
+        # Return cached data if file hasn't been modified and the caller
+        # didn't explicitly ask for a fresh read.
+        if (
+            not force
+            and _trades_cache["file_mtime"] == current_mtime
+            and _trades_cache["data"] is not None
+        ):
             return {**_trades_cache["data"], "from_cache": True}
 
         df = pd.read_excel(default_path)
@@ -394,8 +403,16 @@ def load_default_trades():
         # Clean up dataframe - remove unnamed columns
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
 
-        # Normalize column names to match expected format
+        total_rows = len(df)
+
+        # Normalize column names to match expected format. Note that this
+        # filters to closed trades only (rows with an exit_price). Open
+        # positions are intentionally excluded from the analytics page.
         trades = normalize_trade_data(df)
+
+        # Surface how many rows were dropped so the UI can explain
+        # "X trades hidden — still open" instead of silently omitting them.
+        open_count = max(0, total_rows - len(trades))
 
         # Calculate metrics
         metrics = calculate_trade_metrics(trades)
@@ -404,6 +421,8 @@ def load_default_trades():
             "trades": trades,
             "metrics": metrics,
             "total_records": len(trades),
+            "open_positions_excluded": open_count,
+            "total_rows_in_file": total_rows,
             "source": "default_file",
             "file_mtime": current_mtime,
         }
@@ -1535,7 +1554,13 @@ def get_emotion_performance(request: TradeDataRequest):
 
         # --- Conviction breakdown ---
         if 'conviction' in df.columns and df['conviction'].notna().any():
-            conv_df = df[df['conviction'].notna()]
+            # Coerce to numeric and drop anything that doesn't parse (Excel
+            # often has stray strings like 'High' or empty cells that crash
+            # the `sorted()` + `int()` calls below).
+            conv_df = df[df['conviction'].notna()].copy()
+            conv_df['conviction'] = pd.to_numeric(conv_df['conviction'], errors='coerce')
+            conv_df = conv_df[conv_df['conviction'].notna()]
+
             conv_stats = []
             for level in sorted(conv_df['conviction'].unique()):
                 c_trades = conv_df[conv_df['conviction'] == level]
@@ -1557,9 +1582,13 @@ def get_emotion_performance(request: TradeDataRequest):
 
         # --- Grade breakdown ---
         if 'grade' in df.columns and df['grade'].notna().any() and (df['grade'] != '').any():
-            grade_df = df[df['grade'].notna() & (df['grade'] != '')]
+            grade_df = df[df['grade'].notna() & (df['grade'] != '')].copy()
+            # Stringify the column so mixed types (NaN + 'A' + 1.0) don't
+            # raise TypeError on the unique-sort path.
+            grade_df['grade'] = grade_df['grade'].astype(str)
+            grade_uniques = sorted(grade_df['grade'].unique())
             grade_stats = []
-            for grade in sorted(grade_df['grade'].unique()):
+            for grade in grade_uniques:
                 g_trades = grade_df[grade_df['grade'] == grade]
                 winning = g_trades[g_trades['pnl'] > 0]
                 total_pnl = float(g_trades['pnl'].sum())
