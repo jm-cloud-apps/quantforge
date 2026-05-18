@@ -71,6 +71,9 @@ app.include_router(qullamaggie_router)
 from watchlists import router as watchlists_router
 app.include_router(watchlists_router)
 
+from daily_journal import router as daily_journal_router
+app.include_router(daily_journal_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
