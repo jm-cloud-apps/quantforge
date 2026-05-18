@@ -4,6 +4,7 @@ import {
   getJournalStats,
   searchJournal,
 } from '../api/journal'
+import DailyJournal from '../components/DailyJournal'
 
 const EMOTIONS = ['Calm', 'Confident', 'FOMO', 'Nervous', 'Revenge', 'Bored', 'Frustrated', 'Euphoric']
 
@@ -36,6 +37,7 @@ function StarRating({ value }) {
 }
 
 export default function Journal() {
+  const [tab, setTab] = useState('daily') // 'daily' | 'trades'
   const [entries, setEntries] = useState([])
   const [stats, setStats] = useState(null)
   const [search, setSearch] = useState('')
@@ -89,12 +91,36 @@ export default function Journal() {
           Trade Journal
         </h1>
         <p className="text-surface-400 text-[13px] mt-1">
-          Review emotions, plans, and lessons from your trades.
+          {tab === 'daily'
+            ? 'Your daily notebook — thesis, plan, reflection.'
+            : 'Review emotions, plans, and lessons from individual trades.'}
         </p>
       </div>
 
-      {/* Stats Cards */}
-      {stats && stats.total > 0 && (
+      {/* Tabs */}
+      <div className="inline-flex rounded-xl bg-surface-900/80 border border-surface-700/50 p-1">
+        {[
+          { id: 'daily',  label: 'Daily' },
+          { id: 'trades', label: 'Per-Trade' },
+        ].map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              tab === t.id
+                ? 'bg-accent/15 text-accent'
+                : 'text-surface-400 hover:text-surface-200'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'daily' && <DailyJournal />}
+
+      {/* Stats Cards (per-trade view only) */}
+      {tab === 'trades' && stats && stats.total > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="rounded-xl bg-surface-900/80 border border-surface-700/50 p-4">
             <p className="text-[11px] text-surface-500 uppercase tracking-wider">Total Entries</p>
@@ -122,6 +148,7 @@ export default function Journal() {
       )}
 
       {/* Search & Filters */}
+      {tab === 'trades' && (
       <div className="flex flex-wrap gap-3 items-center">
         <div className="flex-1 min-w-[200px]">
           <input
@@ -153,9 +180,10 @@ export default function Journal() {
           {[1, 2, 3, 4, 5].map((r) => <option key={r} value={r}>{r}+ stars</option>)}
         </select>
       </div>
+      )}
 
       {/* Entries List */}
-      {loading ? (
+      {tab === 'trades' && (loading ? (
         <div className="space-y-3">
           {[...Array(4)].map((_, i) => (
             <div key={i} className="rounded-xl bg-surface-900/80 border border-surface-700/50 p-4" style={{ animationDelay: `${i * 80}ms` }}>
@@ -230,7 +258,7 @@ export default function Journal() {
             </div>
           ))}
         </div>
-      )}
+      ))}
     </div>
   )
 }

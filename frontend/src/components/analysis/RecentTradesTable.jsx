@@ -1,4 +1,18 @@
-import { useState, Fragment } from 'react';
+import { useState, useMemo, Fragment } from 'react';
+
+// Columns the user can sort by. `value` extractors return something
+// sortable (number, ISO string, or '') so a single comparator handles all.
+const SORT_COLUMNS = [
+  { key: 'entry_date',  label: 'Entry Date', align: 'left',  value: (t) => t.entry_date || '' },
+  { key: 'exit_date',   label: 'Exit Date',  align: 'left',  value: (t) => t.exit_date  || '' },
+  { key: 'symbol',      label: 'Symbol',     align: 'left',  value: (t) => t.symbol     || '' },
+  { key: 'side',        label: 'Side',       align: 'left',  value: (t) => t.side       || '' },
+  { key: 'entry_price', label: 'Entry',      align: 'right', value: (t) => t.entry_price ?? -Infinity },
+  { key: 'exit_price',  label: 'Exit',       align: 'right', value: (t) => t.exit_price  ?? -Infinity },
+  { key: 'quantity',    label: 'Qty',        align: 'right', value: (t) => t.quantity    ?? -Infinity },
+  { key: 'pnl',         label: 'P&L',        align: 'right', value: (t) => t.pnl         ?? -Infinity },
+  { key: 'pnl_pct',     label: 'Return %',   align: 'right', value: (t) => t.pnl_pct     ?? -Infinity },
+];
 
 function TradeDetailRow({ trade }) {
   return (
@@ -74,12 +88,56 @@ function TradeDetailRow({ trade }) {
 export default function RecentTradesTable({ trades }) {
   const [tradesPage, setTradesPage] = useState(1);
   const [expandedRows, setExpandedRows] = useState(new Set());
+  // Default sort: most recent exit at the top (matches the old reverse()
+  // behaviour, but now via the sort path so column clicks override it).
+  const [sort, setSort] = useState({ key: 'exit_date', dir: 'desc' });
   const tradesPerPage = 20;
 
-  const totalPages = Math.ceil(trades.length / tradesPerPage);
+  const sortedTrades = useMemo(() => {
+    const col = SORT_COLUMNS.find((c) => c.key === sort.key);
+    if (!col) return trades;
+    const rows = trades.slice();
+    rows.sort((a, b) => {
+      const av = col.value(a);
+      const bv = col.value(b);
+      if (av === bv) return 0;
+      // Empty / missing values always sink to the bottom regardless of dir
+      // so an unsorted column doesn't shove a wall of "N/A" to the top.
+      const aMissing = av === '' || av === -Infinity || av == null;
+      const bMissing = bv === '' || bv === -Infinity || bv == null;
+      if (aMissing && !bMissing) return 1;
+      if (bMissing && !aMissing) return -1;
+      const cmp = av < bv ? -1 : 1;
+      return sort.dir === 'asc' ? cmp : -cmp;
+    });
+    return rows;
+  }, [trades, sort]);
+
+  const totalPages = Math.ceil(sortedTrades.length / tradesPerPage);
   const startIndex = (tradesPage - 1) * tradesPerPage;
   const endIndex = startIndex + tradesPerPage;
-  const paginatedTrades = trades.slice().reverse().slice(startIndex, endIndex);
+  const paginatedTrades = sortedTrades.slice(startIndex, endIndex);
+
+  const toggleSort = (key) => {
+    setExpandedRows(new Set());
+    setTradesPage(1);
+    setSort((s) => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' });
+  };
+
+  const SortIcon = ({ active, dir }) => (
+    <svg
+      className={`w-3 h-3 inline-block ml-1 ${active ? 'text-accent' : 'text-surface-600 group-hover:text-surface-400'}`}
+      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+    >
+      {active ? (
+        dir === 'asc'
+          ? <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+          : <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+      ) : (
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4M8 15l4 4 4-4" />
+      )}
+    </svg>
+  );
 
   const toggleRow = (index) => {
     setExpandedRows(prev => {
@@ -106,15 +164,22 @@ export default function RecentTradesTable({ trades }) {
         <table className="w-full">
           <thead>
             <tr className="border-b border-surface-700">
-              <th className="text-left py-3 px-4 text-surface-400 text-sm font-medium">Entry Date</th>
-              <th className="text-left py-3 px-4 text-surface-400 text-sm font-medium">Exit Date</th>
-              <th className="text-left py-3 px-4 text-surface-400 text-sm font-medium">Symbol</th>
-              <th className="text-left py-3 px-4 text-surface-400 text-sm font-medium">Side</th>
-              <th className="text-right py-3 px-4 text-surface-400 text-sm font-medium">Entry</th>
-              <th className="text-right py-3 px-4 text-surface-400 text-sm font-medium">Exit</th>
-              <th className="text-right py-3 px-4 text-surface-400 text-sm font-medium">Qty</th>
-              <th className="text-right py-3 px-4 text-surface-400 text-sm font-medium">P&L</th>
-              <th className="text-right py-3 px-4 text-surface-400 text-sm font-medium">Return %</th>
+              {SORT_COLUMNS.map((col) => {
+                const active = sort.key === col.key;
+                return (
+                  <th
+                    key={col.key}
+                    onClick={() => toggleSort(col.key)}
+                    className={`group py-3 px-4 text-sm font-medium cursor-pointer select-none transition-colors ${
+                      col.align === 'right' ? 'text-right' : 'text-left'
+                    } ${active ? 'text-surface-100' : 'text-surface-400 hover:text-surface-200'}`}
+                    title={`Sort by ${col.label}`}
+                  >
+                    {col.label}
+                    <SortIcon active={active} dir={sort.dir} />
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -165,7 +230,7 @@ export default function RecentTradesTable({ trades }) {
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4 pt-4 border-t border-surface-700">
           <div className="text-surface-400 text-sm">
-            Showing {startIndex + 1}-{Math.min(endIndex, trades.length)} of {trades.length} trades
+            Showing {startIndex + 1}-{Math.min(endIndex, sortedTrades.length)} of {sortedTrades.length} trades
           </div>
           <div className="flex items-center gap-2">
             <button
