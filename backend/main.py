@@ -74,6 +74,9 @@ app.include_router(watchlists_router)
 from daily_journal import router as daily_journal_router
 app.include_router(daily_journal_router)
 
+from calendar_router import router as calendar_router
+app.include_router(calendar_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -2225,6 +2228,276 @@ def get_journal_calendar():
         raise HTTPException(status_code=500, detail=f"Error loading calendar data: {str(e)}")
 
 
+# ─── AI Weekly Journal Review ─────────────────────────────────────────────────
+#
+# Joins trade outcomes (default file) with per-trade journal entries (emotion,
+# lessons, rating, tags) and daily-journal entries (mood, thesis, reflection)
+# over a rolling N-day window, then asks Claude to surface 3-5 behavioral
+# patterns. Cached against input file mtimes — won't re-call the model unless
+# something changed.
+
+WEEKLY_REVIEW_SYSTEM_PROMPT = """You are a sharp, evidence-driven trading coach reviewing a short window of a trader's recent activity.
+
+Your job: find 3-5 NON-OBVIOUS behavioral patterns that the trader probably hasn't noticed themselves. Examples of the kind of insight that's valuable:
+- "5 of your 6 losses were entered after 10:30 AM" (time-of-day discipline)
+- "Every trade you tagged 'FOMO' lost money, average -1.4R"
+- "Your win rate on Setup X is 75% but you only took it 4 times this week"
+- "You wrote 'patient' in your morning plan on 3 days; you took zero trades on those days"
+
+Be specific — cite which trades, days, tags, or emotions support each pattern. Avoid platitudes ("trade your plan", "manage risk"). Avoid restating obvious aggregates ("your win rate is 60%"). One pattern = one actionable recommendation.
+
+Return ONLY valid JSON, no markdown fences, matching:
+{
+  "headline": "one-sentence read of this trader's week",
+  "patterns": [
+    {"title": "...", "evidence": "...", "recommendation": "..."}
+  ]
+}
+
+If the input is too sparse for confident patterns, return an empty patterns array and a headline that says so."""
+
+
+_WEEKLY_REVIEW_CACHE: dict = {"key": None, "result": None, "ts": 0.0}
+_WEEKLY_REVIEW_TTL_SECONDS = 10 * 60
+
+
+def _build_review_context(days: int) -> dict:
+    """Pull trades + journals over the window and assemble an objective digest.
+
+    Returns a dict with `window`, `objective_stats`, `trades`, `per_trade_notes`,
+    `daily_notes`, and a `cache_key` derived from the underlying file mtimes
+    so the caller can decide whether to bypass the Claude cache.
+    """
+    end = datetime.now().date()
+    start = end - timedelta(days=days)
+
+    # --- Trades (from default file) -----------------------------------------
+    default_path = os.getenv("DEFAULT_TRADES_PATH", "trades/Trades.xlsx")
+    trades_mtime: Optional[float] = None
+    trades: list[dict] = []
+    try:
+        trades_mtime = os.path.getmtime(default_path)
+        if _trades_cache["file_mtime"] == trades_mtime and _trades_cache["data"] is not None:
+            trades = _trades_cache["data"]["trades"]
+        else:
+            df = pd.read_excel(default_path)
+            df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+            trades = normalize_trade_data(df)
+    except FileNotFoundError:
+        trades = []  # journal-only review still works
+    except Exception as e:
+        print(f"weekly-review: trade load failed: {e}")
+        trades = []
+
+    # Filter to the window. Use exit_date if available, else entry_date.
+    def _in_window(t: dict) -> bool:
+        d_str = t.get("exit_date") or t.get("entry_date")
+        if not d_str:
+            return False
+        try:
+            d = pd.to_datetime(d_str).date()
+            return start <= d <= end
+        except Exception:
+            return False
+
+    window_trades = [t for t in trades if _in_window(t)]
+
+    # --- Per-trade journal --------------------------------------------------
+    journal = _load_journal()
+    per_trade_entries = journal.get("entries", {})
+
+    # --- Daily journal ------------------------------------------------------
+    daily_path = os.path.join(_HERE, "data", "daily_journal.json")
+    daily_mtime: Optional[float] = None
+    daily_entries: dict = {}
+    try:
+        daily_mtime = os.path.getmtime(daily_path)
+        with open(daily_path, "r") as f:
+            daily_entries = (json.load(f) or {}).get("entries", {})
+    except FileNotFoundError:
+        daily_entries = {}
+    except Exception as e:
+        print(f"weekly-review: daily-journal load failed: {e}")
+        daily_entries = {}
+
+    window_daily = [
+        e for e in daily_entries.values()
+        if start.isoformat() <= (e.get("date") or "") <= end.isoformat()
+    ]
+    window_daily.sort(key=lambda e: e.get("date", ""))
+
+    # --- Objective stats ----------------------------------------------------
+    def _entry_hour(t: dict) -> Optional[int]:
+        v = t.get("entry_time") or t.get("entry_date")
+        if not v:
+            return None
+        try:
+            ts = pd.to_datetime(v)
+            return int(ts.hour)
+        except Exception:
+            return None
+
+    wins = [t for t in window_trades if (t.get("pnl") or 0) > 0]
+    losses = [t for t in window_trades if (t.get("pnl") or 0) < 0]
+    total_pnl = round(sum((t.get("pnl") or 0) for t in window_trades), 2)
+    avg_win = round(sum(t.get("pnl") or 0 for t in wins) / len(wins), 2) if wins else 0.0
+    avg_loss = round(sum(t.get("pnl") or 0 for t in losses) / len(losses), 2) if losses else 0.0
+    win_rate = round(len(wins) / len(window_trades) * 100, 1) if window_trades else 0.0
+
+    # Time-of-day buckets — morning (<10:30) / mid (10:30-13:00) / afternoon (>13:00)
+    tod_counts = {"morning": 0, "mid": 0, "afternoon": 0, "unknown": 0}
+    tod_pnl = {"morning": 0.0, "mid": 0.0, "afternoon": 0.0, "unknown": 0.0}
+    for t in window_trades:
+        h = _entry_hour(t)
+        bucket = "unknown" if h is None else ("morning" if h < 10 or (h == 10 and (pd.to_datetime(t.get("entry_time") or t.get("entry_date")).minute < 30)) else ("mid" if h < 13 else "afternoon"))
+        tod_counts[bucket] += 1
+        tod_pnl[bucket] = round(tod_pnl[bucket] + (t.get("pnl") or 0), 2)
+
+    # Tag/emotion frequency from per-trade entries that match a window symbol
+    window_symbols = {(t.get("symbol") or "").upper() for t in window_trades}
+    relevant_notes = {
+        tid: e for tid, e in per_trade_entries.items()
+        if (tid or "").upper() in window_symbols
+    }
+
+    return {
+        "window": {"start": start.isoformat(), "end": end.isoformat(), "days": days},
+        "objective_stats": {
+            "trade_count": len(window_trades),
+            "win_rate_pct": win_rate,
+            "wins": len(wins),
+            "losses": len(losses),
+            "total_pnl": total_pnl,
+            "avg_win": avg_win,
+            "avg_loss": avg_loss,
+            "biggest_win": round(max((t.get("pnl") or 0) for t in window_trades), 2) if window_trades else 0,
+            "biggest_loss": round(min((t.get("pnl") or 0) for t in window_trades), 2) if window_trades else 0,
+            "tod_counts": tod_counts,
+            "tod_pnl": tod_pnl,
+        },
+        "trades": [
+            {
+                "symbol": t.get("symbol"),
+                "side": t.get("side"),
+                "entry_date": (t.get("entry_date") or "")[:10],
+                "entry_time": t.get("entry_time"),
+                "exit_date": (t.get("exit_date") or "")[:10],
+                "exit_time": t.get("exit_time"),
+                "pnl": round(t.get("pnl") or 0, 2),
+                "pnl_pct": round(t.get("pnl_pct") or 0, 2),
+                "setup": t.get("setup") or None,
+                "emotion": t.get("emotion") or None,
+                "grade": t.get("grade") or None,
+                "duration_days": t.get("duration_days"),
+            }
+            for t in window_trades
+        ],
+        "per_trade_notes": [
+            {
+                "trade_id": tid,
+                "rating": e.get("rating"),
+                "emotion_entry": e.get("emotion_entry"),
+                "emotion_exit": e.get("emotion_exit"),
+                "pre_trade_plan": (e.get("pre_trade_plan") or "")[:400],
+                "lessons_learned": (e.get("lessons_learned") or "")[:400],
+                "tags": e.get("tags") or [],
+            }
+            for tid, e in relevant_notes.items()
+        ],
+        "daily_notes": [
+            {
+                "date": e.get("date"),
+                "mood": e.get("mood"),
+                "market_thesis": (e.get("market_thesis") or "")[:400],
+                "plan": (e.get("plan") or "")[:400],
+                "reflection": (e.get("reflection") or "")[:400],
+                "tags": e.get("tags") or [],
+            }
+            for e in window_daily
+        ],
+        "_cache_key": (days, trades_mtime, daily_mtime, len(per_trade_entries)),
+    }
+
+
+@app.get("/api/journal/weekly-review")
+def get_weekly_review(days: int = 7, force: int = 0) -> dict:
+    """AI-powered behavioral review of the last `days` trading days.
+
+    Joins trade outcomes (default file) + per-trade journal + daily journal and
+    asks Claude for 3-5 specific behavioral patterns. Cached for 10 minutes
+    against the inputs — set `force=1` to bypass.
+    """
+    import time as _time
+
+    days = max(1, min(int(days), 90))
+    ctx = _build_review_context(days)
+    cache_key = ctx.pop("_cache_key")
+
+    # Quick cache hit
+    if not force and _WEEKLY_REVIEW_CACHE["key"] == cache_key and (_time.time() - _WEEKLY_REVIEW_CACHE["ts"]) < _WEEKLY_REVIEW_TTL_SECONDS:
+        cached = _WEEKLY_REVIEW_CACHE["result"]
+        return {**cached, "from_cache": True}
+
+    # Empty-window early return — no need to spend tokens
+    if ctx["objective_stats"]["trade_count"] == 0 and not ctx["per_trade_notes"] and not ctx["daily_notes"]:
+        result = {
+            **ctx,
+            "ai": {
+                "headline": f"No trades or journal entries in the last {days} days. Nothing to review yet.",
+                "patterns": [],
+            },
+            "model": None,
+            "from_cache": False,
+        }
+        return result
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="ANTHROPIC_API_KEY is not configured. Add it to backend/.env to enable AI review.",
+        )
+
+    user_payload = json.dumps({
+        "window": ctx["window"],
+        "objective_stats": ctx["objective_stats"],
+        "trades": ctx["trades"],
+        "per_trade_notes": ctx["per_trade_notes"],
+        "daily_notes": ctx["daily_notes"],
+    }, default=str, indent=2)
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1500,
+            system=WEEKLY_REVIEW_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_payload}],
+        )
+        raw = message.content[0].text.strip()
+        # Be tolerant — strip any accidental ```json fences before parsing.
+        if raw.startswith("```"):
+            raw = raw.strip("`").lstrip("json").strip()
+        ai_block = json.loads(raw)
+    except anthropic.AuthenticationError:
+        raise HTTPException(status_code=401, detail="Invalid ANTHROPIC_API_KEY. Check your .env file.")
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=502, detail=f"Claude returned non-JSON payload: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Claude API error: {str(e)}")
+
+    result = {
+        **ctx,
+        "ai": ai_block,
+        "model": "claude-sonnet-4-6",
+        "from_cache": False,
+    }
+    _WEEKLY_REVIEW_CACHE["key"] = cache_key
+    _WEEKLY_REVIEW_CACHE["result"] = result
+    _WEEKLY_REVIEW_CACHE["ts"] = _time.time()
+    return result
+
+
 # ─── Trading Tools ────────────────────────────────────────────────────────────
 
 class PositionSizeRequest(BaseModel):
@@ -2435,6 +2708,59 @@ async def create_playbook_entry(
     return {"status": "created", "entry": entry}
 
 
+@app.patch("/api/playbook/entries/{entry_id}")
+async def update_playbook_entry(
+    entry_id: str,
+    symbol: str = Form(...),
+    date: str = Form(...),
+    setup: str = Form(""),
+    pnl: float = Form(0),
+    pnl_pct: float = Form(0),
+    notes: str = Form(""),
+    tags: str = Form(""),
+    screenshot: Optional[UploadFile] = File(None),
+    remove_screenshot: str = Form(""),
+):
+    playbook = _load_playbook()
+    if entry_id not in playbook["entries"]:
+        raise HTTPException(status_code=404, detail="Playbook entry not found")
+
+    entry = playbook["entries"][entry_id]
+
+    if remove_screenshot == "1" and entry.get("screenshot"):
+        old_path = os.path.join(PLAYBOOK_SCREENSHOTS_DIR, entry["screenshot"])
+        if os.path.exists(old_path):
+            os.remove(old_path)
+        entry["screenshot"] = None
+
+    if screenshot and screenshot.filename:
+        if entry.get("screenshot"):
+            old_path = os.path.join(PLAYBOOK_SCREENSHOTS_DIR, entry["screenshot"])
+            if os.path.exists(old_path):
+                os.remove(old_path)
+        os.makedirs(PLAYBOOK_SCREENSHOTS_DIR, exist_ok=True)
+        ext = os.path.splitext(screenshot.filename)[1] or ".png"
+        screenshot_filename = f"{entry_id}{ext}"
+        filepath = os.path.join(PLAYBOOK_SCREENSHOTS_DIR, screenshot_filename)
+        contents = await screenshot.read()
+        with open(filepath, "wb") as f:
+            f.write(contents)
+        entry["screenshot"] = screenshot_filename
+
+    entry["symbol"] = symbol.upper().strip()
+    entry["date"] = date
+    entry["setup"] = setup
+    entry["pnl"] = pnl
+    entry["pnl_pct"] = pnl_pct
+    entry["notes"] = notes
+    entry["tags"] = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+
+    playbook["entries"][entry_id] = entry
+    _save_playbook(playbook)
+
+    return {"status": "updated", "entry": entry}
+
+
 @app.delete("/api/playbook/entries/{entry_id}")
 def delete_playbook_entry(entry_id: str):
     playbook = _load_playbook()
@@ -2532,13 +2858,14 @@ def _fetch_earnings_data(symbol: str, api_key: str):
 @app.get("/api/news")
 def get_stock_news(
     tickers: str = Query(..., description="Comma-separated stock tickers"),
+    lookback_days: int = Query(7, ge=1, le=30, description="How many days back to search"),
 ):
     """Fetch recent news for one or more stock tickers.
 
     Uses the news provider configured via QF_NEWS_PROVIDER (default: massive,
-    fallback: finnhub). Response shape is unchanged for backward compatibility
-    with the NewsAnalysis frontend; Massive adds an optional `sentiment` field
-    per article.
+    fallback: finnhub). Response includes a per-ticker status breakdown so the
+    UI can tell "no coverage" apart from "fetch failed" apart from "you didn't
+    ask for anything."
     """
     from news import get_news_provider
 
@@ -2551,11 +2878,15 @@ def get_stock_news(
 
     all_articles: list = []
     earnings: dict = {}
+    with_news: list[str] = []
+    errors: dict[str, str] = {}
 
     for sym in symbols:
         try:
-            articles = provider.fetch_for(sym, lookback_days=7, limit=25)
-            all_articles.extend(articles)
+            articles = provider.fetch_for(sym, lookback_days=lookback_days, limit=25)
+            if articles:
+                all_articles.extend(articles)
+                with_news.append(sym)
 
             # Earnings lookup still uses Finnhub (Massive's free-tier endpoints
             # for fundamentals are limited). Only run when a headline mentions
@@ -2565,18 +2896,22 @@ def get_stock_news(
                 if edata:
                     earnings[sym] = edata
         except Exception as e:
-            all_articles.append({
-                "symbol": sym,
-                "title": f"News fetch failed for {sym}: {e}",
-                "text": "", "url": "", "image": "", "site": "", "publishedDate": "",
-            })
+            errors[sym] = str(e)
 
     try:
         provider.close()
     except Exception:
         pass
 
-    return {"articles": all_articles, "earnings": earnings, "provider": provider.name}
+    return {
+        "articles": all_articles,
+        "earnings": earnings,
+        "provider": provider.name,
+        "lookback_days": lookback_days,
+        "queried": symbols,
+        "with_news": with_news,
+        "errors": errors,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -2989,7 +3324,7 @@ async def criteria_check(body: dict):
     try:
         client = anthropic.Anthropic(api_key=api_key)
         message = client.messages.create(
-            model="claude-sonnet-4-5-20250929",
+            model="claude-sonnet-4-6",
             max_tokens=2000,
             system=CRITERIA_SYSTEM_PROMPT,
             messages=[
@@ -3231,3 +3566,73 @@ def qulla_ep(ticker: str):
 
     _QULLA_EP_CACHE[ticker] = (_time.time(), result)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Market Breadth (Stockbee-style scanner)
+#
+# Reads from the local grouped-daily cache built by `backend/breadth/cache.py`.
+# Snapshot + history are cheap (pure pandas over cached pickles); refresh is
+# the only call that hits the upstream API and pulls any missing trading days.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/breadth/snapshot")
+def get_breadth_snapshot():
+    """Latest single-day breadth read from the local cache. No API calls."""
+    from breadth import compute_snapshot, classify
+    snap = compute_snapshot()
+    snap["regime"] = classify(snap.get("metrics"))
+    return snap
+
+
+@app.get("/api/breadth/history")
+def get_breadth_history(days: int = Query(15, ge=1, le=120)):
+    """Last `days` rows of breadth metrics, oldest→newest. Drives the table
+    + sparkline charts on the Market Monitor page."""
+    from breadth import compute_history
+    return compute_history(days=days)
+
+
+@app.post("/api/breadth/refresh")
+def refresh_breadth(body: dict = Body(default={})):
+    """Pull any missing trading days into the grouped cache, optionally
+    refresh the universe list, then recompute the latest snapshot.
+
+    Body (all optional):
+      - lookback_days: int — how far back to backfill (default 130)
+      - refresh_universe: bool — force a new /v3/reference/tickers pull
+    """
+    from breadth import (
+        refresh_grouped_cache,
+        refresh_universe as _refresh_universe,
+        load_or_refresh_universe,
+        compute_snapshot,
+        classify,
+    )
+
+    universe_refreshed = False
+    try:
+        if body.get("refresh_universe"):
+            _refresh_universe()
+            universe_refreshed = True
+        else:
+            # Pull a universe at least once if the cache is empty — otherwise
+            # the snapshot below has nothing to score against.
+            before = load_or_refresh_universe()
+            universe_refreshed = before.get("as_of") and not body.get("refresh_universe") is None
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Universe refresh failed: {e}")
+
+    lookback = int(body.get("lookback_days") or 130)
+    try:
+        cache_summary = refresh_grouped_cache(lookback_days=lookback)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Grouped cache refresh failed: {e}")
+
+    snap = compute_snapshot()
+    snap["regime"] = classify(snap.get("metrics"))
+    return {
+        "snapshot": snap,
+        "cache_summary": cache_summary,
+        "universe_refreshed": universe_refreshed,
+    }

@@ -5,6 +5,7 @@ import {
   searchJournal,
 } from '../api/journal'
 import DailyJournal from '../components/DailyJournal'
+import WeeklyReview from '../components/WeeklyReview'
 
 const EMOTIONS = ['Calm', 'Confident', 'FOMO', 'Nervous', 'Revenge', 'Bored', 'Frustrated', 'Euphoric']
 
@@ -37,7 +38,7 @@ function StarRating({ value }) {
 }
 
 export default function Journal() {
-  const [tab, setTab] = useState('daily') // 'daily' | 'trades'
+  const [tab, setTab] = useState('daily') // 'daily' | 'trades' | 'review'
   const [entries, setEntries] = useState([])
   const [stats, setStats] = useState(null)
   const [search, setSearch] = useState('')
@@ -93,7 +94,9 @@ export default function Journal() {
         <p className="text-surface-400 text-[13px] mt-1">
           {tab === 'daily'
             ? 'Your daily notebook — thesis, plan, reflection.'
-            : 'Review emotions, plans, and lessons from individual trades.'}
+            : tab === 'trades'
+            ? 'Review emotions, plans, and lessons from individual trades.'
+            : 'AI-surfaced behavioral patterns from your recent trades + journal.'}
         </p>
       </div>
 
@@ -102,6 +105,7 @@ export default function Journal() {
         {[
           { id: 'daily',  label: 'Daily' },
           { id: 'trades', label: 'Per-Trade' },
+          { id: 'review', label: 'AI Review' },
         ].map((t) => (
           <button
             key={t.id}
@@ -118,6 +122,7 @@ export default function Journal() {
       </div>
 
       {tab === 'daily' && <DailyJournal />}
+      {tab === 'review' && <WeeklyReview />}
 
       {/* Stats Cards (per-trade view only) */}
       {tab === 'trades' && stats && stats.total > 0 && (

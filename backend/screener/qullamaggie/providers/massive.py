@@ -317,6 +317,84 @@ class MassiveProvider:
 
         return out
 
+    def fetch_earnings_window(
+        self,
+        start: str,
+        end: str,
+        tickers: list[str] | None = None,
+        max_pages: int = 6,
+    ) -> list[dict]:
+        """Pull every earnings entry in [start, end] (YYYY-MM-DD inclusive).
+
+        Returns a flat list of dicts shaped like:
+          {"symbol": "AAPL", "date": "2026-05-23", "time": "amc",
+           "eps_estimate": 1.23, "eps_actual": None, "revenue_estimate": ...,
+           "revenue_actual": ..., "currency": "USD", "exchange": "NASDAQ"}
+
+        If `tickers` is set, the result is filtered to that subset client-side
+        (the Benzinga endpoint accepts a single ticker filter, so for multi-
+        ticker windows the cheaper approach is to fetch the full window and
+        filter locally). Paginates via `cursor` up to `max_pages` to cover
+        peak earnings weeks (~500 reports/day).
+        """
+        results: list[dict] = []
+        next_url: str | None = None
+        params = {
+            "date.gte": start,
+            "date.lte": end,
+            "sort": "date.asc",
+            "limit": 1000,
+            "apiKey": self.api_key,
+        }
+
+        for _ in range(max_pages):
+            try:
+                if next_url:
+                    # Polygon's `next_url` already encodes pagination params;
+                    # we only need to re-attach the apiKey.
+                    sep = "&" if "?" in next_url else "?"
+                    r = self._client.get(f"{next_url}{sep}apiKey={self.api_key}")
+                else:
+                    r = self._client.get(BASE_URL + "/benzinga/v1/earnings", params=params)
+                if r.status_code != 200:
+                    logger.debug("massive earnings window HTTP %d: %s", r.status_code, r.text[:200])
+                    break
+                data = r.json() or {}
+                results.extend(data.get("results") or [])
+                next_url = data.get("next_url")
+                if not next_url:
+                    break
+            except Exception as e:
+                logger.warning("massive earnings window error: %s", e)
+                break
+
+        # Normalize. Benzinga fields include: ticker, date, time ("bmo"/"amc"/"dmt"),
+        # eps_estimate, eps, revenue_estimate, revenue, currency, exchange,
+        # importance, fiscal_year, fiscal_period.
+        out: list[dict] = []
+        ticker_set = {t.upper() for t in (tickers or [])}
+        for row in results:
+            sym = (row.get("ticker") or "").upper()
+            if not sym:
+                continue
+            if ticker_set and sym not in ticker_set:
+                continue
+            out.append({
+                "symbol": sym,
+                "date": row.get("date"),
+                "time": (row.get("time") or "").lower() or None,  # bmo / amc / dmt
+                "eps_estimate": row.get("eps_estimate"),
+                "eps_actual": row.get("eps"),
+                "revenue_estimate": row.get("revenue_estimate"),
+                "revenue_actual": row.get("revenue"),
+                "currency": row.get("currency"),
+                "exchange": row.get("exchange"),
+                "importance": row.get("importance"),
+                "fiscal_period": row.get("fiscal_period"),
+                "fiscal_year": row.get("fiscal_year"),
+            })
+        return out
+
     def fetch_intraday(self, symbol: str, days_back: int = 2) -> list[dict]:
         """Pull 5-minute bars for the last `days_back` trading days.
 
