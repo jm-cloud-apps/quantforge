@@ -60,3 +60,14 @@ export async function searchJournal(query) {
   }
   return res.json()
 }
+
+export async function getWeeklyReview({ days = 7, force = false } = {}) {
+  const params = new URLSearchParams({ days: String(days) })
+  if (force) params.set('force', '1')
+  const res = await fetch(`${API_BASE}/journal/weekly-review?${params.toString()}`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to load weekly review')
+  }
+  return res.json()
+}

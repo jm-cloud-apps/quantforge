@@ -17,6 +17,8 @@ const NewsAnalysis    = lazy(() => import('./pages/NewsAnalysis'))
 const Suggestions     = lazy(() => import('./pages/Suggestions'))
 const Breakouts       = lazy(() => import('./pages/Breakouts'))
 const Watchlist       = lazy(() => import('./pages/Watchlist'))
+const MarketMonitor   = lazy(() => import('./pages/MarketMonitor'))
+const EarningsCalendar = lazy(() => import('./pages/EarningsCalendar'))
 
 function RouteFallback() {
   return (
@@ -48,6 +50,8 @@ function AnimatedRoutes() {
             <Route path="news" element={<NewsAnalysis />} />
             <Route path="watchlist" element={<Watchlist />} />
             <Route path="signal-lab" element={<Suggestions />} />
+            <Route path="market-monitor" element={<MarketMonitor />} />
+            <Route path="earnings" element={<EarningsCalendar />} />
           </Route>
         </Routes>
       </Suspense>
