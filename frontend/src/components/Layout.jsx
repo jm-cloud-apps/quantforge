@@ -68,15 +68,26 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
   ),
+  rules: (
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+    </svg>
+  ),
 }
 
 // Grouped navigation — mirrors macOS sidebar conventions (Mail/Notes/Music).
 // Order within each group is by likely frequency-of-use.
 const navGroups = [
   {
+    label: 'Discipline',
+    items: [
+      { path: '/',                label: 'Rules',            icon: icons.rules,     end: true },
+    ],
+  },
+  {
     label: 'Analyze',
     items: [
-      { path: '/',                label: 'Trading Analysis', icon: icons.trading,   end: true },
+      { path: '/trading-analysis', label: 'Trading Analysis', icon: icons.trading },
       { path: '/news',            label: 'Stock Analysis',   icon: icons.stock },
       { path: '/market-monitor',  label: 'Market Monitor',   icon: icons.monitor },
       { path: '/earnings',        label: 'Earnings',         icon: icons.calendar },

@@ -19,6 +19,7 @@ const Breakouts       = lazy(() => import('./pages/Breakouts'))
 const Watchlist       = lazy(() => import('./pages/Watchlist'))
 const MarketMonitor   = lazy(() => import('./pages/MarketMonitor'))
 const EarningsCalendar = lazy(() => import('./pages/EarningsCalendar'))
+const Rules           = lazy(() => import('./pages/Rules'))
 
 function RouteFallback() {
   return (
@@ -38,7 +39,8 @@ function AnimatedRoutes() {
       <Suspense fallback={<RouteFallback />}>
         <Routes location={location}>
           <Route path="/" element={<Layout />}>
-            <Route index element={<TradingAnalysis />} />
+            <Route index element={<Rules />} />
+            <Route path="rules" element={<Rules />} />
             <Route path="backtesting" element={<Backtesting />} />
             <Route path="screener" element={<Screener />} />
             <Route path="breakouts" element={<Breakouts />} />
