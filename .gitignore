@@ -39,3 +39,6 @@ backend/data/
 
 # UI backup (dev only)
 frontend/src/_ui_backup_v1/
+
+# Claude Code local tooling (worktrees, preview launch config)
+.claude/

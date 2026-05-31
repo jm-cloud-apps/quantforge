@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
-
-const STORAGE_KEY = 'qf:trading-rules:v2'
+import {
+  CATEGORIES,
+  CATALYST_HIERARCHY,
+  loadRules,
+  saveRules,
+  seedRules,
+  getRuleOfDay,
+} from '../utils/tradingRules'
 
 // Category metadata — single source of truth for icons, tones, and labels.
-// Bumping STORAGE_KEY to v2 because the seed list expanded and the schema now
-// expects every rule to have a known category.
-const CATEGORIES = ['MINDSET', 'RISK', 'ENTRY', 'EXIT']
 
 const CATEGORY_META = {
   MINDSET: {
@@ -69,74 +72,6 @@ const CATEGORY_META = {
       </svg>
     ),
   },
-}
-
-// Seeded from Qullamaggie (Kristjan Kullamägi) plus widely-accepted trader discipline.
-// Order matters — first read should feel like a calm, prioritized briefing.
-const DEFAULT_RULES = [
-  // MINDSET
-  { category: 'MINDSET', text: 'Patience is the edge — most of the time, do nothing. Wait for A+ setups.' },
-  { category: 'MINDSET', text: 'Biggest size on the highest-conviction setups only. Small size on probes.' },
-  { category: 'MINDSET', text: 'Trade with the market regime. Never fight a downtrend.' },
-  { category: 'MINDSET', text: 'Sit on your hands during choppy, sideways markets. No setups, no trades.' },
-  { category: 'MINDSET', text: 'After a string of losses, cut size in half or take a break. Reset the head.' },
-  { category: 'MINDSET', text: 'No revenge trades. Walk away from the screen for 15 minutes after a meaningful loss.' },
-  { category: 'MINDSET', text: 'Process over P&L. Grade your decisions, not your outcomes.' },
-  { category: 'MINDSET', text: 'Pre-market plan: write down what you’ll trade and at what level before the bell.' },
-  { category: 'MINDSET', text: 'Journal every trade with screenshots. Review weekly. The edge compounds.' },
-
-  // RISK
-  { category: 'RISK', text: 'Risk 0.25–1% of account per trade. Never more, no exceptions.' },
-  { category: 'RISK', text: 'Cut losses fast. A small loss is the price of admission — never let it run.' },
-  { category: 'RISK', text: 'Always know your stop before you enter. No stop, no trade.' },
-  { category: 'RISK', text: 'Position size off the stop, not the conviction. Risk drives size — every time.' },
-  { category: 'RISK', text: 'Never average down on a losing trade. Add only to winners.' },
-  { category: 'RISK', text: 'Hold a max of 3–5 positions. Concentration beats diversification when risk is defined.' },
-  { category: 'RISK', text: 'Define a maximum daily loss. Hit it, close the laptop. Tomorrow is another day.' },
-  { category: 'RISK', text: 'Don’t hold through earnings unless that’s the explicit, planned trade.' },
-
-  // ENTRY
-  { category: 'ENTRY', text: 'Trade only A+ setups: Episodic Pivots, Breakouts, Parabolic Shorts.' },
-  { category: 'ENTRY', text: 'Only buy stocks at or near 52-week / all-time highs. Leaders only.' },
-  { category: 'ENTRY', text: 'Use 2x leveraged ETFs (TQQQ, SOXL, FNGU, NUGT, FAS) when the setup is A+ AND the market is in a confirmed uptrend.' },
-  { category: 'ENTRY', text: 'Watch the leaders — they tell you what the market wants. Trade leaders, not laggards.' },
-  { category: 'ENTRY', text: 'Trade leading sectors only. If the group is weak, the trade is weak.' },
-  { category: 'ENTRY', text: 'Best moves usually come 3–5 days after the initial breakout — wait for the tight consolidation.' },
-  { category: 'ENTRY', text: 'Require ADR > 5% — volatility is the raw material of returns.' },
-  { category: 'ENTRY', text: 'Minimum $5M daily dollar volume. Liquidity matters when you need to exit.' },
-  { category: 'ENTRY', text: 'The first 15–30 minutes is for amateurs. Let the open settle before entering.' },
-  { category: 'ENTRY', text: 'Don’t chase. If the entry is gone, the entry is gone. Wait for the next one.' },
-
-  // EXIT
-  { category: 'EXIT', text: 'Sell 1/3 into strength on day 1. Lock in something on every winner.' },
-  { category: 'EXIT', text: 'Trail the remaining position with the 10 or 20 EMA. Ride the trend.' },
-  { category: 'EXIT', text: 'Move stop to breakeven once the trade extends meaningfully in your favor.' },
-  { category: 'EXIT', text: 'The big money is made in the holding, not the trading. Let winners run.' },
-]
-
-const FEATURED_QUOTE = {
-  text: 'Most of the time, doing nothing is the right trade. Patience is the entire edge.',
-  attribution: 'Kristjan Kullamägi',
-}
-
-function loadRules() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return seedRules()
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed) || parsed.length === 0) return seedRules()
-    return parsed
-  } catch {
-    return seedRules()
-  }
-}
-
-function seedRules() {
-  return DEFAULT_RULES.map((r, i) => ({ ...r, id: i + 1 }))
-}
-
-function saveRules(rules) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(rules)) } catch {}
 }
 
 function nextId(rules) {
@@ -401,6 +336,130 @@ function CategoryCard({ cat, count, active, onClick }) {
   )
 }
 
+// Stockbee (Pradeep Bonde) catalyst ranking — surfaced as a framework, not
+// a one-line rule, because the *ordering* is the whole insight. Visually a
+// stacked tier ladder: tier number, name, blurb, and an intensity dot row
+// that decays from accent → muted as you walk down the hierarchy.
+function CatalystHierarchy() {
+  // Intensity dots: tier 1 gets 6 filled, tier 6 gets 1 filled.
+  const dots = (tier) => {
+    const filled = Math.max(1, 7 - tier)
+    return Array.from({ length: 6 }, (_, i) => i < filled)
+  }
+  return (
+    <section
+      aria-labelledby="catalyst-hierarchy-title"
+      className="relative overflow-hidden rounded-3xl border border-accent/25 bg-gradient-to-br from-surface-900 via-surface-900 to-surface-950"
+    >
+      {/* Decorative top accent — mirrors the hero's gradient stripe */}
+      <div className="absolute left-0 right-0 top-0 h-[2px] bg-gradient-to-r from-accent via-cyan to-purple opacity-70" />
+      <div className="absolute -top-16 -right-16 w-72 h-72 rounded-full bg-accent/10 blur-3xl pointer-events-none" />
+
+      <div className="relative px-6 sm:px-7 py-6 sm:py-7">
+        {/* Title row */}
+        <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-accent/10 border border-accent/30 flex items-center justify-center text-accent">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.9}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <div>
+              <h2 id="catalyst-hierarchy-title" className="text-[16px] font-display font-bold text-surface-50 tracking-tight leading-tight">
+                Catalyst Hierarchy
+              </h2>
+              <div className="text-[11px] text-surface-500 mt-0.5">
+                Rank the <span className="text-surface-300">why</span> before sizing into an Episodic Pivot.
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-accent/10 text-accent border-accent/30">
+              EP SETUP
+            </span>
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-surface-800/60 text-surface-400 border-surface-700">
+              FRAMEWORK
+            </span>
+          </div>
+        </div>
+
+        {/* Tier ladder */}
+        <ol className="mt-5 space-y-1.5">
+          {CATALYST_HIERARCHY.map((c, i) => {
+            const isTop = i === 0
+            const dotRow = dots(c.tier)
+            return (
+              <li
+                key={c.tier}
+                className={`group relative rounded-xl border transition-colors ${
+                  isTop
+                    ? 'border-accent/30 bg-accent/[0.04]'
+                    : 'border-surface-700/40 bg-surface-900/40 hover:border-surface-600/70'
+                }`}
+              >
+                <div className="flex items-center gap-3 px-3 py-2.5 sm:px-4">
+                  {/* Tier numeral */}
+                  <div
+                    className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center font-mono font-bold text-[12px] tabular-nums ${
+                      isTop
+                        ? 'bg-accent/15 text-accent border border-accent/40'
+                        : 'bg-surface-800 text-surface-400 border border-surface-700'
+                    }`}
+                  >
+                    {String(c.tier).padStart(2, '0')}
+                  </div>
+
+                  {/* Name + blurb */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className={`text-[13.5px] font-semibold tracking-tight ${isTop ? 'text-surface-50' : 'text-surface-200'}`}>
+                        {c.name}
+                      </span>
+                      {isTop && (
+                        <span className="text-[9.5px] uppercase tracking-widest text-accent/80 font-bold">
+                          most powerful
+                        </span>
+                      )}
+                      {i === CATALYST_HIERARCHY.length - 1 && (
+                        <span className="text-[9.5px] uppercase tracking-widest text-surface-500 font-bold">
+                          slowest
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11.5px] text-surface-500 mt-0.5 leading-snug truncate sm:whitespace-normal">
+                      {c.blurb}
+                    </div>
+                  </div>
+
+                  {/* Intensity dots — visual decay across tiers */}
+                  <div className="shrink-0 hidden sm:flex items-center gap-[3px]" aria-hidden>
+                    {dotRow.map((on, di) => (
+                      <span
+                        key={di}
+                        className={`w-1.5 h-1.5 rounded-full ${on ? (isTop ? 'bg-accent' : 'bg-surface-400') : 'bg-surface-700'}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </li>
+            )
+          })}
+        </ol>
+
+        {/* Attribution */}
+        <div className="mt-4 flex items-center justify-between gap-2 text-[10.5px] font-mono text-surface-500">
+          <span>
+            — Stockbee (Pradeep Bonde)
+          </span>
+          <span className="hidden sm:inline text-surface-600">
+            Theme &gt; Policy &gt; Shortage &gt; Sales &gt; Product &gt; Mgmt
+          </span>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function SectionHeader({ cat, count }) {
   const meta = CATEGORY_META[cat]
   return (
@@ -423,6 +482,12 @@ export default function Rules() {
   const [showResetConfirm, setShowResetConfirm] = useState(false)
 
   useEffect(() => { saveRules(rules) }, [rules])
+
+  // Today's rotating rule — deterministic by day-of-year so the same rule
+  // is shown all session, and the user cycles through every rule over time
+  // instead of re-reading the same static quote.
+  const dailyRule = useMemo(() => getRuleOfDay(rules), [rules])
+  const dailyMeta = dailyRule ? (CATEGORY_META[dailyRule.category] || CATEGORY_META.MINDSET) : null
 
   const counts = useMemo(() => {
     const c = { ALL: rules.length }
@@ -535,18 +600,39 @@ export default function Rules() {
             </div>
           </div>
 
-          {/* Featured quote */}
-          <figure className="mt-6 relative pl-5">
-            <div className="absolute left-0 top-1 bottom-1 w-[3px] rounded-full bg-gradient-to-b from-accent via-purple to-cyan" />
-            <blockquote className="text-[16px] sm:text-[17px] text-surface-100 font-display leading-relaxed italic">
-              “{FEATURED_QUOTE.text}”
-            </blockquote>
-            <figcaption className="mt-1.5 text-[11px] font-mono text-surface-500 tracking-wide">
-              — {FEATURED_QUOTE.attribution}
-            </figcaption>
-          </figure>
+          {/* Rule of the Day — rotates deterministically through the user's
+              rules so the hero always shows something fresh without being
+              random or flashy. Tapping it filters to that rule's category. */}
+          {dailyRule && dailyMeta && (
+            <figure className="mt-6 relative pl-5">
+              <div className={`absolute left-0 top-1 bottom-1 w-[3px] rounded-full ${dailyMeta.bar}`} />
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-[9.5px] font-bold tracking-widest text-surface-500 uppercase">
+                  Rule of the day
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setFilter(dailyRule.category)}
+                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border ${dailyMeta.bg} ${dailyMeta.text} ${dailyMeta.border} hover:opacity-80`}
+                  title={`Filter to ${dailyMeta.label}`}
+                >
+                  <span className="w-2.5 h-2.5">{dailyMeta.icon}</span>
+                  {dailyMeta.label.toUpperCase()}
+                </button>
+              </div>
+              <blockquote className="text-[16px] sm:text-[17px] text-surface-100 font-display leading-relaxed italic">
+                “{dailyRule.text}”
+              </blockquote>
+              <figcaption className="mt-1.5 text-[11px] font-mono text-surface-500 tracking-wide">
+                Day {(new Date()).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · 1 of {rules.length} on rotation
+              </figcaption>
+            </figure>
+          )}
         </div>
       </div>
+
+      {/* CATALYST HIERARCHY — Stockbee framework for EP catalyst ranking. */}
+      <CatalystHierarchy />
 
       {/* CATEGORY CARDS — also serve as filters */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

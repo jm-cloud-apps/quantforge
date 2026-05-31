@@ -21,6 +21,18 @@ export async function createPlaybookEntry(formData) {
   return res.json()
 }
 
+export async function updatePlaybookEntry(id, formData) {
+  const res = await fetch(`${API_BASE}/playbook/entries/${id}`, {
+    method: 'PATCH',
+    body: formData,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to update playbook entry')
+  }
+  return res.json()
+}
+
 export async function deletePlaybookEntry(id) {
   const res = await fetch(`${API_BASE}/playbook/entries/${id}`, {
     method: 'DELETE',
