@@ -179,6 +179,149 @@ def is_extended(df: pd.DataFrame, base: dict) -> bool:
     return _last_close(df) > pivot * 1.05
 
 
+def accumulation_score(df: pd.DataFrame, streak_days: int = 1) -> dict:
+    """Directional read on RVOL surges: is this accumulation or distribution?
+
+    Volume alone is direction-agnostic. This combines three independent tells
+    that institutional buyers (vs. sellers) leave on daily bars:
+
+      1. **Close Location Value (CLV)** — `(close - low) / (high - low)` for the
+         most recent bar. Buyers force the close into the upper half of the
+         range; sellers drop it into the lower half. Weighted 40%.
+      2. **Up/down volume ratio** — over the streak window, sum volume on
+         green days vs. red days. Accumulation = green volume dominates.
+         Weighted 30%.
+      3. **Close vs. VWAP** — closes above the day's volume-weighted average
+         price (preferred from provider; falls back to typical-price proxy)
+         over the streak. Weighted 30%.
+
+    Returns:
+      {
+        "score": 0-100,
+        "clv": 0-1,
+        "up_down_vol_ratio": float (>1 = up-vol dominates),
+        "above_vwap_pct": 0-1,
+        "components": [{name, weight, value, points}],
+      }
+    """
+    if df is None or len(df) < 2:
+        return {"score": 0.0, "clv": None, "up_down_vol_ratio": None,
+                "above_vwap_pct": None, "components": []}
+
+    last = df.iloc[-1]
+    rng = float(last["high"]) - float(last["low"])
+    clv = float((last["close"] - last["low"]) / rng) if rng > 0 else 0.5
+
+    # Streak window: at minimum 1 bar, capped by available history. We always
+    # look at the LAST `window` bars regardless of streak (so even a Day-1
+    # candidate gets context from the prior few sessions).
+    window = max(int(streak_days), 3)
+    window = min(window, len(df))
+    tail = df.tail(window)
+
+    up_vol = float(tail.loc[tail["close"] >= tail["open"], "volume"].sum())
+    down_vol = float(tail.loc[tail["close"] < tail["open"], "volume"].sum())
+    if up_vol + down_vol <= 0:
+        up_down_ratio = 1.0
+    elif down_vol <= 0:
+        up_down_ratio = 5.0  # all up — cap to avoid div-by-zero infinity
+    else:
+        up_down_ratio = up_vol / down_vol
+    # Map ratio → 0-1: 1.0 (balanced) = 0.5, 3.0 = 1.0, 0.33 = 0.0
+    ud_norm = min(max((up_down_ratio - 0.33) / (3.0 - 0.33), 0.0), 1.0)
+
+    # Close-vs-VWAP. Prefer the provider's VWAP column; fall back to typical
+    # price (H+L+C)/3 if absent. Score = fraction of streak days closing above.
+    if "vwap" in tail.columns and tail["vwap"].notna().any():
+        vwap_series = tail["vwap"].astype(float)
+    else:
+        vwap_series = (tail["high"] + tail["low"] + tail["close"]) / 3.0
+    above = (tail["close"] >= vwap_series).sum()
+    above_vwap_pct = float(above) / float(len(tail))
+
+    score = round(40 * clv + 30 * ud_norm + 30 * above_vwap_pct, 1)
+    components = [
+        {"component": f"Close-in-range (CLV {clv:.2f})", "weight": 40,
+         "value": round(clv, 3), "points": round(40 * clv, 1)},
+        {"component": f"Up/down vol ({up_down_ratio:.2f}×)", "weight": 30,
+         "value": round(ud_norm, 3), "points": round(30 * ud_norm, 1)},
+        {"component": f"Closes ≥ VWAP ({int(above)}/{len(tail)})", "weight": 30,
+         "value": round(above_vwap_pct, 3), "points": round(30 * above_vwap_pct, 1)},
+    ]
+    return {
+        "score": score,
+        "clv": round(clv, 3),
+        "up_down_vol_ratio": round(up_down_ratio, 3),
+        "above_vwap_pct": round(above_vwap_pct, 3),
+        "components": components,
+    }
+
+
+def chaikin_money_flow(df: pd.DataFrame, window: int = 21) -> float | None:
+    """Chaikin Money Flow (CMF) over `window` days.
+
+    CMF aggregates the "Money Flow Multiplier" weighted by volume — a single
+    number summarizing whether buyers (CMF > 0) or sellers (CMF < 0) won the
+    last N sessions. The traditional thresholds:
+      ≥ +0.10 = sustained accumulation
+      ≤ -0.10 = sustained distribution
+      around 0 = balanced
+
+    MFM = ((C - L) - (H - C)) / (H - L)   (close-in-range, range -1..+1)
+    MFV = MFM × Volume
+    CMF = Σ MFV / Σ Volume   (over `window` days)
+
+    This is essentially a multi-day version of our Tier-A Accumulation Score's
+    Close-Location-Value component, but volume-weighted. Together they're
+    complementary: Accum Score = "today's bar", CMF = "the trend".
+    """
+    if df is None or len(df) < window:
+        return None
+    tail = df.tail(window)
+    rng = (tail["high"] - tail["low"]).replace(0, np.nan)
+    mfm = ((tail["close"] - tail["low"]) - (tail["high"] - tail["close"])) / rng
+    mfv = mfm * tail["volume"]
+    total_vol = float(tail["volume"].sum())
+    if total_vol <= 0:
+        return None
+    return round(float(mfv.sum() / total_vol), 4)
+
+
+def obv_slope(df: pd.DataFrame, window: int = 20) -> float | None:
+    """On-Balance Volume slope over the last `window` bars (least-squares fit).
+
+    OBV is a running cumulative volume that ADDS volume on up days and SUBTRACTS
+    on down days. Its slope is the actionable signal:
+      slope > 0 → up-volume dominates → accumulation
+      slope < 0 → down-volume dominates → distribution
+
+    We normalize by mean volume so the slope is comparable across tickers
+    (otherwise NVDA's millions dwarf a small cap's hundreds of thousands).
+    Returned value is "normalized slope per bar" — positive = accumulation.
+    """
+    if df is None or len(df) < window + 1:
+        return None
+    tail = df.tail(window + 1)
+    close = tail["close"].to_numpy(dtype=float)
+    vol = tail["volume"].to_numpy(dtype=float)
+    # OBV[i] - OBV[i-1] = ±volume[i] based on close direction.
+    signs = np.sign(close[1:] - close[:-1])  # +1 / 0 / -1
+    obv_delta = signs * vol[1:]
+    obv = np.cumsum(obv_delta)
+    if len(obv) < 2:
+        return None
+    avg_vol = float(np.mean(vol[1:])) or 1.0
+    x = np.arange(len(obv), dtype=float)
+    # Least-squares slope of OBV vs index.
+    sx, sy = x.sum(), obv.sum()
+    sxx, sxy = (x * x).sum(), (x * obv).sum()
+    denom = len(obv) * sxx - sx * sx
+    if denom == 0:
+        return None
+    slope = (len(obv) * sxy - sx * sy) / denom
+    return round(float(slope / avg_vol), 4)  # normalized: ~+0.5 = strong accum
+
+
 def is_emerging(df: pd.DataFrame, thrust: dict, base: dict) -> bool:
     """'On the come up': thrust occurred but base isn't fully formed yet.
 

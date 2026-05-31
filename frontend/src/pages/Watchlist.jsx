@@ -24,6 +24,45 @@ const fmtDate = (iso) => {
   }
 }
 
+// Compact "May 30, 2:23 PM" — fits in the existing column without a redesign.
+// Time matters for intraday adds (you want to know if you grabbed it pre-market
+// vs. after a 5% run); date alone hides that.
+const fmtDateTime = (iso) => {
+  if (!iso) return { date: '—', time: '' }
+  try {
+    const d = new Date(iso)
+    return {
+      date: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      time: d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }),
+    }
+  } catch {
+    return { date: iso, time: '' }
+  }
+}
+
+// "3d ago", "2h ago", "just now" — for the hover tooltip alongside the ISO.
+const fmtRelative = (iso) => {
+  if (!iso) return ''
+  try {
+    const then = new Date(iso).getTime()
+    const diffMs = Date.now() - then
+    if (diffMs < 0) return 'in the future'
+    const sec = Math.floor(diffMs / 1000)
+    if (sec < 60) return 'just now'
+    const min = Math.floor(sec / 60)
+    if (min < 60) return `${min}m ago`
+    const hr = Math.floor(min / 60)
+    if (hr < 24) return `${hr}h ago`
+    const day = Math.floor(hr / 24)
+    if (day < 30) return `${day}d ago`
+    const mo = Math.floor(day / 30)
+    if (mo < 12) return `${mo}mo ago`
+    return `${Math.floor(mo / 12)}y ago`
+  } catch {
+    return ''
+  }
+}
+
 function ReturnCell({ value }) {
   if (value == null) return <span className="text-surface-500">—</span>
   const cls = value > 0 ? 'text-success' : value < 0 ? 'text-danger' : 'text-surface-400'
@@ -399,8 +438,19 @@ export default function Watchlist() {
                           className="font-mono font-bold text-surface-100"
                         />
                       </td>
-                      <td className="px-4 py-2.5 text-surface-400 text-xs">
-                        {fmtDate(row.added_at)}
+                      <td
+                        className="px-4 py-2.5 text-xs"
+                        title={row.added_at ? `${row.added_at.replace('T', ' ')} · ${fmtRelative(row.added_at)}` : ''}
+                      >
+                        {(() => {
+                          const { date, time } = fmtDateTime(row.added_at)
+                          return (
+                            <div className="flex flex-col leading-tight">
+                              <span className="text-surface-300">{date}</span>
+                              {time && <span className="text-surface-500 text-[10.5px] font-mono tabular-nums">{time}</span>}
+                            </div>
+                          )
+                        })()}
                       </td>
                       <td className="px-4 py-2.5 text-right font-mono text-surface-300 tabular-nums">
                         {fmtPrice(row.added_price)}

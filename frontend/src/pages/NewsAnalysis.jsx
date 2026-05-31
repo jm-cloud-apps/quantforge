@@ -83,7 +83,7 @@ function buildSummary(articles) {
     const tags = [...new Set(catalystArticles.flatMap((a) => a.catalysts.map((c) => c.tag)))]
     summaryText = `Potential catalysts detected: ${tags.join(', ')}`
   } else {
-    summaryText = 'No major catalysts detected in the last 3 days'
+    summaryText = 'No major catalysts detected in the last 7 days'
   }
 
   return { sorted, summaryText, hasCatalysts: catalystArticles.length > 0 }
@@ -1322,6 +1322,9 @@ export default function NewsAnalysis() {
   const [error, setError] = useState(null)
   const [searched, setSearched] = useState(false)
   const [history, setHistory] = useState([])
+  // Per-search metadata from /api/news so the empty state can explain *why*
+  // it's empty (which tickers were checked, which errored, the actual window).
+  const [searchMeta, setSearchMeta] = useState(null)
   // Latest-price map keyed by symbol — populated by "Refresh prices" so the
   // recent-searches list can show return-since-search without auto-polling.
   const [livePrices, setLivePrices] = useState({})
@@ -1378,6 +1381,13 @@ export default function NewsAnalysis() {
       const arts = data.articles || []
       setArticles(arts)
       setEarnings(data.earnings || {})
+      setSearchMeta({
+        provider: data.provider || null,
+        lookbackDays: data.lookback_days ?? null,
+        queried: data.queried || tickers.map((t) => t.toUpperCase()),
+        withNews: data.with_news || [],
+        errors: data.errors || {},
+      })
       // Fetch EP scores in parallel (don't block news rendering)
       const scores = await fetchEpScores(tickers)
       // Save to backend cache (include EP scores), then reload history
@@ -1389,6 +1399,7 @@ export default function NewsAnalysis() {
       setError(err.message)
       setArticles([])
       setEarnings({})
+      setSearchMeta(null)
     }
     setLoading(false)
   }
@@ -1405,6 +1416,18 @@ export default function NewsAnalysis() {
       setQuery(tickerList.join(' '))
       setArticles(cachedEntry.articles)
       setEarnings(cachedEntry.earnings || {})
+      const queried = (cachedEntry.tickers || tickerList).map((t) => t.toUpperCase())
+      const withNews = Array.from(
+        new Set((cachedEntry.articles || []).map((a) => a.symbol).filter(Boolean))
+      )
+      setSearchMeta({
+        provider: null,
+        lookbackDays: null,
+        queried,
+        withNews,
+        errors: {},
+        fromCache: true,
+      })
       setSearched(true)
       setError(null)
       // Restore EP scores from cache if present, else refetch
@@ -1471,7 +1494,7 @@ export default function NewsAnalysis() {
         </h1>
         <p className="text-surface-400 text-[13px] mt-1">
           {activeTab === 'news'
-            ? 'Scan for episodic catalysts — earnings, analyst upgrades, mergers & acquisitions, and more. Last 3 days.'
+            ? 'Scan for episodic catalysts — earnings, analyst upgrades, mergers & acquisitions, and more. Last 7 days.'
             : 'Reference criteria from top momentum traders. The checklist to validate every setup.'}
         </p>
 
@@ -1584,19 +1607,71 @@ export default function NewsAnalysis() {
           )}
 
           {/* Results — empty */}
-          {!loading && searched && articles.length === 0 && !error && (
-            <div className="rounded-2xl bg-surface-900 border border-surface-700/50 border-dashed p-16 text-center animate-fade-in">
-              <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-surface-800 flex items-center justify-center">
-                <svg className="w-7 h-7 text-surface-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m5.231 13.481L15 17.25m-4.5-15H5.625c-.621 0-1.125.504-1.125 1.125v16.5c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9zm3.75 11.625a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-                </svg>
+          {!loading && searched && articles.length === 0 && !error && (() => {
+            const meta = searchMeta || {}
+            const queried = meta.queried || []
+            const errorTickers = Object.keys(meta.errors || {})
+            const noCoverageTickers = queried.filter((t) => !errorTickers.includes(t))
+            const windowLabel = meta.lookbackDays
+              ? `last ${meta.lookbackDays} day${meta.lookbackDays === 1 ? '' : 's'}`
+              : 'lookback window'
+            return (
+              <div className="rounded-2xl bg-surface-900 border border-surface-700/50 border-dashed p-10 animate-fade-in">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 shrink-0 rounded-2xl bg-surface-800 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-surface-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m5.231 13.481L15 17.25m-4.5-15H5.625c-.621 0-1.125.504-1.125 1.125v16.5c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9zm3.75 11.625a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-surface-100 text-base font-semibold">
+                      No headlines in the {windowLabel}
+                    </p>
+                    <p className="text-surface-500 text-sm mt-1">
+                      {meta.provider
+                        ? <>Searched <span className="font-mono text-surface-300">{meta.provider}</span> for {queried.length} ticker{queried.length === 1 ? '' : 's'}.</>
+                        : 'No matching articles returned.'}
+                    </p>
+
+                    {noCoverageTickers.length > 0 && (
+                      <div className="mt-4">
+                        <p className="text-[11px] uppercase tracking-wide text-surface-500 font-semibold mb-2">
+                          No coverage
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {noCoverageTickers.map((t) => (
+                            <span key={t} className="inline-flex items-center px-2 py-1 rounded-md bg-surface-800/80 border border-surface-700/40 font-mono text-xs text-surface-300">
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {errorTickers.length > 0 && (
+                      <div className="mt-4">
+                        <p className="text-[11px] uppercase tracking-wide text-red-400/80 font-semibold mb-2">
+                          Fetch failed
+                        </p>
+                        <ul className="space-y-1">
+                          {errorTickers.map((t) => (
+                            <li key={t} className="text-xs text-surface-300">
+                              <span className="font-mono font-semibold text-red-300">{t}</span>
+                              <span className="text-surface-500"> — {meta.errors[t]}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <p className="text-surface-600 text-xs mt-4">
+                      Small-caps often have thin coverage on this feed. Try a longer window, a different ticker, or check back later.
+                    </p>
+                  </div>
+                </div>
               </div>
-              <p className="text-surface-200 text-base font-semibold">No news in the last 3 days</p>
-              <p className="text-surface-500 text-sm mt-1">
-                Try different tickers or check back later.
-              </p>
-            </div>
-          )}
+            )
+          })()}
 
           {!loading && tickers.length > 0 && (
             <div className="space-y-4">
@@ -1781,7 +1856,7 @@ export default function NewsAnalysis() {
                 </div>
                 <p className="text-surface-200 text-base font-semibold">Scan for episodic catalysts</p>
                 <p className="text-surface-500 text-sm mt-1.5 max-w-sm mx-auto">
-                  Find earnings beats, analyst upgrades, M&A, and other market-moving events from the last 3 days.
+                  Find earnings beats, analyst upgrades, M&A, and other market-moving events from the last 7 days.
                 </p>
 
                 {/* Quick-pick ticker chips */}

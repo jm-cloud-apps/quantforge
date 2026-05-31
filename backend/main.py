@@ -68,6 +68,10 @@ app.include_router(advisor_router)
 from screener.qullamaggie.router import router as qullamaggie_router
 app.include_router(qullamaggie_router)
 
+# Register Options Flow router (Tier-D — Unusual Whales-style)
+from options_flow.router import router as options_flow_router
+app.include_router(options_flow_router)
+
 from watchlists import router as watchlists_router
 app.include_router(watchlists_router)
 
@@ -1741,7 +1745,14 @@ def calculate_trade_metrics(trades):
     }
 
 
-# Screener Endpoints (Finnhub API — free tier: 60 calls/min)
+# Sector-performance screener endpoints.
+#
+# NOTE: despite the historical "Finnhub" naming below, candle/return data is
+# fetched via the configured data provider (Massive.com by default, yfinance
+# fallback) through `_fetch_sectors_via_provider`. Finnhub's free-tier
+# /stock/candle endpoint returns 403 and is no longer used here. The
+# FINNHUB_BASE_URL constant remains only because the News / EP-scorer paths
+# further down still use Finnhub for earnings + company-news lookups.
 
 from datetime import datetime, timedelta
 import time
@@ -1964,7 +1975,7 @@ def get_sector_performance(force: int = 0):
     """Get performance data for sector and industry ETFs."""
     global _sector_cache, _fetch_progress
 
-    # Force refresh: clear all caches so we fetch fresh data from Finnhub
+    # Force refresh: clear all caches so we fetch fresh data from the provider
     if force:
         print("Force refresh requested — clearing all caches")
         _sector_cache = {"data": None, "timestamp": None}
@@ -2496,6 +2507,58 @@ def get_weekly_review(days: int = 7, force: int = 0) -> dict:
     _WEEKLY_REVIEW_CACHE["result"] = result
     _WEEKLY_REVIEW_CACHE["ts"] = _time.time()
     return result
+
+
+# ─── $9 Million Method Scanner ───────────────────────────────────────────────
+#
+# Stockbee's volume-filtered breakout system. Rules + classification live in
+# scanners/ep9m.py; this is just the HTTP shell + a small TTL cache so the
+# page doesn't recompute the whole panel on every click.
+
+_EP9M_CACHE: dict = {"key": None, "result": None, "ts": 0.0}
+_EP9M_TTL_SECONDS = 5 * 60
+
+
+@app.get("/api/scanner/9m")
+def get_9m_scan(
+    min_volume: int = 9_000_000,
+    min_price: float = 3.0,
+    require_compression: int = 0,
+    require_not_late: int = 0,
+    force: int = 0,
+) -> dict:
+    """Run the $9 Million Method scanner against the breadth cache.
+
+    Hard filters are always applied. Compression and "not late" are computed
+    as soft signals; pass `require_compression=1` or `require_not_late=1` to
+    promote them to hard gates (Stockbee's stricter formulation).
+
+    Cached for 5 minutes per parameter tuple. force=1 bypasses. Returns 500
+    if the breadth cache hasn't been seeded — point the user at Market
+    Monitor → Refresh to build it.
+    """
+    import time as _time
+    from scanners import ep9m as _ep9m
+
+    key = (int(min_volume), float(min_price), bool(require_compression), bool(require_not_late))
+    if not force and _EP9M_CACHE["key"] == key and (_time.time() - _EP9M_CACHE["ts"]) < _EP9M_TTL_SECONDS:
+        cached = _EP9M_CACHE["result"]
+        return {**cached, "from_cache": True}
+
+    try:
+        result = _ep9m.run(
+            min_volume=int(min_volume),
+            min_price=float(min_price),
+            require_compression=bool(require_compression),
+            require_not_late=bool(require_not_late),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"9M scan failed: {e}")
+
+    _EP9M_CACHE["key"] = key
+    _EP9M_CACHE["result"] = result
+    _EP9M_CACHE["ts"] = _time.time()
+    return {**result, "from_cache": False}
 
 
 # ─── Trading Tools ────────────────────────────────────────────────────────────

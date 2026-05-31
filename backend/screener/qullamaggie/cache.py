@@ -16,6 +16,7 @@ from typing import Iterable
 
 import pandas as pd
 
+from market_clock import is_market_active_now
 from .providers import get_provider
 from .providers.base import OHLCV_COLS
 
@@ -61,7 +62,7 @@ def fetch_one(symbol: str, lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> pd.Dat
 def refresh_universe(
     symbols: Iterable[str],
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
-    max_age_hours: float = 18.0,
+    max_age_hours: float | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Refresh cached OHLCV per-symbol. Returns dict of merged frames.
 
@@ -72,6 +73,11 @@ def refresh_universe(
     symbols = sorted({s.upper() for s in symbols})
     if not symbols:
         return {}
+
+    # When market is closed, OHLCV doesn't change — extend the freshness window
+    # so weekend / holiday / overnight runs skip re-fetching entirely.
+    if max_age_hours is None:
+        max_age_hours = 18.0 if is_market_active_now() else 96.0
 
     provider = get_provider()
     today = datetime.now().date()

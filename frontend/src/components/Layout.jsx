@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { loadRules, getRuleOfDay } from '../utils/tradingRules'
 
 const icons = {
   trading: (
@@ -35,6 +36,12 @@ const icons = {
   calendar: (
     <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    </svg>
+  ),
+  ninem: (
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+      <circle cx="17" cy="6" r="3" stroke="currentColor" strokeWidth="1.6" fill="none" />
     </svg>
   ),
   breakouts: (
@@ -73,15 +80,26 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
     </svg>
   ),
+  dashboard: (
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4h7v7H4V4zm0 9h7v7H4v-7zm9-9h7v4h-7V4zm0 6h7v10h-7V10z" />
+    </svg>
+  ),
 }
 
 // Grouped navigation — mirrors macOS sidebar conventions (Mail/Notes/Music).
 // Order within each group is by likely frequency-of-use.
 const navGroups = [
   {
+    label: 'Overview',
+    items: [
+      { path: '/',      label: 'Dashboard', icon: icons.dashboard, end: true },
+    ],
+  },
+  {
     label: 'Discipline',
     items: [
-      { path: '/',                label: 'Rules',            icon: icons.rules,     end: true },
+      { path: '/rules', label: 'Rules',     icon: icons.rules },
     ],
   },
   {
@@ -91,8 +109,10 @@ const navGroups = [
       { path: '/news',            label: 'Stock Analysis',   icon: icons.stock },
       { path: '/market-monitor',  label: 'Market Monitor',   icon: icons.monitor },
       { path: '/earnings',        label: 'Earnings',         icon: icons.calendar },
+      { path: '/scanner-9m',      label: '$9M Scanner',      icon: icons.ninem },
       { path: '/screener',        label: 'Sector Scan',      icon: icons.sector },
       { path: '/breakouts',       label: 'Breakouts',        icon: icons.breakouts },
+      { path: '/flow',            label: 'Options Flow',     icon: icons.breakouts },
     ],
   },
   {
@@ -140,6 +160,11 @@ export default function Layout() {
   }, [mobileOpen])
 
   const sidebarWidth = collapsed ? 'lg:w-[64px]' : 'lg:w-[232px]'
+
+  // Ambient "today's rule" — same deterministic pick as the Rules-page hero,
+  // so the user sees the same one in both places throughout the session.
+  // Recomputed once per mount; rotates at local midnight when the app reloads.
+  const dailyRule = useMemo(() => getRuleOfDay(loadRules()), [])
 
   return (
     <div className="min-h-screen flex">
@@ -219,8 +244,24 @@ export default function Layout() {
           ))}
         </nav>
 
-        {/* Build stamp footer */}
+        {/* Footer: ambient "today's rule" (expanded only) + build stamp.
+            Quiet, single-line, low-contrast — it should fade into the
+            background until the eye drifts down. Hover reveals full text. */}
         <div className={`border-t border-surface-700/40 px-3 py-2 ${collapsed ? 'text-center' : ''}`}>
+          {!collapsed && dailyRule && (
+            <NavLink
+              to="/rules"
+              title={dailyRule.text}
+              className="block group mb-1.5"
+            >
+              <div className="text-[8.5px] font-bold tracking-widest text-surface-600 group-hover:text-surface-400 uppercase">
+                Today’s rule
+              </div>
+              <div className="text-[10.5px] leading-snug text-surface-500 group-hover:text-surface-300 line-clamp-2 transition-colors">
+                {dailyRule.text}
+              </div>
+            </NavLink>
+          )}
           <span
             className="inline-block text-[9px] font-mono text-surface-600 px-1.5 py-0.5 rounded bg-surface-800/60 border border-surface-700/40 whitespace-nowrap"
             title="Frontend build timestamp"

@@ -169,7 +169,54 @@ const ChartCard = ({ candidate, rank, isNew = false }) => {
     : candidate.rsi <= 30 ? 'text-accent'
     : 'text-surface-200'
 
-  const stats = [
+  // Accumulation score colors: ≥70 = clear buying, 40-70 = mixed, <40 = distribution
+  const accScore = candidate.accumulation_score
+  const accCls =
+    accScore == null ? 'text-surface-200'
+    : accScore >= 70 ? 'text-success'
+    : accScore >= 40 ? 'text-warning'
+    : 'text-danger'
+  const accLabel =
+    accScore == null ? null
+    : accScore >= 70 ? 'BUY'
+    : accScore >= 40 ? 'MIX'
+    : 'SELL'
+
+  // On unusual_volume tiles, swap two of the less-relevant stats (Thrust, 3M)
+  // for the accumulation components (CLV, U/D vol). These tell you direction.
+  const isVolMode = candidate.accumulation_score != null
+  // Short volume ratio interpretation:
+  //   ≤ 35%  = normal range, RVOL surge likely real buying      → success
+  //   35-50% = elevated short activity (could be squeeze fuel)   → warning
+  //   > 50%  = heavy short selling, may be distribution disguised → danger
+  const svr = candidate.short_volume_ratio
+  const svrCls =
+    svr == null ? 'text-surface-200'
+    : svr <= 35 ? 'text-success'
+    : svr <= 50 ? 'text-warning'
+    : 'text-danger'
+  // CMF coloring: ≥ +0.10 = sustained accumulation, ≤ -0.10 = distribution.
+  const cmfCls =
+    candidate.cmf == null ? 'text-surface-200'
+    : candidate.cmf >= 0.1 ? 'text-success'
+    : candidate.cmf <= -0.1 ? 'text-danger'
+    : 'text-surface-200'
+  // Days-to-cover: ≥5 = real squeeze setup
+  const dtc = candidate.days_to_cover
+  const dtcCls =
+    dtc == null ? 'text-surface-200'
+    : dtc >= 5 ? 'text-warning'
+    : 'text-surface-200'
+  const stats = isVolMode ? [
+    { label: 'Accum', value: accScore != null ? `${accScore.toFixed(0)}` : '–', cls: accCls },
+    { label: 'CMF', value: candidate.cmf != null ? candidate.cmf.toFixed(2) : '–', cls: cmfCls },
+    { label: 'RVOL', value: candidate.rvol != null ? `${candidate.rvol.toFixed(2)}x` : '–' },
+    { label: 'U/D Vol', value: candidate.up_down_vol_ratio != null ? `${candidate.up_down_vol_ratio.toFixed(2)}x` : '–' },
+    { label: '>VWAP', value: candidate.above_vwap_pct != null ? `${Math.round(candidate.above_vwap_pct * 100)}%` : '–' },
+    { label: 'Short', value: svr != null ? `${svr.toFixed(0)}%` : '–', cls: svrCls },
+    { label: 'DTC', value: dtc != null ? `${dtc.toFixed(1)}d` : '–', cls: dtcCls },
+    { label: 'RSI', value: candidate.rsi != null ? candidate.rsi.toFixed(0) : '–', cls: rsiColor },
+  ] : [
     { label: 'ADR', value: fmtPct(candidate.adr_pct) },
     { label: 'RVOL', value: candidate.rvol != null ? `${candidate.rvol.toFixed(2)}x` : '–' },
     { label: 'RSI', value: candidate.rsi != null ? candidate.rsi.toFixed(0) : '–', cls: rsiColor },
@@ -199,6 +246,97 @@ const ChartCard = ({ candidate, rank, isNew = false }) => {
             <div className="flex items-baseline gap-2">
               <span className="text-xs font-mono text-surface-500">#{rank}</span>
               <TickerLink symbol={candidate.symbol} className="text-base font-bold text-surface-100" />
+              {candidate.rvol_streak_day != null && (
+                <span
+                  className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md border ${
+                    candidate.rvol_streak_day === 1
+                      ? 'border-success/60 text-success bg-success/10'
+                      : candidate.rvol_streak_day === 2
+                      ? 'border-accent/60 text-accent bg-accent/10'
+                      : 'border-warning/60 text-warning bg-warning/10'
+                  }`}
+                  title={
+                    candidate.rvol_streak_day === 1
+                      ? 'First day of ≥2× RVOL — fresh pop'
+                      : `Day ${candidate.rvol_streak_day} of sustained ≥2× RVOL`
+                  }
+                >
+                  Day {candidate.rvol_streak_day >= 3 ? '3+' : candidate.rvol_streak_day}
+                </span>
+              )}
+              {accLabel && (
+                <span
+                  className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md border ${
+                    accScore >= 70 ? 'border-success/60 text-success bg-success/10'
+                    : accScore >= 40 ? 'border-warning/60 text-warning bg-warning/10'
+                    : 'border-danger/60 text-danger bg-danger/10'
+                  }`}
+                  title={
+                    accScore >= 70 ? `Accumulation Score ${accScore.toFixed(0)}/100 — closing strong, up-volume dominates, holding above VWAP. Likely institutional BUYING.`
+                    : accScore >= 40 ? `Accumulation Score ${accScore.toFixed(0)}/100 — mixed signals. The volume spike could be accumulation OR distribution.`
+                    : `Accumulation Score ${accScore.toFixed(0)}/100 — closing weak, down-volume dominates, closing below VWAP. Likely DISTRIBUTION (selling).`
+                  }
+                >
+                  {accLabel} {accScore.toFixed(0)}
+                </span>
+              )}
+              {candidate.smart_money_label && (
+                <span
+                  className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md border ${
+                    candidate.smart_money_class === 'success'
+                      ? 'border-success/60 text-success bg-success/10'
+                      : 'border-warning/60 text-warning bg-warning/10'
+                  }`}
+                  title={
+                    candidate.smart_money_label === 'STEALTH'
+                      ? `${candidate.darkpool_block_count} large hidden fills (≥10K shares OR ≥$1M, off-exchange). The strongest institutional accumulation tell.`
+                      : candidate.smart_money_label === 'DARK'
+                      ? `${(candidate.darkpool_pct * 100).toFixed(0)}% of sampled volume routed off-exchange (dark pools / ATSes). Funds avoiding market impact.`
+                      : candidate.smart_money_label === 'BLOCKS'
+                      ? `${candidate.block_count} block trades (≥10K shares OR ≥$1M notional), ${(candidate.block_pct * 100).toFixed(0)}% of sampled volume. Institutional fills visible on the tape.`
+                      : `${candidate.block_count} block trades, ${(candidate.block_pct * 100).toFixed(0)}% of sampled volume.`
+                  }
+                >
+                  {candidate.smart_money_label}
+                </span>
+              )}
+              {/* CMF+ badge — sustained 21-day accumulation (>= +0.10). */}
+              {candidate.cmf != null && candidate.cmf >= 0.1 && (
+                <span
+                  className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-success/60 text-success bg-success/10"
+                  title={`Chaikin Money Flow ${candidate.cmf.toFixed(2)} — 21-day volume-weighted close-in-range is in sustained accumulation territory.`}
+                >
+                  CMF+
+                </span>
+              )}
+              {/* Insider buys (Form 4 'P' codes in last 60 days) */}
+              {candidate.insider_buys_60d != null && candidate.insider_buys_60d >= 2 && (
+                <span
+                  className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-success/60 text-success bg-success/10"
+                  title={`${candidate.insider_buys_60d} insider purchase(s) by ${candidate.distinct_insider_buyers_60d || '?'} distinct insider(s) in the last 60 days (SEC Form 4 'P' codes). Cleanest 'smart money' tell available without options.`}
+                >
+                  INSIDER BUYS ×{candidate.insider_buys_60d}
+                </span>
+              )}
+              {/* 13-F institutional filers in last 90 days */}
+              {candidate.institutional_filers_90d != null && candidate.institutional_filers_90d >= 3 && (
+                <span
+                  className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-accent/60 text-accent bg-accent/10"
+                  title={`${candidate.institutional_filers_90d} institutional managers (≥$100M AUM) disclosed positions in the last 90 days (SEC 13-F filings).`}
+                >
+                  {candidate.institutional_filers_90d} FUNDS
+                </span>
+              )}
+              {/* Squeeze setup — high short interest + bullish accumulation */}
+              {candidate.days_to_cover != null && candidate.days_to_cover >= 5
+                  && candidate.accumulation_score != null && candidate.accumulation_score >= 60 && (
+                <span
+                  className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-warning/60 text-warning bg-warning/10"
+                  title={`Squeeze setup: ${candidate.days_to_cover.toFixed(1)}-day cover ratio with accumulation score ${candidate.accumulation_score.toFixed(0)}. Heavy short position being squeezed by buying pressure.`}
+                >
+                  SQUEEZE
+                </span>
+              )}
             </div>
             <div className="text-[10px] text-surface-500 mt-0.5 flex items-center gap-2">
               <span>${candidate.last_close?.toFixed(2)}</span>
@@ -283,15 +421,26 @@ const ChartCard = ({ candidate, rank, isNew = false }) => {
           </a>
         )}
 
-        {/* Intraday button — only show for READY/GOOD */}
-        {(candidate.status === 'READY' || candidate.status === 'GOOD') && (
-          <button
-            onClick={() => setShowIntraday(true)}
-            className="text-[11px] text-accent hover:text-accent/80 font-medium border-t border-surface-700/30 pt-2"
-          >
-            ↗ View intraday (5m)
-          </button>
-        )}
+        {/* Action row: intraday + options-flow deeplink. */}
+        <div className="flex items-center gap-4 border-t border-surface-700/30 pt-2">
+          {(candidate.status === 'READY' || candidate.status === 'GOOD') && (
+            <button
+              onClick={() => setShowIntraday(true)}
+              className="text-[11px] text-accent hover:text-accent/80 font-medium"
+            >
+              ↗ View intraday (5m)
+            </button>
+          )}
+          {isVolMode && (
+            <a
+              href={`/flow/${candidate.symbol}`}
+              className="text-[11px] text-accent hover:text-accent/80 font-medium"
+              title="Open the Options Flow page for this ticker — see premium-weighted P/C, unusual contracts, and sweep activity."
+            >
+              ↗ Options flow
+            </a>
+          )}
+        </div>
       </div>
 
       {showIntraday && (

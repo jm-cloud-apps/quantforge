@@ -16,10 +16,13 @@ const Tools           = lazy(() => import('./pages/Tools'))
 const NewsAnalysis    = lazy(() => import('./pages/NewsAnalysis'))
 const Suggestions     = lazy(() => import('./pages/Suggestions'))
 const Breakouts       = lazy(() => import('./pages/Breakouts'))
+const OptionsFlow     = lazy(() => import('./pages/OptionsFlow'))
 const Watchlist       = lazy(() => import('./pages/Watchlist'))
 const MarketMonitor   = lazy(() => import('./pages/MarketMonitor'))
 const EarningsCalendar = lazy(() => import('./pages/EarningsCalendar'))
+const Scanner9M       = lazy(() => import('./pages/Scanner9M'))
 const Rules           = lazy(() => import('./pages/Rules'))
+const Dashboard       = lazy(() => import('./pages/Dashboard'))
 
 function RouteFallback() {
   return (
@@ -39,11 +42,14 @@ function AnimatedRoutes() {
       <Suspense fallback={<RouteFallback />}>
         <Routes location={location}>
           <Route path="/" element={<Layout />}>
-            <Route index element={<Rules />} />
+            <Route index element={<Dashboard />} />
+            <Route path="dashboard" element={<Dashboard />} />
             <Route path="rules" element={<Rules />} />
             <Route path="backtesting" element={<Backtesting />} />
             <Route path="screener" element={<Screener />} />
             <Route path="breakouts" element={<Breakouts />} />
+            <Route path="flow" element={<OptionsFlow />} />
+            <Route path="flow/:underlying" element={<OptionsFlow />} />
             <Route path="bot-trader" element={<BotTrader />} />
             <Route path="trading-analysis" element={<TradingAnalysis />} />
             <Route path="playbook" element={<Playbook />} />
@@ -54,6 +60,7 @@ function AnimatedRoutes() {
             <Route path="signal-lab" element={<Suggestions />} />
             <Route path="market-monitor" element={<MarketMonitor />} />
             <Route path="earnings" element={<EarningsCalendar />} />
+            <Route path="scanner-9m" element={<Scanner9M />} />
           </Route>
         </Routes>
       </Suspense>

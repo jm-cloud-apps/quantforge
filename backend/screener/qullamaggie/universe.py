@@ -8,7 +8,21 @@ Keep this list focused — yfinance is rate-limited, and 200-300 names hits the
 sweet spot of broad coverage vs. fetch time.
 """
 
+import json
+import logging
 import os
+import time
+from datetime import date as _date, timedelta
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+_WIDE_CACHE = BACKEND_DIR / "data" / "wide_universe.json"
+_WIDE_CACHE.parent.mkdir(parents=True, exist_ok=True)
+# Wide universe barely changes day-to-day; 24h cache is plenty. Re-fetched
+# automatically when the cached date doesn't match today.
+_WIDE_CACHE_TTL_SEC = 24 * 3600
 
 # Large caps + liquid mid/small caps that show up in momentum leader scans.
 CORE_TICKERS: list[str] = [
@@ -62,6 +76,72 @@ BENCHMARKS: list[str] = ["SPY", "QQQ", "IWM", "MDY"]
 
 # User can add tickers here without editing CORE_TICKERS.
 EXTRA_TICKERS: list[str] = []
+
+
+def wide_universe(min_dollar_vol: float = 5_000_000, max_symbols: int = 3000) -> list[str]:
+    """Build a dynamic universe of every US-listed stock with ≥`min_dollar_vol`
+    dollar volume on the most recent trading day.
+
+    Uses Massive's grouped daily aggregates endpoint — one HTTP call returns
+    the whole tape (~8K-10K tickers). We filter by close × volume, optionally
+    cap at `max_symbols` (sorted by dollar volume desc).
+
+    Result is cached to disk for 24h since this list barely changes day-to-day.
+    Raises NotEntitled if the grouped endpoint isn't on the API plan; caller
+    should fall back to get_universe().
+    """
+    today = _date.today().isoformat()
+    # Read cache first.
+    if _WIDE_CACHE.exists():
+        try:
+            cached = json.loads(_WIDE_CACHE.read_text())
+            age = time.time() - cached.get("cached_at", 0)
+            if (cached.get("date") == today
+                    and age < _WIDE_CACHE_TTL_SEC
+                    and cached.get("min_dollar_vol") == min_dollar_vol):
+                return cached.get("symbols", [])
+        except Exception as e:
+            logger.debug("wide_universe cache read failed: %s", e)
+
+    from .providers import get_provider
+    provider = get_provider()
+    if not hasattr(provider, "fetch_daily_market_summary"):
+        return []
+    rows = provider.fetch_daily_market_summary()
+    if not rows:
+        return []
+    scored = []
+    for r in rows:
+        sym = r.get("T")
+        close = r.get("c") or 0
+        vol = r.get("v") or 0
+        if not sym or close <= 0 or vol <= 0:
+            continue
+        # Skip OTC / pink names (5+ char tickers, ones with dots — Massive
+        # includes warrants, ADRs, preferred series). Keep it simple — we
+        # want common stocks only.
+        if "." in sym or len(sym) > 5:
+            continue
+        dv = close * vol
+        if dv < min_dollar_vol:
+            continue
+        scored.append((sym.upper(), dv))
+    # Highest dollar volume first; cap if requested.
+    scored.sort(key=lambda x: x[1], reverse=True)
+    symbols = [s for s, _ in scored[:max_symbols]]
+
+    try:
+        _WIDE_CACHE.write_text(json.dumps({
+            "date": today,
+            "cached_at": time.time(),
+            "min_dollar_vol": min_dollar_vol,
+            "symbols": symbols,
+            "count": len(symbols),
+        }))
+    except Exception as e:
+        logger.debug("wide_universe cache write failed: %s", e)
+
+    return symbols
 
 
 def get_universe(include_movers: bool = False, movers_limit: int = 30) -> list[str]:

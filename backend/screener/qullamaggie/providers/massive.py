@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 import httpx
 import pandas as pd
 
-from .base import OHLCV_COLS
+from .base import OHLCV_COLS, NoApiKey, NoData, NotEntitled, RateLimited
 
 logger = logging.getLogger(__name__)
 
@@ -113,10 +113,16 @@ class MassiveProvider:
                 if not results:
                     return None
                 df = pd.DataFrame(results)
-                # Polygon-shape: t (ms), o, h, l, c, v (plus optional vw, n)
+                # Polygon-shape: t (ms), o, h, l, c, v (plus optional vw, n).
+                # We now also capture `vw` (daily VWAP) as the `vwap` column —
+                # needed for the Tier-A Accumulation Score (close-vs-VWAP).
                 df["date"] = pd.to_datetime(df["t"], unit="ms").dt.tz_localize(None).dt.normalize()
-                df = df.rename(columns={"o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"})
-                df = df.set_index("date")[OHLCV_COLS]
+                df = df.rename(columns={
+                    "o": "open", "h": "high", "l": "low", "c": "close", "v": "volume",
+                    "vw": "vwap",
+                })
+                keep = OHLCV_COLS + [c for c in ("vwap",) if c in df.columns]
+                df = df.set_index("date")[keep]
                 return df.sort_index()
             except httpx.RequestError as e:
                 logger.debug("massive: request error %s for %s", e, symbol)
@@ -394,6 +400,404 @@ class MassiveProvider:
                 "fiscal_year": row.get("fiscal_year"),
             })
         return out
+
+    def fetch_option_chain(self, underlying: str, max_pages: int = 6, limit: int = 250) -> dict | None:
+        """Pull the full option chain snapshot for an underlying.
+
+        Endpoint: /v3/snapshot/options/{underlyingAsset}
+        Paginates via Massive's `next_url`. Returns:
+          {
+            "underlying_price": float | None,
+            "contracts": [...]
+          }
+
+        Raises:
+          NotEntitled — Massive plan doesn't include Options data (401/403).
+          RateLimited — 429 across all retry attempts.
+          NoData      — 200/404 with empty result set.
+        """
+        if not self.api_key:
+            raise NoApiKey("MASSIVE_API_KEY is not configured")
+        path = f"/v3/snapshot/options/{underlying.upper()}"
+        params = {"limit": limit, "apiKey": self.api_key}
+        contracts: list[dict] = []
+        underlying_price: float | None = None
+        next_url: str | None = None
+        for _ in range(max_pages):
+            try:
+                if next_url:
+                    sep = "&" if "?" in next_url else "?"
+                    r = self._client.get(f"{next_url}{sep}apiKey={self.api_key}")
+                else:
+                    r = self._client.get(BASE_URL + path, params=params)
+            except Exception as e:
+                logger.debug("massive option chain network error for %s: %s", underlying, e)
+                break
+
+            # Classify the response. 401/403 → entitlement. 429 → rate limit.
+            # 404 → no data for ticker. 200 with empty results also → NoData.
+            if r.status_code in (401, 403):
+                # Body may have a message clarifying ("not authorized for this
+                # endpoint" vs "invalid key"). Surface both possibilities.
+                detail = (r.text or "")[:200]
+                logger.warning("massive options entitlement issue for %s (HTTP %d): %s",
+                               underlying, r.status_code, detail)
+                raise NotEntitled("Options", status_code=r.status_code)
+            if r.status_code == 429:
+                raise RateLimited(f"Massive rate limit (429) while fetching options for {underlying}")
+            if r.status_code == 404:
+                # Treat as no-data (ticker has no listed options).
+                return None
+            if r.status_code != 200:
+                logger.debug("massive option chain HTTP %d for %s body=%s",
+                             r.status_code, underlying, r.text[:200])
+                break
+
+            try:
+                data = r.json() or {}
+            except Exception as e:
+                logger.debug("massive option chain decode error for %s: %s", underlying, e)
+                break
+            results = data.get("results") or []
+            contracts.extend(results)
+            if underlying_price is None and results:
+                ua = results[0].get("underlying_asset") or {}
+                underlying_price = ua.get("price") or ua.get("last_price")
+            next_url = data.get("next_url")
+            if not next_url:
+                break
+
+        if not contracts:
+            return None
+        return {"underlying_price": underlying_price, "contracts": contracts}
+
+    def fetch_option_trades_sample(
+        self,
+        options_ticker: str,
+        date: str | None = None,
+        max_pages: int = 1,
+        per_page: int = 5000,
+    ) -> list[dict]:
+        """Pull tick-level trades for a single options contract.
+
+        Raises:
+          NotEntitled — tick-level Options Trades not on the plan (401/403).
+          RateLimited — 429.
+        Returns [] on no-data; raises on actionable errors.
+        """
+        from datetime import date as _date
+        if not self.api_key:
+            raise NoApiKey("MASSIVE_API_KEY is not configured")
+        d = date or _date.today().isoformat()
+        path = f"/v3/trades/{options_ticker}"
+        params = {
+            "timestamp": d,
+            "limit": per_page,
+            "order": "asc",
+            "sort": "timestamp",
+            "apiKey": self.api_key,
+        }
+        out: list[dict] = []
+        next_url: str | None = None
+        for _ in range(max_pages):
+            try:
+                if next_url:
+                    sep = "&" if "?" in next_url else "?"
+                    r = self._client.get(f"{next_url}{sep}apiKey={self.api_key}")
+                else:
+                    r = self._client.get(BASE_URL + path, params=params)
+            except Exception as e:
+                logger.debug("massive opt-trades network error for %s: %s", options_ticker, e)
+                break
+            if r.status_code in (401, 403):
+                raise NotEntitled("Options Trades (tick-level)", status_code=r.status_code)
+            if r.status_code == 429:
+                raise RateLimited(f"Massive rate limit on opt-trades for {options_ticker}")
+            if r.status_code != 200:
+                logger.debug("massive opt-trades HTTP %d for %s", r.status_code, options_ticker)
+                break
+            try:
+                data = r.json() or {}
+            except Exception:
+                break
+            results = data.get("results") or []
+            for t in results:
+                out.append({
+                    "size": t.get("size") or 0,
+                    "price": t.get("price") or 0,
+                    "exchange": t.get("exchange"),
+                    "conditions": t.get("conditions") or [],
+                    "sip_timestamp": t.get("sip_timestamp") or 0,
+                })
+            next_url = data.get("next_url")
+            if not next_url:
+                break
+        return out
+
+    def fetch_trades_sample(
+        self,
+        symbol: str,
+        date: str | None = None,
+        max_pages: int = 2,
+        per_page: int = 50000,
+    ) -> list[dict]:
+        """Pull a **sample** of tick-level trades for block & dark-pool stats.
+
+        Raises:
+          NotEntitled — tick-level Trades endpoint isn't on the plan (401/403).
+          RateLimited — 429.
+        """
+        from datetime import date as _date
+        if not self.api_key:
+            raise NoApiKey("MASSIVE_API_KEY is not configured")
+        d = date or _date.today().isoformat()
+        path = f"/v3/trades/{symbol.upper()}"
+        params = {
+            "timestamp": d,
+            "limit": per_page,
+            "order": "asc",
+            "sort": "timestamp",
+            "apiKey": self.api_key,
+        }
+        out: list[dict] = []
+        next_url: str | None = None
+        for _ in range(max_pages):
+            try:
+                if next_url:
+                    sep = "&" if "?" in next_url else "?"
+                    r = self._client.get(f"{next_url}{sep}apiKey={self.api_key}")
+                else:
+                    r = self._client.get(BASE_URL + path, params=params)
+            except Exception as e:
+                logger.debug("massive trades network error for %s: %s", symbol, e)
+                break
+            if r.status_code in (401, 403):
+                raise NotEntitled("Tick-level Trades", status_code=r.status_code)
+            if r.status_code == 429:
+                raise RateLimited(f"Massive rate limit on trades for {symbol}")
+            if r.status_code != 200:
+                logger.debug("massive trades HTTP %d for %s", r.status_code, symbol)
+                break
+            try:
+                data = r.json() or {}
+            except Exception:
+                break
+            results = data.get("results") or []
+            for t in results:
+                out.append({
+                    "size": t.get("size") or 0,
+                    "price": t.get("price") or 0,
+                    "exchange": t.get("exchange"),
+                    "conditions": t.get("conditions") or [],
+                    "trf_id": t.get("trf_id"),
+                })
+            next_url = data.get("next_url")
+            if not next_url:
+                break
+        return out
+
+    def fetch_daily_market_summary(self, date: str | None = None) -> list[dict]:
+        """Pull OHLCV for every US-listed stock on the given trading day.
+
+        One request returns the whole tape (~8K-10K rows). Used by the wide
+        universe builder to dynamically pick liquid names without us having to
+        maintain a curated list.
+
+        Endpoint: /v2/aggs/grouped/locale/us/market/stocks/{date}
+        Returns: [{T, o, h, l, c, v, vw, n}, ...] (Polygon-style single letters)
+        """
+        from datetime import date as _date, timedelta
+        if not self.api_key:
+            raise NoApiKey("MASSIVE_API_KEY is not configured")
+        # If no date given, use most recent weekday (the grouped endpoint
+        # returns nothing on weekends — would need to crawl back).
+        if date is None:
+            d = _date.today()
+            while d.weekday() >= 5:
+                d -= timedelta(days=1)
+            date = d.isoformat()
+        path = f"/v2/aggs/grouped/locale/us/market/stocks/{date}"
+        params = {"adjusted": "true", "apiKey": self.api_key}
+        try:
+            r = self._client.get(BASE_URL + path, params=params)
+        except Exception as e:
+            logger.debug("massive grouped market summary network error: %s", e)
+            return []
+        if r.status_code in (401, 403):
+            raise NotEntitled("Daily Market Summary (grouped)", status_code=r.status_code)
+        if r.status_code == 429:
+            raise RateLimited("Massive rate limit on grouped market summary")
+        if r.status_code != 200:
+            logger.debug("massive grouped market summary HTTP %d: %s", r.status_code, r.text[:200])
+            return []
+        try:
+            return (r.json() or {}).get("results") or []
+        except Exception:
+            return []
+
+    def fetch_form4_recent(self, symbol: str, days_back: int = 60) -> list[dict]:
+        """Recent SEC Form 4 insider transactions for `symbol`.
+
+        Form 4s are filed within 2 business days of any insider buy/sell. We
+        return the raw rows from the last `days_back` days so the caller can
+        count purchase codes ('P') separately from sales ('S').
+
+        Endpoint: /stocks/filings/vX/form-4
+        """
+        from datetime import date, timedelta
+        cutoff = (date.today() - timedelta(days=days_back)).isoformat()
+        try:
+            r = self._client.get(
+                BASE_URL + "/stocks/filings/vX/form-4",
+                params={
+                    "tickers": symbol.upper(),
+                    "filing_date.gte": cutoff,
+                    "sort": "filing_date.desc",
+                    "limit": 100,
+                    "apiKey": self.api_key,
+                },
+            )
+            if r.status_code in (401, 403):
+                raise NotEntitled("SEC Form 4 Filings", status_code=r.status_code)
+            if r.status_code == 429:
+                raise RateLimited(f"Massive rate limit on form-4 for {symbol}")
+            if r.status_code != 200:
+                logger.debug("massive form-4 HTTP %d for %s", r.status_code, symbol)
+                return []
+            return (r.json() or {}).get("results") or []
+        except (NotEntitled, RateLimited):
+            raise
+        except Exception as e:
+            logger.debug("massive form-4 error for %s: %s", symbol, e)
+            return []
+
+    def fetch_13f_recent(self, symbol: str, days_back: int = 90) -> list[dict]:
+        """Recent SEC 13-F filings mentioning `symbol` as a holding.
+
+        13-F filings are quarterly snapshots from institutional managers with
+        ≥$100M AUM. We pull the last `days_back` days of FILINGS (not holdings
+        as-of-date) — gives us a sense of how many funds disclosed positions in
+        the most recent quarter.
+
+        Endpoint: /stocks/filings/vX/13-F
+        Note: this endpoint filters by filing_date, not by holding ticker. We
+        fetch a window and would need to inspect holdings server-side for an
+        exact "who holds X" count. Massive's row schema may include a holdings
+        list per filing — we count filings whose holdings include `symbol`.
+        """
+        from datetime import date, timedelta
+        cutoff = (date.today() - timedelta(days=days_back)).isoformat()
+        try:
+            r = self._client.get(
+                BASE_URL + "/stocks/filings/vX/13-F",
+                params={
+                    "filing_date.gte": cutoff,
+                    "sort": "filing_date.desc",
+                    "limit": 200,
+                    "apiKey": self.api_key,
+                },
+            )
+            if r.status_code in (401, 403):
+                raise NotEntitled("SEC 13-F Filings", status_code=r.status_code)
+            if r.status_code == 429:
+                raise RateLimited(f"Massive rate limit on 13-F for {symbol}")
+            if r.status_code != 200:
+                logger.debug("massive 13-F HTTP %d for %s", r.status_code, symbol)
+                return []
+            # Filter to filings whose holdings include the symbol. The exact
+            # field name varies by Massive's schema — we look for any list/dict
+            # in the row that contains the ticker case-insensitively. This is a
+            # best-effort filter; a future iteration could use a dedicated
+            # holdings endpoint when available.
+            rows = (r.json() or {}).get("results") or []
+            sym = symbol.upper()
+            out = []
+            for row in rows:
+                blob = str(row).upper()
+                if sym in blob:
+                    out.append(row)
+            return out
+        except (NotEntitled, RateLimited):
+            raise
+        except Exception as e:
+            logger.debug("massive 13-F error for %s: %s", symbol, e)
+            return []
+
+    def fetch_short_interest(self, symbol: str) -> dict | None:
+        """Pull the most recent bi-weekly short interest record.
+
+        Different from short *volume* (which is daily): this is the OUTSTANDING
+        short position from FINRA's bi-weekly settlement. Includes days-to-cover
+        which is the gold ratio for spotting squeeze setups.
+
+        Endpoint: /stocks/v1/short-interest?ticker=X&sort=settlement_date.desc&limit=1
+        Returns: {short_interest, days_to_cover, avg_daily_volume, settlement_date}
+        """
+        try:
+            r = self._client.get(
+                BASE_URL + "/stocks/v1/short-interest",
+                params={
+                    "ticker": symbol.upper(),
+                    "sort": "settlement_date.desc",
+                    "limit": 1,
+                    "apiKey": self.api_key,
+                },
+            )
+            if r.status_code in (401, 403):
+                raise NotEntitled("Short Interest", status_code=r.status_code)
+            if r.status_code == 429:
+                raise RateLimited(f"Massive rate limit on short-interest for {symbol}")
+            if r.status_code != 200:
+                logger.debug("massive short-interest HTTP %d for %s", r.status_code, symbol)
+                return None
+            results = (r.json() or {}).get("results") or []
+            if not results:
+                return None
+            return results[0]
+        except (NotEntitled, RateLimited):
+            raise
+        except Exception as e:
+            logger.debug("massive short-interest error for %s: %s", symbol, e)
+            return None
+
+    def fetch_short_volume(self, symbol: str) -> dict | None:
+        """Pull the most recent off-exchange (FINRA ATS) short volume row.
+
+        Returns:
+          {
+            "date": "YYYY-MM-DD",
+            "short_volume": int,
+            "total_volume": int,
+            "short_volume_ratio": float,  # 0-100 (percentage)
+          }
+        Endpoint: /stocks/v1/short-volume?ticker=X&sort=date.desc&limit=1
+        """
+        try:
+            r = self._client.get(
+                BASE_URL + "/stocks/v1/short-volume",
+                params={
+                    "ticker": symbol.upper(),
+                    "sort": "date.desc",
+                    "limit": 1,
+                    "apiKey": self.api_key,
+                },
+            )
+            if r.status_code != 200:
+                logger.debug("massive short-volume HTTP %d for %s", r.status_code, symbol)
+                return None
+            results = (r.json() or {}).get("results") or []
+            if not results:
+                return None
+            row = results[0]
+            return {
+                "date": row.get("date"),
+                "short_volume": row.get("short_volume"),
+                "total_volume": row.get("total_volume"),
+                "short_volume_ratio": row.get("short_volume_ratio"),
+            }
+        except Exception as e:
+            logger.debug("massive short-volume error for %s: %s", symbol, e)
+            return None
 
     def fetch_intraday(self, symbol: str, days_back: int = 2) -> list[dict]:
         """Pull 5-minute bars for the last `days_back` trading days.
