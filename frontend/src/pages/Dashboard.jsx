@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import TickerLink from '../components/TickerLink'
+import TradingViewLink from '../components/TradingViewLink'
 import { getBreadthSnapshot } from '../api/breadth'
 import { getSectorPerformance } from '../api/screener'
 import { getBreakouts } from '../api/breakoutScreener'
@@ -439,7 +440,7 @@ function EarningsWeekCard({ refreshKey }) {
                           title={it.time === 'bmo' ? 'Before open' : 'After close'}
                         />
                       )}
-                      <TickerLink
+                      <TradingViewLink
                         symbol={it.symbol}
                         className={`text-[11px] font-semibold truncate ${it.in_watchlist ? 'text-accent' : 'text-surface-200'}`}
                       />
@@ -607,6 +608,47 @@ function BreakoutsCard({ breakouts }) {
             )}
             <span className="text-[11px] text-surface-500 ml-auto">{fmtPrice(r.last_close)}</span>
             <span className="text-[11px] text-surface-400 w-14 text-right">
+              {r.rvol != null ? `${r.rvol.toFixed(1)}× vol` : ''}
+            </span>
+            <span className="font-mono text-[12px] font-bold text-success w-10 text-right">{r.score?.toFixed(0)}</span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+function VolumeSurgeCard({ refreshKey }) {
+  const { data, loading, error } = useCardData(
+    () => getBreakouts({ mode: 'volume', limit: 24, minAdr: 0.05, minRvol: 1.5, fresh: refreshKey > 0 }),
+    refreshKey,
+  )
+  const rows = (data?.results || []).slice(0, 10)
+  return (
+    <Card
+      title="Volume Surge"
+      subtitle="Today's volume vs 50-day average"
+      to="/breakouts"
+      toLabel="Breakouts"
+      accent="cyan"
+      loading={loading}
+      error={error}
+    >
+      {data && rows.length === 0 && <Empty>No volume surges passing filters right now.</Empty>}
+      <div className="divide-y divide-surface-800/60">
+        {rows.map((r) => (
+          <div key={r.symbol} className="flex items-center gap-2 py-1.5">
+            <TickerLink symbol={r.symbol} className="text-[13px] font-bold text-surface-100 w-14 shrink-0" />
+            {r.accumulation_score != null && (
+              <span
+                className={`font-mono text-[10px] ${r.accumulation_score >= 60 ? 'text-success' : r.accumulation_score <= 40 ? 'text-danger' : 'text-surface-400'}`}
+                title="Accumulation score (0–100): direction of the volume"
+              >
+                {r.accumulation_score.toFixed(0)} acc
+              </span>
+            )}
+            <span className="text-[11px] text-surface-500 ml-auto">{fmtPrice(r.last_close)}</span>
+            <span className="font-mono text-[12px] font-bold text-cyan w-16 text-right">
               {r.rvol != null ? `${r.rvol.toFixed(1)}× vol` : ''}
             </span>
             <span className="font-mono text-[12px] font-bold text-success w-10 text-right">{r.score?.toFixed(0)}</span>
@@ -885,9 +927,10 @@ export default function Dashboard() {
       {/* Earnings — full-width weekly calendar */}
       <EarningsWeekCard refreshKey={refreshKey} />
 
-      {/* The three scans */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      {/* The scans */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
         <BreakoutsCard breakouts={breakouts} />
+        <VolumeSurgeCard refreshKey={refreshKey} />
         <UnusualVolumeCard unusual={unusual} />
         <Scanner9MCard refreshKey={refreshKey} />
       </div>
