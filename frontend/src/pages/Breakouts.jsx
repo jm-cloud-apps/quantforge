@@ -6,11 +6,11 @@ import TickerLink from '../components/TickerLink'
 import { effectiveCacheTtlMs, isMarketActiveNow, marketStatusLabel } from '../utils/marketClock'
 
 const MODES = [
+  { id: 'unusual_volume',  label: 'Unusual Volume', hint: 'Day 1/2/3+ of sustained ≥2× volume — Unusual Whales-style', limit: 24 },
   { id: 'breakout',        label: 'Breakout',       hint: 'Setting up at the pivot',                                 limit: 24 },
+  { id: 'volume',          label: 'Volume Surge',   hint: 'Today’s volume vs each ticker’s 50d avg',                  limit: 15 },
   { id: 'emerging',        label: 'On The Come Up', hint: 'Thrust done, base just starting',                         limit: 24 },
   { id: 'leaders',         label: 'Leaders',        hint: 'Top-percentile trailing returns',                         limit: 24 },
-  { id: 'volume',          label: 'Volume Surge',   hint: 'Today’s volume vs each ticker’s 50d avg',                  limit: 15 },
-  { id: 'unusual_volume',  label: 'Unusual Volume', hint: 'Day 1/2/3+ of sustained ≥2× volume — Unusual Whales-style', limit: 24 },
 ]
 
 // Day-N filter options for the unusual_volume tab.
@@ -165,7 +165,7 @@ const writeCache = (key, data) => {
 }
 
 const Breakouts = () => {
-  const [mode, setMode] = useState('breakout')
+  const [mode, setMode] = useState('unusual_volume')
   const [minAdr, setMinAdr] = useState(0.05)
   const [includeMovers, setIncludeMovers] = useState(false)
   const [dayFilter, setDayFilter] = useState(0)
