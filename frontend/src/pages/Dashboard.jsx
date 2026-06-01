@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import TickerLink from '../components/TickerLink'
 import TradingViewLink from '../components/TradingViewLink'
 import EarningsSessionIcon from '../components/EarningsSessionIcon'
+import InfoTip from '../components/InfoTip'
 import { getBreadthSnapshot } from '../api/breadth'
 import { getSectorPerformance } from '../api/screener'
 import { getBreakouts } from '../api/breakoutScreener'
@@ -365,10 +366,15 @@ function ThemesCard({ sectors, breadth }) {
 // ─── Earnings this week (calendar) ──────────────────────────────────────────
 
 // Plain-English explanations for the metric abbreviations shown on the
-// scan cards, surfaced as hover tooltips.
+// scan cards, surfaced as instant hover tooltips (see InfoTip).
 const TIP_RVOL = "Relative volume — today's volume vs the 50-day average. 3× vol means it's trading 3 times its normal volume."
 const TIP_ACC = 'Accumulation score (0–100): is the volume buying or selling? Above 60 = buyers in control, below 40 = sellers in control.'
 const TIP_DCR = "Daily closing range — where it closed within the day's high-to-low range. 80% DCR = closed near the high (strong)."
+const TIP_EXPANSION = "Range expansion — today's high-to-low range vs the average daily range over the prior 20 sessions. 2× means today's range is double its normal size (a volatility/momentum surge). The scan requires at least 1.5×."
+// The last-column score is 0–100 but is computed differently per scan.
+const TIP_SCORE_BREAKOUT = 'Setup score (0–100): overall quality of the breakout setup — blends trend leadership, the prior up-thrust, how tight the base is, and how close price is to the pivot.'
+const TIP_SCORE_VOLUME = 'Surge score (0–100): scales with relative volume (≈ RVOL × 20, capped at 100). Trading 5× or more above the 50-day average volume scores 100.'
+const TIP_SCORE_UNUSUAL = 'Conviction score (0–100): 50% volume magnitude + 20% how fresh the surge is + 30% accumulation (buying vs selling pressure).'
 
 function localDateKey(dt) {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
@@ -606,10 +612,12 @@ function BreakoutsCard({ breakouts }) {
               </span>
             )}
             <span className="text-[11px] text-surface-500 ml-auto">{fmtPrice(r.last_close)}</span>
-            <span className="text-[11px] text-surface-400 w-14 text-right" title={TIP_RVOL}>
+            <InfoTip label={TIP_RVOL} className="text-[11px] text-surface-400 w-14 text-right">
               {r.rvol != null ? `${r.rvol.toFixed(1)}× vol` : ''}
-            </span>
-            <span className="font-mono text-[12px] font-bold text-success w-10 text-right">{r.score?.toFixed(0)}</span>
+            </InfoTip>
+            <InfoTip label={TIP_SCORE_BREAKOUT} className="font-mono text-[12px] font-bold text-success w-10 text-right">
+              {r.score?.toFixed(0)}
+            </InfoTip>
           </div>
         ))}
       </div>
@@ -639,18 +647,20 @@ function VolumeSurgeCard({ refreshKey }) {
           <div key={r.symbol} className="flex items-center gap-2 py-1.5">
             <TickerLink symbol={r.symbol} className="text-[13px] font-bold text-surface-100 w-14 shrink-0" />
             {r.accumulation_score != null && (
-              <span
+              <InfoTip
+                label={TIP_ACC}
                 className={`font-mono text-[10px] ${r.accumulation_score >= 60 ? 'text-success' : r.accumulation_score <= 40 ? 'text-danger' : 'text-surface-400'}`}
-                title={TIP_ACC}
               >
                 {r.accumulation_score.toFixed(0)} acc
-              </span>
+              </InfoTip>
             )}
             <span className="text-[11px] text-surface-500 ml-auto">{fmtPrice(r.last_close)}</span>
-            <span className="font-mono text-[12px] font-bold text-cyan w-16 text-right" title={TIP_RVOL}>
+            <InfoTip label={TIP_RVOL} className="font-mono text-[12px] font-bold text-cyan w-16 text-right">
               {r.rvol != null ? `${r.rvol.toFixed(1)}× vol` : ''}
-            </span>
-            <span className="font-mono text-[12px] font-bold text-success w-10 text-right">{r.score?.toFixed(0)}</span>
+            </InfoTip>
+            <InfoTip label={TIP_SCORE_VOLUME} className="font-mono text-[12px] font-bold text-success w-10 text-right">
+              {r.score?.toFixed(0)}
+            </InfoTip>
           </div>
         ))}
       </div>
@@ -681,18 +691,20 @@ function UnusualVolumeCard({ unusual }) {
                 Day {r.rvol_streak_day >= 3 ? '3+' : r.rvol_streak_day}
               </span>
             )}
-            <span className="text-[11px] text-surface-500 ml-auto" title={TIP_RVOL}>
+            <InfoTip label={TIP_RVOL} className="text-[11px] text-surface-500 ml-auto">
               {r.rvol != null ? `${r.rvol.toFixed(1)}× vol` : ''}
-            </span>
+            </InfoTip>
             {r.accumulation_score != null && (
-              <span
+              <InfoTip
+                label={TIP_ACC}
                 className={`font-mono text-[11px] w-12 text-right ${r.accumulation_score >= 60 ? 'text-success' : r.accumulation_score <= 40 ? 'text-danger' : 'text-surface-300'}`}
-                title={TIP_ACC}
               >
                 {r.accumulation_score.toFixed(0)} acc
-              </span>
+              </InfoTip>
             )}
-            <span className="font-mono text-[12px] font-bold text-success w-10 text-right">{r.score?.toFixed(0)}</span>
+            <InfoTip label={TIP_SCORE_UNUSUAL} className="font-mono text-[12px] font-bold text-success w-10 text-right">
+              {r.score?.toFixed(0)}
+            </InfoTip>
           </div>
         ))}
       </div>
@@ -735,12 +747,12 @@ function Scanner9MCard({ refreshKey }) {
               </span>
             )}
             <span className="text-[11px] text-surface-500 ml-auto">{fmtPrice(r.close)}</span>
-            <span className="text-[11px] text-surface-400 w-14 text-right" title={TIP_DCR}>
+            <InfoTip label={TIP_DCR} className="text-[11px] text-surface-400 w-14 text-right">
               {r.dcr_pct != null ? `${r.dcr_pct.toFixed(0)}% DCR` : ''}
-            </span>
-            <span className="font-mono text-[12px] font-bold text-accent w-12 text-right" title="Range expansion vs prior 20d">
+            </InfoTip>
+            <InfoTip label={TIP_EXPANSION} className="font-mono text-[12px] font-bold text-accent w-12 text-right">
               {r.expansion_mult != null ? `${r.expansion_mult.toFixed(1)}×` : ''}
-            </span>
+            </InfoTip>
           </div>
         ))}
       </div>
