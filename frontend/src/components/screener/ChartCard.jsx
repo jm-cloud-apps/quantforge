@@ -2,6 +2,29 @@ import { useEffect, useRef, useState } from 'react'
 import { createChart, CandlestickSeries, LineSeries, HistogramSeries } from 'lightweight-charts'
 import IntradayModal from './IntradayModal'
 import TickerLink from '../TickerLink'
+import InfoTip from '../InfoTip'
+
+// Plain-English explainer for each stat-grid label. Surfaced as an instant
+// tooltip (portal-based InfoTip) when you hover the dotted-underlined label.
+// Written for someone who knows what a stock is but not the trading jargon.
+const STAT_TIPS = {
+  // Unusual Volume tab
+  Accum: 'Accumulation Score (0–100). Reads where each day closed in its range, the up/down volume mix, and the share of closes above VWAP. ≥70 = institutional BUYING, 40–70 = mixed, <40 = distribution (sellers won despite the heavy volume).',
+  CMF: 'Chaikin Money Flow (−1 to +1). A 21-day, volume-weighted read of where price closes within its daily range. ≥ +0.10 = sustained buying (good); ≤ −0.10 = sustained selling. Accum is today\'s bar; CMF is the trend.',
+  RVOL: 'Relative Volume. Today\'s volume ÷ the prior 50-day average. 1× = a normal day, 2× = something is happening (news, breakout), 5×+ = clearly anomalous — institutions or a crowd-driven move.',
+  'U/D Vol': 'Up/Down Volume ratio. Volume on up-closing days vs. down-closing days across the streak. Above 1 = more volume on green days (buyers in control); below 1 = sellers are heavier.',
+  '>VWAP': 'Share of recent closes that finished above VWAP (the volume-weighted average price — the price the average dollar traded at). Closing above VWAP on heavy volume means real buyers won the session. Algos use it as a fill benchmark.',
+  Short: 'Short volume % (FINRA). The share of today\'s volume that was short selling. <35% = real buying (green); 35–50% = mixed / squeeze fuel; >50% = heavy shorting (could be distribution or a trap). It tells you whether a big-volume day is buyers or sellers.',
+  DTC: 'Days-to-cover. Short interest ÷ average daily volume — how many days of normal trading shorts would need to buy back their position. ≥5 = a real squeeze setup: a rising price forces shorts to cover, which pushes it higher still.',
+  RSI: 'Relative Strength Index (0–100), 14-day momentum. >70 = overbought (extended, may pull back); <30 = oversold; ~50 = neutral. High RSI on a leader isn\'t automatically bad — strong trends can stay overbought for a while.',
+  // Breakout / Emerging / Leaders tabs
+  ADR: 'Average Daily Range over 20 days — the stock\'s typical high-to-low swing as a %. Qullamaggie\'s hard filter is ≥5%: quieter names simply don\'t move enough to trade.',
+  Base: 'Base length — how many days the stock has been consolidating in a tight range since its last big move. Qulla\'s sweet spot is 5–25 days.',
+  Range: 'Base range — how wide the consolidation is, high-to-low as a %. Tighter is better (<8%): it means the stock is coiling, not chopping around.',
+  Pullback: 'Pullback from the base high — how far below the pivot the stock currently sits. Smaller = closer to a breakout entry.',
+  Thrust: 'Parent thrust — the size of the big expansionary move (30%+) that preceded this base. It\'s the "why": the move that first put the stock on the radar.',
+  '3M': '3-month trailing return. Part of the relative-strength read — leaders are the names already outperforming the market over the last quarter.',
+}
 
 const STATUS_COLORS = {
   READY: 'text-success',
@@ -388,14 +411,27 @@ const ChartCard = ({ candidate, rank, isNew = false }) => {
         {/* Chart */}
         <div ref={containerRef} className="w-full h-[220px]" />
 
-        {/* Stats grid */}
+        {/* Stats grid — labels with an explainer get a dotted underline and an
+            instant hover tooltip (portal-based, never clipped by the card). */}
         <div className="grid grid-cols-4 gap-1.5 text-[10px] font-mono">
-          {stats.map((s) => (
-            <div key={s.label} className="rounded bg-surface-800/60 px-1.5 py-1">
-              <div className="text-surface-500 uppercase text-[9px]">{s.label}</div>
-              <div className={s.cls || 'text-surface-200'}>{s.value}</div>
-            </div>
-          ))}
+          {stats.map((s) => {
+            const tip = STAT_TIPS[s.label]
+            return (
+              <div key={s.label} className="rounded bg-surface-800/60 px-1.5 py-1">
+                {tip ? (
+                  <InfoTip
+                    label={tip}
+                    className="block w-fit text-surface-500 uppercase text-[9px] underline decoration-dotted decoration-surface-600 underline-offset-2"
+                  >
+                    {s.label}
+                  </InfoTip>
+                ) : (
+                  <div className="text-surface-500 uppercase text-[9px]">{s.label}</div>
+                )}
+                <div className={s.cls || 'text-surface-200'}>{s.value}</div>
+              </div>
+            )
+          })}
         </div>
 
         {/* Catalyst headline */}

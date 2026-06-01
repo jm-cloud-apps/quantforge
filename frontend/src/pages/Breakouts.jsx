@@ -3,7 +3,7 @@ import { getBreakouts, getRecentDeveloping } from '../api/breakoutScreener'
 import ChartCard from '../components/screener/ChartCard'
 import GlossarySidebar from '../components/screener/GlossarySidebar'
 import TickerLink from '../components/TickerLink'
-import { effectiveCacheTtlMs, isMarketActiveNow, marketStatusLabel } from '../utils/marketClock'
+import { isMarketActiveNow, lastCloseSnapshotMs, marketStatusLabel } from '../utils/marketClock'
 
 const MODES = [
   { id: 'unusual_volume',  label: 'Unusual Volume', hint: 'Day 1/2/3+ of sustained ≥2× volume — Unusual Whales-style', limit: 24 },
@@ -135,10 +135,33 @@ const InfoTip = ({ text, className = '' }) => (
 
 const CACHE_PREFIX = 'breakouts:'
 // Active-session TTL matches the backend response cache (10 min). Outside
-// regular hours / on weekends / holidays the TTL extends to 4 hours via
-// effectiveCacheTtlMs — the underlying data doesn't change so there's no
-// reason to keep re-fetching.
+// regular hours / on weekends / holidays we DON'T expire on a timer — instead
+// the cache is valid as long as it's the post-close snapshot (written at/after
+// the most recent 1:30 PM PT), so weekends and after-hours serve the end-of-day
+// scan and never trigger a fresh run. See readCache + lastCloseSnapshotMs.
 const CACHE_TTL_ACTIVE_MS = 10 * 60 * 1000
+
+// Per-mode default Min ADR. Unusual Volume casts a wider net (small, fast
+// names with modest ADR still matter), so it starts lower than the breakout
+// modes. Whatever the user sets is persisted per-mode (see read/writeStoredAdr).
+const DEFAULT_ADR_BY_MODE = { unusual_volume: 0.015 }
+const FALLBACK_MIN_ADR = 0.05
+const adrStorageKey = (mode) => `${CACHE_PREFIX}minAdr:${mode}`
+
+const readStoredAdr = (mode) => {
+  try {
+    const raw = localStorage.getItem(adrStorageKey(mode))
+    if (raw != null) {
+      const v = parseFloat(raw)
+      if (!Number.isNaN(v)) return v
+    }
+  } catch { /* ignore */ }
+  return DEFAULT_ADR_BY_MODE[mode] ?? FALLBACK_MIN_ADR
+}
+
+const writeStoredAdr = (mode, value) => {
+  try { localStorage.setItem(adrStorageKey(mode), String(value)) } catch { /* ignore */ }
+}
 
 const cacheKey = (mode, minAdr, includeMovers, dayFilter) =>
   `${CACHE_PREFIX}${mode}|adr=${minAdr.toFixed(3)}|movers=${includeMovers ? 1 : 0}|day=${dayFilter}`
@@ -148,8 +171,16 @@ const readCache = (key) => {
     const raw = localStorage.getItem(key)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    const ttl = effectiveCacheTtlMs(CACHE_TTL_ACTIVE_MS)
-    if (!parsed?.cachedAt || Date.now() - parsed.cachedAt > ttl) return null
+    if (!parsed?.cachedAt) return null
+    if (isMarketActiveNow()) {
+      // Live session: short TTL so the wall stays current.
+      if (Date.now() - parsed.cachedAt > CACHE_TTL_ACTIVE_MS) return null
+    } else {
+      // Off-hours / weekend / holiday: serve the end-of-day snapshot. Only
+      // treat the cache as stale if it predates the last 1:30 PM PT close
+      // (i.e. there's no post-close snapshot yet) — then we run once.
+      if (parsed.cachedAt < lastCloseSnapshotMs()) return null
+    }
     return parsed
   } catch {
     return null
@@ -166,7 +197,10 @@ const writeCache = (key, data) => {
 
 const Breakouts = () => {
   const [mode, setMode] = useState('unusual_volume')
-  const [minAdr, setMinAdr] = useState(0.05)
+  const [minAdr, setMinAdr] = useState(() => readStoredAdr('unusual_volume'))
+  // "saved" badge near the slider — flashes when the current Min ADR has been
+  // persisted as this mode's default (on commit / mode switch to a stored value).
+  const [adrSaved, setAdrSaved] = useState(true)
   const [includeMovers, setIncludeMovers] = useState(false)
   const [dayFilter, setDayFilter] = useState(0)
   const [enrichBlocks, setEnrichBlocks] = useState(false)
@@ -282,9 +316,12 @@ const Breakouts = () => {
 
   // Auto-refresh — silently re-runs the screener every N minutes when active.
   // Uses fresh=true so it bypasses the cache and we get a real new-since-last diff.
+  // Gated to live market hours: off-hours / weekends / holidays the underlying
+  // data is frozen, so we never spend a scan — the end-of-day snapshot stands.
   useEffect(() => {
     if (!autoRefreshMin) return
     const id = setInterval(() => {
+      if (!isMarketActiveNow()) return
       load(mode, minAdr, includeMovers, { fresh: true, dayFilter })
     }, autoRefreshMin * 60_000)
     return () => clearInterval(id)
@@ -303,15 +340,24 @@ const Breakouts = () => {
   useEffect(() => { load() ; loadHistory() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleModeChange = (m) => {
+    // Each mode remembers its own Min ADR (Unusual Volume defaults to 1.5%,
+    // the breakout modes to 5%). Switching tabs restores that mode's value.
+    const adr = readStoredAdr(m)
     setMode(m)
-    load(m, minAdr, includeMovers)
+    setMinAdr(adr)
+    setAdrSaved(true)
+    load(m, adr, includeMovers)
   }
 
   const handleAdrChange = (v) => {
     setMinAdr(v)
+    setAdrSaved(false)
   }
 
   const handleAdrCommit = () => {
+    // Persist this value as the current mode's default, then re-run the screener.
+    writeStoredAdr(mode, minAdr)
+    setAdrSaved(true)
     load(mode, minAdr, includeMovers)
   }
 
@@ -409,6 +455,14 @@ const Breakouts = () => {
           />
           <span className="text-xs font-mono text-surface-200 w-12 text-right">
             {(minAdr * 100).toFixed(1)}%
+          </span>
+          <span
+            className={`text-[10px] font-medium whitespace-nowrap transition-colors ${
+              adrSaved ? 'text-success/80' : 'text-surface-500'
+            }`}
+            title="Release the slider to save this as the default Min ADR for this tab. Each tab remembers its own value."
+          >
+            {adrSaved ? '✓ saved default' : 'release to save'}
           </span>
         </div>
 
@@ -709,9 +763,9 @@ const Breakouts = () => {
           {!isMarketActiveNow() && (
             <span
               className="px-1.5 py-0.5 rounded border border-warning/40 bg-warning/5 text-warning font-mono text-[10px]"
-              title="Market is closed (weekend / US holiday / after 2pm PT). Cache TTL is extended to 4 hours — no point re-fetching frozen data."
+              title="Market is closed (weekend / US holiday / after 2pm PT). The underlying data is frozen, so the wall serves the end-of-day snapshot (the scan from after 1:30 PM PT on the last trading day) and won't re-run — even if you switch tabs or Auto-refresh is on."
             >
-              {marketStatusLabel()} · cache extended 4h
+              {marketStatusLabel()} · end-of-day cache
             </span>
           )}
         </div>
