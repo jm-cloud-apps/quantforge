@@ -6,6 +6,7 @@ import { getSectorPerformance } from '../api/screener'
 import { getBreakouts } from '../api/breakoutScreener'
 import { get9MScan } from '../api/scanner9m'
 import { getEarnings } from '../api/calendar'
+import { getMovers } from '../api/movers'
 import { listWatchlists } from '../api/watchlists'
 import { fetchNews, refreshNewsCachePrices } from '../api/news'
 import { loadRules, getRuleOfDay } from '../utils/tradingRules'
@@ -359,46 +360,46 @@ function ThemesCard({ sectors, breadth }) {
   )
 }
 
-// ─── Earnings this week ─────────────────────────────────────────────────────
+// ─── Earnings this week (calendar) ──────────────────────────────────────────
 
-const EARN_TIME_STYLE = {
-  bmo: 'text-warning bg-warning/10 border-warning/30',
-  amc: 'text-purple bg-purple/10 border-purple/30',
-}
+// Tiny session marker: amber = before open, purple = after close.
+const EARN_TIME_DOT = { bmo: 'bg-warning', amc: 'bg-purple' }
 
-function fmtEarnDate(d) {
-  try {
-    return new Date(`${d}T00:00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
-  } catch {
-    return d
-  }
+function localDateKey(dt) {
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
 }
 
 function EarningsWeekCard({ refreshKey }) {
   const { data, loading, error } = useCardData(() => getEarnings({ days: 7, force: refreshKey > 0 }), refreshKey)
 
-  // Flatten by_date into a capped, grouped list. Within each day the backend
-  // already sorts watchlist names first, then by importance.
-  const items = useMemo(() => {
+  // Build a full 7-day strip from the window so empty days still render as
+  // columns. by_date only carries days that actually have reports.
+  const days = useMemo(() => {
+    if (!data?.window?.start) return []
+    const byDate = new Map((data.by_date || []).map((d) => [d.date, d]))
+    const start = new Date(`${data.window.start}T00:00:00`)
+    const todayKey = localDateKey(new Date())
     const out = []
-    let count = 0
-    const MAX = 14
-    for (const day of data?.by_date || []) {
-      const rows = [...(day.bmo || []), ...(day.amc || []), ...(day.other || [])]
-      if (!rows.length || count >= MAX) continue
-      out.push({ header: day.date })
-      for (const r of rows.slice(0, 8)) {
-        if (count >= MAX) break
-        out.push({ row: r })
-        count += 1
-      }
+    for (let i = 0; i < (data.window.days || 7); i++) {
+      const dt = new Date(start)
+      dt.setDate(start.getDate() + i)
+      const key = localDateKey(dt)
+      const entry = byDate.get(key)
+      const items = entry ? [...(entry.bmo || []), ...(entry.amc || []), ...(entry.other || [])] : []
+      out.push({
+        key,
+        weekday: dt.toLocaleDateString([], { weekday: 'short' }),
+        label: dt.toLocaleDateString([], { month: 'short', day: 'numeric' }),
+        isToday: key === todayKey,
+        items,
+      })
     }
     return out
   }, [data])
 
   const wlHits = data?.watchlist_hits?.length || 0
   const subtitle = data
-    ? `${data.total || 0} reports${wlHits ? ` · ${wlHits} on your watchlist` : ''}`
+    ? `${data.total || 0} reports this week${wlHits ? ` · ${wlHits} on your watchlist` : ''}`
     : 'Reports over the next 7 days'
 
   return (
@@ -411,32 +412,52 @@ function EarningsWeekCard({ refreshKey }) {
       loading={loading}
       error={error}
     >
-      {data && items.length === 0 && <Empty>No earnings scheduled in the next 7 days.</Empty>}
-      <div className="space-y-0.5">
-        {items.map((it, i) =>
-          it.header ? (
-            <div key={`h-${it.header}`} className="text-[10px] uppercase tracking-wider text-surface-500 font-semibold pt-2 pb-0.5 first:pt-0">
-              {fmtEarnDate(it.header)}
-            </div>
-          ) : (
-            <div key={`r-${it.row.symbol}-${i}`} className="flex items-center gap-2 py-1">
-              <TickerLink symbol={it.row.symbol} className="text-[13px] font-bold text-surface-100 w-14 shrink-0" />
-              {it.row.in_watchlist && (
-                <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border text-accent bg-accent/10 border-accent/30" title="On your watchlist">
-                  WL
-                </span>
+      {data && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
+          {days.map((day) => (
+            <div
+              key={day.key}
+              className={`rounded-lg border p-2 flex flex-col min-h-[136px] ${
+                day.isToday ? 'border-accent/50 bg-accent/5' : 'border-surface-700/50 bg-surface-900/30'
+              }`}
+            >
+              <div className="text-center pb-1.5 mb-1.5 border-b border-surface-700/40">
+                <div className={`text-[10px] uppercase tracking-wider font-semibold ${day.isToday ? 'text-accent' : 'text-surface-500'}`}>
+                  {day.weekday}
+                </div>
+                <div className="font-display font-bold text-surface-100 text-[13px] leading-tight">{day.label}</div>
+              </div>
+              {day.items.length === 0 ? (
+                <div className="flex-1 flex items-center justify-center text-[16px] text-surface-700">·</div>
+              ) : (
+                <div className="space-y-0.5">
+                  {day.items.slice(0, 7).map((it) => (
+                    <div key={it.symbol} className="flex items-center gap-1">
+                      {it.time && (
+                        <span
+                          className={`shrink-0 w-1.5 h-1.5 rounded-full ${EARN_TIME_DOT[it.time] || 'bg-surface-600'}`}
+                          title={it.time === 'bmo' ? 'Before open' : 'After close'}
+                        />
+                      )}
+                      <TickerLink
+                        symbol={it.symbol}
+                        className={`text-[11px] font-semibold truncate ${it.in_watchlist ? 'text-accent' : 'text-surface-200'}`}
+                      />
+                    </div>
+                  ))}
+                  {day.items.length > 7 && (
+                    <div className="text-[10px] text-surface-500 pt-0.5">+{day.items.length - 7} more</div>
+                  )}
+                </div>
               )}
-              {it.row.time && (
-                <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border ${EARN_TIME_STYLE[it.row.time]}`}>
-                  {it.row.time.toUpperCase()}
-                </span>
-              )}
-              <span className="text-[11px] text-surface-500 ml-auto">
-                {it.row.eps_estimate != null ? `est ${Number(it.row.eps_estimate).toFixed(2)}` : ''}
-              </span>
             </div>
-          ),
-        )}
+          ))}
+        </div>
+      )}
+      <div className="flex items-center gap-3 mt-2.5 text-[10px] text-surface-500">
+        <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-warning" /> Before open</span>
+        <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-purple" /> After close</span>
+        <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-accent" /> On your watchlist</span>
       </div>
     </Card>
   )
@@ -499,6 +520,56 @@ function WatchlistPulseCard({ refreshKey }) {
           </div>
         ))}
       </div>
+    </Card>
+  )
+}
+
+// ─── Today's top movers ─────────────────────────────────────────────────────
+
+function MoverRow({ m }) {
+  return (
+    <div className="flex items-center justify-between gap-2 py-1 border-b border-surface-800/40 last:border-0">
+      <TickerLink symbol={m.symbol} className="text-[12px] font-bold text-surface-100 truncate" />
+      <div className="flex items-center gap-2 shrink-0">
+        <span className="text-[10px] text-surface-500">{fmtPrice(m.price)}</span>
+        <span className={`font-mono text-[12px] font-bold w-16 text-right ${toneFor(m.change_pct)}`}>
+          {fmtPct(m.change_pct, 1)}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function MoversCard({ refreshKey }) {
+  const { data, loading, error } = useCardData(() => getMovers({ limit: 8 }), refreshKey)
+  const gainers = (data?.gainers || []).slice(0, 8)
+  const losers = (data?.losers || []).slice(0, 8)
+  const empty = data && gainers.length === 0 && losers.length === 0
+  return (
+    <Card
+      title="Today's Top Movers"
+      subtitle="Biggest % moves across US stocks"
+      accent="warning"
+      loading={loading}
+      error={error}
+    >
+      {empty && <Empty>No movers available right now (market may be closed).</Empty>}
+      {!empty && (
+        <div className="grid grid-cols-2 gap-x-5">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-success font-semibold pb-1">Gainers</div>
+            {gainers.map((m) => (
+              <MoverRow key={m.symbol} m={m} />
+            ))}
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-danger font-semibold pb-1">Losers</div>
+            {losers.map((m) => (
+              <MoverRow key={m.symbol} m={m} />
+            ))}
+          </div>
+        </div>
+      )}
     </Card>
   )
 }
@@ -811,11 +882,8 @@ export default function Dashboard() {
         <ThemesCard sectors={sectors} breadth={breadth} />
       </div>
 
-      {/* Earnings + watchlist */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <EarningsWeekCard refreshKey={refreshKey} />
-        <WatchlistPulseCard refreshKey={refreshKey} />
-      </div>
+      {/* Earnings — full-width weekly calendar */}
+      <EarningsWeekCard refreshKey={refreshKey} />
 
       {/* The three scans */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -826,6 +894,12 @@ export default function Dashboard() {
 
       {/* Market-moving news */}
       <MarketNews tickers={newsTickers} refreshKey={refreshKey} />
+
+      {/* Movers + watchlist (bottom) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <MoversCard refreshKey={refreshKey} />
+        <WatchlistPulseCard refreshKey={refreshKey} />
+      </div>
     </div>
   )
 }

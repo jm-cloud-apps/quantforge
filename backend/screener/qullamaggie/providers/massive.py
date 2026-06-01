@@ -202,6 +202,41 @@ class MassiveProvider:
             logger.warning("massive gainers error: %s", e)
             return []
 
+    def fetch_movers(self, kind: str = "gainers", limit: int = 10) -> list[dict]:
+        """Today's top gainers or losers, with price + % change.
+
+        kind: 'gainers' | 'losers'. Massive/Polygon pre-rank these snapshots
+        by today's % change, so we preserve their order. Returns dicts:
+        [{symbol, price, change_pct}].
+        """
+        path = f"/v2/snapshot/locale/us/markets/stocks/{kind}"
+        try:
+            r = self._client.get(BASE_URL + path, params={"apiKey": self.api_key})
+            if r.status_code != 200:
+                logger.warning("massive %s HTTP %d: %s", kind, r.status_code, r.text[:200])
+                return []
+            tickers = (r.json() or {}).get("tickers") or []
+            out: list[dict] = []
+            for t in tickers[:limit]:
+                sym = (t.get("ticker") or "").upper()
+                if not sym:
+                    continue
+                day = t.get("day") or {}
+                mn = t.get("min") or {}
+                prev = t.get("prevDay") or {}
+                last = t.get("lastTrade") or {}
+                price = last.get("p") or mn.get("c") or day.get("c") or prev.get("c")
+                cp = t.get("todaysChangePerc")
+                out.append({
+                    "symbol": sym,
+                    "price": float(price) if price else None,
+                    "change_pct": round(float(cp), 2) if cp is not None else None,
+                })
+            return out
+        except Exception as e:
+            logger.warning("massive %s error: %s", kind, e)
+            return []
+
     def fetch_rsi(self, symbol: str, window: int = 14) -> float | None:
         """Pull the latest RSI value via Massive's indicators endpoint."""
         path = f"/v1/indicators/rsi/{symbol.upper()}"

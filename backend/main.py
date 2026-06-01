@@ -3135,6 +3135,34 @@ def refresh_news_cache_prices(body: dict = Body(...)):
     }
 
 
+@app.get("/api/movers")
+def get_market_movers(limit: int = Query(10, ge=1, le=50)):
+    """Today's top gainers and losers across US stocks (Massive snapshot).
+
+    Best-effort: returns empty lists if the provider is unavailable so the
+    dashboard card can degrade gracefully instead of erroring the page.
+    """
+    try:
+        from screener.qullamaggie.providers.massive import MassiveProvider
+        mp = MassiveProvider()
+    except Exception as e:
+        return {"gainers": [], "losers": [], "provider": "massive", "error": str(e)}
+    try:
+        gainers = mp.fetch_movers("gainers", limit=limit)
+        losers = mp.fetch_movers("losers", limit=limit)
+    finally:
+        try:
+            mp.close()
+        except Exception:
+            pass
+    return {
+        "gainers": gainers,
+        "losers": losers,
+        "provider": "massive",
+        "as_of": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
 @app.delete("/api/news/cache")
 def clear_news_cache():
     """Clear all cached search history."""
