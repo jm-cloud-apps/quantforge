@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getEarnings } from '../api/calendar'
 import { listWatchlists } from '../api/watchlists'
 import TradingViewLink from '../components/TradingViewLink'
+import EarningsSessionIcon from '../components/EarningsSessionIcon'
 
 const WINDOWS = [
   { value: 5,  label: 'This week' },
@@ -27,13 +28,6 @@ function relativeDay(iso) {
   if (diff === 1) return 'Tomorrow'
   if (diff < 0) return `${-diff}d ago`
   return `in ${diff}d`
-}
-
-const TIME_LABEL = { bmo: 'Before open', amc: 'After close', other: 'During / TBD' }
-const TIME_TONE = {
-  bmo:   'bg-cyan/10 text-cyan border-cyan/30',
-  amc:   'bg-purple/10 text-purple border-purple/30',
-  other: 'bg-surface-700/40 text-surface-300 border-surface-600/40',
 }
 
 function fmtEps(v) {
@@ -97,8 +91,9 @@ function DayColumn({ slot }) {
             if (!rows || rows.length === 0) return null
             return (
               <div key={bucket}>
-                <div className={`inline-block px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider border ${TIME_TONE[bucket]} mb-1.5`}>
-                  {TIME_LABEL[bucket]} · {rows.length}
+                <div className="flex items-center gap-1 mb-1.5 h-3.5">
+                  <EarningsSessionIcon time={bucket} className="w-3.5 h-3.5" />
+                  <span className="text-[10px] text-surface-500 tabular-nums">{rows.length}</span>
                 </div>
                 <div className="space-y-1">
                   {rows.slice(0, 8).map((r, i) => (
@@ -225,9 +220,7 @@ export default function EarningsCalendar() {
                     <TradingViewLink symbol={r.symbol} className="font-mono font-semibold text-accent" />
                     <span className="text-surface-400">·</span>
                     <span className="text-surface-300">{relativeDay(r.date)}</span>
-                    {r.time && (
-                      <span className="text-[9px] uppercase text-surface-500 ml-0.5">{r.time}</span>
-                    )}
+                    <EarningsSessionIcon time={r.time} className="w-3 h-3 ml-0.5" />
                   </div>
                 ))}
               </div>

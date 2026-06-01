@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import TickerLink from '../components/TickerLink'
 import TradingViewLink from '../components/TradingViewLink'
+import EarningsSessionIcon from '../components/EarningsSessionIcon'
 import { getBreadthSnapshot } from '../api/breadth'
 import { getSectorPerformance } from '../api/screener'
 import { getBreakouts } from '../api/breakoutScreener'
@@ -363,8 +364,11 @@ function ThemesCard({ sectors, breadth }) {
 
 // ─── Earnings this week (calendar) ──────────────────────────────────────────
 
-// Tiny session marker: amber = before open, purple = after close.
-const EARN_TIME_DOT = { bmo: 'bg-warning', amc: 'bg-purple' }
+// Plain-English explanations for the metric abbreviations shown on the
+// scan cards, surfaced as hover tooltips.
+const TIP_RVOL = "Relative volume — today's volume vs the 50-day average. 3× vol means it's trading 3 times its normal volume."
+const TIP_ACC = 'Accumulation score (0–100): is the volume buying or selling? Above 60 = buyers in control, below 40 = sellers in control.'
+const TIP_DCR = "Daily closing range — where it closed within the day's high-to-low range. 80% DCR = closed near the high (strong)."
 
 function localDateKey(dt) {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
@@ -434,12 +438,7 @@ function EarningsWeekCard({ refreshKey }) {
                 <div className="space-y-0.5">
                   {day.items.slice(0, 7).map((it) => (
                     <div key={it.symbol} className="flex items-center gap-1">
-                      {it.time && (
-                        <span
-                          className={`shrink-0 w-1.5 h-1.5 rounded-full ${EARN_TIME_DOT[it.time] || 'bg-surface-600'}`}
-                          title={it.time === 'bmo' ? 'Before open' : 'After close'}
-                        />
-                      )}
+                      <EarningsSessionIcon time={it.time} className="shrink-0 w-3 h-3" />
                       <TradingViewLink
                         symbol={it.symbol}
                         className={`text-[11px] font-semibold truncate ${it.in_watchlist ? 'text-accent' : 'text-surface-200'}`}
@@ -456,8 +455,8 @@ function EarningsWeekCard({ refreshKey }) {
         </div>
       )}
       <div className="flex items-center gap-3 mt-2.5 text-[10px] text-surface-500">
-        <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-warning" /> Before open</span>
-        <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-purple" /> After close</span>
+        <span className="flex items-center gap-1"><EarningsSessionIcon time="bmo" className="w-3 h-3" /> Before open</span>
+        <span className="flex items-center gap-1"><EarningsSessionIcon time="amc" className="w-3 h-3" /> After close</span>
         <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-accent" /> On your watchlist</span>
       </div>
     </Card>
@@ -607,7 +606,7 @@ function BreakoutsCard({ breakouts }) {
               </span>
             )}
             <span className="text-[11px] text-surface-500 ml-auto">{fmtPrice(r.last_close)}</span>
-            <span className="text-[11px] text-surface-400 w-14 text-right">
+            <span className="text-[11px] text-surface-400 w-14 text-right" title={TIP_RVOL}>
               {r.rvol != null ? `${r.rvol.toFixed(1)}× vol` : ''}
             </span>
             <span className="font-mono text-[12px] font-bold text-success w-10 text-right">{r.score?.toFixed(0)}</span>
@@ -642,13 +641,13 @@ function VolumeSurgeCard({ refreshKey }) {
             {r.accumulation_score != null && (
               <span
                 className={`font-mono text-[10px] ${r.accumulation_score >= 60 ? 'text-success' : r.accumulation_score <= 40 ? 'text-danger' : 'text-surface-400'}`}
-                title="Accumulation score (0–100): direction of the volume"
+                title={TIP_ACC}
               >
                 {r.accumulation_score.toFixed(0)} acc
               </span>
             )}
             <span className="text-[11px] text-surface-500 ml-auto">{fmtPrice(r.last_close)}</span>
-            <span className="font-mono text-[12px] font-bold text-cyan w-16 text-right">
+            <span className="font-mono text-[12px] font-bold text-cyan w-16 text-right" title={TIP_RVOL}>
               {r.rvol != null ? `${r.rvol.toFixed(1)}× vol` : ''}
             </span>
             <span className="font-mono text-[12px] font-bold text-success w-10 text-right">{r.score?.toFixed(0)}</span>
@@ -682,13 +681,13 @@ function UnusualVolumeCard({ unusual }) {
                 Day {r.rvol_streak_day >= 3 ? '3+' : r.rvol_streak_day}
               </span>
             )}
-            <span className="text-[11px] text-surface-500 ml-auto">
+            <span className="text-[11px] text-surface-500 ml-auto" title={TIP_RVOL}>
               {r.rvol != null ? `${r.rvol.toFixed(1)}× vol` : ''}
             </span>
             {r.accumulation_score != null && (
               <span
                 className={`font-mono text-[11px] w-12 text-right ${r.accumulation_score >= 60 ? 'text-success' : r.accumulation_score <= 40 ? 'text-danger' : 'text-surface-300'}`}
-                title="Accumulation score (0–100): direction of the volume surge"
+                title={TIP_ACC}
               >
                 {r.accumulation_score.toFixed(0)} acc
               </span>
@@ -736,7 +735,7 @@ function Scanner9MCard({ refreshKey }) {
               </span>
             )}
             <span className="text-[11px] text-surface-500 ml-auto">{fmtPrice(r.close)}</span>
-            <span className="text-[11px] text-surface-400 w-14 text-right" title="Daily closing range">
+            <span className="text-[11px] text-surface-400 w-14 text-right" title={TIP_DCR}>
               {r.dcr_pct != null ? `${r.dcr_pct.toFixed(0)}% DCR` : ''}
             </span>
             <span className="font-mono text-[12px] font-bold text-accent w-12 text-right" title="Range expansion vs prior 20d">
