@@ -5,19 +5,24 @@ import { getBreadthSnapshot } from '../api/breadth'
 import { getSectorPerformance } from '../api/screener'
 import { getBreakouts } from '../api/breakoutScreener'
 import { get9MScan } from '../api/scanner9m'
+import { getEarnings } from '../api/calendar'
+import { listWatchlists } from '../api/watchlists'
+import { fetchNews, refreshNewsCachePrices } from '../api/news'
+import { loadRules, getRuleOfDay } from '../utils/tradingRules'
 import { marketStatusLabel } from '../utils/marketClock'
 
 // ---------------------------------------------------------------------------
 // Market Overview — the app's front door.
 //
 // One screen that answers "what should I be looking at right now?" by pulling
-// the headline read from each of the analysis pages and surfacing the top few
+// the headline read from each of the analysis pages and surfacing the top
 // names from each, every card deep-linking back to the full page.
 //
 // Design: each card fetches independently so the page paints progressively —
-// the fast reads (breadth, sectors) land first; the heavy universe scans
-// (breakouts, unusual volume, 9M) fill in as they finish. A single "Refresh"
-// bumps a shared key that forces every card to re-fetch with `force`.
+// the fast reads (breadth, sectors, index strip) land first; the heavy
+// universe scans (breakouts, unusual volume, 9M) fill in as they finish. A
+// single "Refresh" bumps a shared key that forces every card to re-fetch
+// with `force`.
 //
 // We deliberately request the SAME params each source page uses for its
 // default view (same mode/limit/filters) so the backend response cache is
@@ -114,6 +119,67 @@ function Empty({ children }) {
   return <div className="text-[12px] text-surface-500 py-2">{children}</div>
 }
 
+// ─── Index / market pulse strip ─────────────────────────────────────────────
+
+const INDEX_SYMS = ['SPY', 'QQQ', 'IWM', 'DIA']
+const INDEX_NAMES = { SPY: 'S&P 500', QQQ: 'Nasdaq 100', IWM: 'Russell 2000', DIA: 'Dow 30' }
+
+function IndexStrip({ refreshKey }) {
+  const { data, loading } = useCardData(() => refreshNewsCachePrices(INDEX_SYMS), refreshKey)
+  const prices = data?.prices || {}
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {INDEX_SYMS.map((sym) => {
+        const p = prices[sym]
+        const cp = p?.change_pct
+        return (
+          <div
+            key={sym}
+            className="rounded-lg border border-surface-700/50 bg-surface-900/40 px-3 py-2 flex items-center justify-between gap-2"
+          >
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-surface-500 truncate">{INDEX_NAMES[sym]}</div>
+              <div className="font-mono text-[13px] font-semibold text-surface-100">
+                {p ? fmtPrice(p.price) : loading ? '…' : '–'}
+              </div>
+            </div>
+            <div className={`font-mono text-[13px] font-bold shrink-0 ${toneFor(cp)}`}>{fmtPct(cp)}</div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── Rule of the day ────────────────────────────────────────────────────────
+
+const RULE_CAT_STYLE = {
+  MINDSET: 'text-purple bg-purple/10 border-purple/30',
+  RISK: 'text-danger bg-danger/10 border-danger/30',
+  ENTRY: 'text-success bg-success/10 border-success/30',
+  EXIT: 'text-cyan bg-cyan/10 border-cyan/30',
+}
+
+function RuleOfDay() {
+  const rule = useMemo(() => getRuleOfDay(loadRules()), [])
+  if (!rule) return null
+  const catStyle = RULE_CAT_STYLE[rule.category] || 'text-surface-300 bg-surface-700/40 border-surface-600'
+  return (
+    <section className="rounded-xl border border-surface-700/50 bg-surface-900/40 px-5 py-3 flex items-center gap-4">
+      <span className="text-[10px] uppercase tracking-wider text-surface-500 font-semibold shrink-0 hidden sm:inline">
+        Rule of the day
+      </span>
+      <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border shrink-0 ${catStyle}`}>
+        {rule.category}
+      </span>
+      <p className="text-[13px] text-surface-200 leading-snug min-w-0 flex-1">{rule.text}</p>
+      <Link to="/rules" className="shrink-0 text-[11px] font-medium text-accent hover:text-accent/80 whitespace-nowrap hidden sm:inline">
+        All rules →
+      </Link>
+    </section>
+  )
+}
+
 // ─── Regime banner (market breadth) ─────────────────────────────────────────
 
 const REGIME_STYLE = {
@@ -185,13 +251,15 @@ function rankSectors(sectors) {
       r3m: s.returns['3M'] ?? 0,
     }))
   const sorted = [...analyzed].sort((a, b) => b.r5d - a.r5d)
-  return { in: sorted.slice(0, 5), out: sorted.slice(-5).reverse() }
+  return { in: sorted.slice(0, 10), out: sorted.slice(-10).reverse() }
 }
 
 function SectorRotation({ sectors }) {
   const { data, loading, error } = sectors
   const ranked = useMemo(() => rankSectors(data?.sectors), [data])
   const demo = data?.is_demo
+  // Don't render more pair rows than we actually have on either side.
+  const rowCount = Math.min(10, Math.max(ranked.in.length, ranked.out.length))
 
   return (
     <Card
@@ -207,7 +275,7 @@ function SectorRotation({ sectors }) {
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
           <div className="text-[10px] uppercase tracking-wider text-success font-semibold pb-1">Rotating In</div>
           <div className="text-[10px] uppercase tracking-wider text-danger font-semibold pb-1">Rotating Out</div>
-          {Array.from({ length: 5 }).map((_, i) => (
+          {Array.from({ length: rowCount }).map((_, i) => (
             <SectorPair key={i} a={ranked.in[i]} b={ranked.out[i]} />
           ))}
         </div>
@@ -291,7 +359,151 @@ function ThemesCard({ sectors, breadth }) {
   )
 }
 
-// ─── Breakouts / Unusual Volume (shared layout) ─────────────────────────────
+// ─── Earnings this week ─────────────────────────────────────────────────────
+
+const EARN_TIME_STYLE = {
+  bmo: 'text-warning bg-warning/10 border-warning/30',
+  amc: 'text-purple bg-purple/10 border-purple/30',
+}
+
+function fmtEarnDate(d) {
+  try {
+    return new Date(`${d}T00:00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+  } catch {
+    return d
+  }
+}
+
+function EarningsWeekCard({ refreshKey }) {
+  const { data, loading, error } = useCardData(() => getEarnings({ days: 7, force: refreshKey > 0 }), refreshKey)
+
+  // Flatten by_date into a capped, grouped list. Within each day the backend
+  // already sorts watchlist names first, then by importance.
+  const items = useMemo(() => {
+    const out = []
+    let count = 0
+    const MAX = 14
+    for (const day of data?.by_date || []) {
+      const rows = [...(day.bmo || []), ...(day.amc || []), ...(day.other || [])]
+      if (!rows.length || count >= MAX) continue
+      out.push({ header: day.date })
+      for (const r of rows.slice(0, 8)) {
+        if (count >= MAX) break
+        out.push({ row: r })
+        count += 1
+      }
+    }
+    return out
+  }, [data])
+
+  const wlHits = data?.watchlist_hits?.length || 0
+  const subtitle = data
+    ? `${data.total || 0} reports${wlHits ? ` · ${wlHits} on your watchlist` : ''}`
+    : 'Reports over the next 7 days'
+
+  return (
+    <Card
+      title="Earnings This Week"
+      subtitle={subtitle}
+      to="/earnings"
+      toLabel="Calendar"
+      accent="purple"
+      loading={loading}
+      error={error}
+    >
+      {data && items.length === 0 && <Empty>No earnings scheduled in the next 7 days.</Empty>}
+      <div className="space-y-0.5">
+        {items.map((it, i) =>
+          it.header ? (
+            <div key={`h-${it.header}`} className="text-[10px] uppercase tracking-wider text-surface-500 font-semibold pt-2 pb-0.5 first:pt-0">
+              {fmtEarnDate(it.header)}
+            </div>
+          ) : (
+            <div key={`r-${it.row.symbol}-${i}`} className="flex items-center gap-2 py-1">
+              <TickerLink symbol={it.row.symbol} className="text-[13px] font-bold text-surface-100 w-14 shrink-0" />
+              {it.row.in_watchlist && (
+                <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border text-accent bg-accent/10 border-accent/30" title="On your watchlist">
+                  WL
+                </span>
+              )}
+              {it.row.time && (
+                <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border ${EARN_TIME_STYLE[it.row.time]}`}>
+                  {it.row.time.toUpperCase()}
+                </span>
+              )}
+              <span className="text-[11px] text-surface-500 ml-auto">
+                {it.row.eps_estimate != null ? `est ${Number(it.row.eps_estimate).toFixed(2)}` : ''}
+              </span>
+            </div>
+          ),
+        )}
+      </div>
+    </Card>
+  )
+}
+
+// ─── Watchlist pulse ────────────────────────────────────────────────────────
+
+function WatchlistPulseCard({ refreshKey }) {
+  const { data, loading, error } = useCardData(async () => {
+    const lists = await listWatchlists()
+    const symbols = [...new Set((lists || []).flatMap((l) => (l.entries || []).map((e) => e.symbol)))]
+    if (!symbols.length) return { lists, symbols: [], prices: {} }
+    const { prices } = await refreshNewsCachePrices(symbols.slice(0, 60))
+    return { lists, symbols, prices: prices || {} }
+  }, refreshKey)
+
+  const movers = useMemo(() => {
+    if (!data?.symbols?.length) return []
+    return data.symbols
+      .map((s) => ({ symbol: s, ...(data.prices?.[s] || {}) }))
+      .filter((m) => m.change_pct != null)
+      .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct))
+      .slice(0, 10)
+  }, [data])
+
+  const subtitle = data?.symbols?.length
+    ? `${data.symbols.length} names · biggest movers`
+    : 'Your watchlists at a glance'
+
+  return (
+    <Card
+      title="Watchlist Pulse"
+      subtitle={subtitle}
+      to="/watchlist"
+      toLabel="Watchlist"
+      accent="cyan"
+      loading={loading}
+      error={error}
+    >
+      {data && data.symbols.length === 0 && (
+        <Empty>
+          No watchlists yet —{' '}
+          <Link to="/watchlist" className="text-accent hover:text-accent/80">
+            add names on the Watchlist page
+          </Link>
+          .
+        </Empty>
+      )}
+      {data && data.symbols.length > 0 && movers.length === 0 && (
+        <Empty>Couldn't fetch quotes for your watchlist right now.</Empty>
+      )}
+      <div className="divide-y divide-surface-800/60">
+        {movers.map((m) => (
+          <div key={m.symbol} className="flex items-center gap-2 py-1.5">
+            <TickerLink symbol={m.symbol} className="text-[13px] font-bold text-surface-100 w-14 shrink-0" />
+            <span className="text-[11px] text-surface-500 ml-auto">{fmtPrice(m.price)}</span>
+            <span className={`font-mono text-[12px] font-bold w-16 text-right ${toneFor(m.change_pct)}`}>
+              {fmtPct(m.change_pct)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+// ─── Breakouts / Unusual Volume (shared layout, lifted state) ───────────────
 
 const STATUS_STYLE = {
   READY: 'text-success bg-success/10 border-success/30',
@@ -299,12 +511,9 @@ const STATUS_STYLE = {
   WATCH: 'text-surface-300 bg-surface-700/40 border-surface-600',
 }
 
-function BreakoutsCard({ refreshKey }) {
-  const { data, loading, error } = useCardData(
-    () => getBreakouts({ mode: 'breakout', limit: 24, minAdr: 0.05, minRvol: 1.5, fresh: refreshKey > 0 }),
-    refreshKey,
-  )
-  const rows = (data?.results || []).slice(0, 5)
+function BreakoutsCard({ breakouts }) {
+  const { data, loading, error } = breakouts
+  const rows = (data?.results || []).slice(0, 10)
   return (
     <Card
       title="Top Breakouts"
@@ -337,12 +546,9 @@ function BreakoutsCard({ refreshKey }) {
   )
 }
 
-function UnusualVolumeCard({ refreshKey }) {
-  const { data, loading, error } = useCardData(
-    () => getBreakouts({ mode: 'unusual_volume', limit: 24, minAdr: 0.05, minRvol: 2.0, dayFilter: 0, fresh: refreshKey > 0 }),
-    refreshKey,
-  )
-  const rows = (data?.results || []).slice(0, 5)
+function UnusualVolumeCard({ unusual }) {
+  const { data, loading, error } = unusual
+  const rows = (data?.results || []).slice(0, 10)
   return (
     <Card
       title="Unusual Volume"
@@ -394,7 +600,7 @@ function Scanner9MCard({ refreshKey }) {
     () => get9MScan({ force: refreshKey > 0 }),
     refreshKey,
   )
-  const rows = (data?.candidates || []).slice(0, 5)
+  const rows = (data?.candidates || []).slice(0, 10)
   const counts = data?.counts
   return (
     <Card
@@ -430,6 +636,99 @@ function Scanner9MCard({ refreshKey }) {
   )
 }
 
+// ─── Market-moving news ─────────────────────────────────────────────────────
+
+// Polygon/Benzinga sentiment labels → tone dot.
+const SENTIMENT_DOT = { positive: 'bg-success', negative: 'bg-danger', neutral: 'bg-surface-500' }
+
+function fmtNewsTime(s) {
+  if (!s) return ''
+  try {
+    return new Date(s.replace(' ', 'T')).toLocaleDateString([], { month: 'short', day: 'numeric' })
+  } catch {
+    return ''
+  }
+}
+
+// Driven by the names surfaced in the breakout + unusual-volume scans, so the
+// headlines line up with the stocks actually moving today. Fetches on its own
+// once those tickers resolve (and again on refresh).
+function MarketNews({ tickers, refreshKey }) {
+  const [state, setState] = useState({ data: null, loading: true, error: null })
+  const key = tickers.join(',')
+
+  useEffect(() => {
+    if (!tickers.length) {
+      setState({ data: null, loading: true, error: null })
+      return
+    }
+    let alive = true
+    setState((s) => ({ ...s, loading: true, error: null }))
+    fetchNews(tickers)
+      .then((data) => { if (alive) setState({ data, loading: false, error: null }) })
+      .catch((err) => { if (alive) setState({ data: null, loading: false, error: err.message || 'Failed to load' }) })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, refreshKey])
+
+  // One freshest headline per name, newest names first.
+  const headlines = useMemo(() => {
+    const articles = state.data?.articles || []
+    const bySym = new Map()
+    for (const a of articles) {
+      const cur = bySym.get(a.symbol)
+      if (!cur || (a.publishedDate || '') > (cur.publishedDate || '')) bySym.set(a.symbol, a)
+    }
+    return [...bySym.values()]
+      .sort((x, y) => (y.publishedDate || '').localeCompare(x.publishedDate || ''))
+      .slice(0, 8)
+  }, [state.data])
+
+  return (
+    <Card
+      title="Market-Moving News"
+      subtitle="Latest headlines on today's most active names"
+      to="/news"
+      toLabel="News"
+      accent="purple"
+      loading={state.loading}
+      error={state.error}
+    >
+      {!state.loading && headlines.length === 0 && (
+        <Empty>No fresh headlines on today's movers.</Empty>
+      )}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 divide-y md:divide-y-0 divide-surface-800/60">
+        {headlines.map((a, i) => (
+          <a
+            key={`${a.symbol}-${i}`}
+            href={a.url || '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group flex gap-2.5 py-2 hover:bg-surface-800/30 -mx-1 px-1 rounded transition-colors"
+          >
+            <span
+              className={`mt-1.5 shrink-0 w-1.5 h-1.5 rounded-full ${SENTIMENT_DOT[a.sentiment?.label] || SENTIMENT_DOT.neutral}`}
+              aria-hidden="true"
+              title={a.sentiment?.label ? `Sentiment: ${a.sentiment.label}` : undefined}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[12px] font-bold text-surface-100 shrink-0">{a.symbol}</span>
+                <span className="text-[10px] text-surface-500 truncate">
+                  {a.site}{a.publishedDate ? ` · ${fmtNewsTime(a.publishedDate)}` : ''}
+                </span>
+              </div>
+              <p className="text-[12.5px] text-surface-300 leading-snug line-clamp-2 group-hover:text-surface-100">
+                {a.title}
+              </p>
+            </div>
+          </a>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
@@ -437,10 +736,26 @@ export default function Dashboard() {
   const [refreshedAt, setRefreshedAt] = useState(() => new Date())
   const status = marketStatusLabel()
 
-  // Sector + breadth are each consumed by two cards — fetch once at the parent
-  // so we don't double-hit the backend (and never double-force a refresh).
+  // Lift the shared fetches to the parent so we never double-hit the backend:
+  // sectors + breadth each feed two cards; the breakout/unusual results also
+  // feed the Market-Moving News card (it derives its tickers from them).
   const sectors = useCardData(() => getSectorPerformance({ forceRefresh: refreshKey > 0 }), refreshKey)
   const breadth = useCardData(() => getBreadthSnapshot(), refreshKey)
+  const breakouts = useCardData(
+    () => getBreakouts({ mode: 'breakout', limit: 24, minAdr: 0.05, minRvol: 1.5, fresh: refreshKey > 0 }),
+    refreshKey,
+  )
+  const unusual = useCardData(
+    () => getBreakouts({ mode: 'unusual_volume', limit: 24, minAdr: 0.05, minRvol: 2.0, dayFilter: 0, fresh: refreshKey > 0 }),
+    refreshKey,
+  )
+
+  // Names for the news card: top movers from both scans, deduped.
+  const newsTickers = useMemo(() => {
+    const b = (breakouts.data?.results || []).slice(0, 6).map((r) => r.symbol)
+    const u = (unusual.data?.results || []).slice(0, 6).map((r) => r.symbol)
+    return [...new Set([...b, ...u])].slice(0, 10)
+  }, [breakouts.data, unusual.data])
 
   const refresh = useCallback(() => {
     setRefreshKey((k) => k + 1)
@@ -481,6 +796,12 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Index / market pulse strip */}
+      <IndexStrip refreshKey={refreshKey} />
+
+      {/* Rule of the day */}
+      <RuleOfDay />
+
       {/* Regime banner */}
       <RegimeBanner breadth={breadth} />
 
@@ -490,12 +811,21 @@ export default function Dashboard() {
         <ThemesCard sectors={sectors} breadth={breadth} />
       </div>
 
+      {/* Earnings + watchlist */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <EarningsWeekCard refreshKey={refreshKey} />
+        <WatchlistPulseCard refreshKey={refreshKey} />
+      </div>
+
       {/* The three scans */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <BreakoutsCard refreshKey={refreshKey} />
-        <UnusualVolumeCard refreshKey={refreshKey} />
+        <BreakoutsCard breakouts={breakouts} />
+        <UnusualVolumeCard unusual={unusual} />
         <Scanner9MCard refreshKey={refreshKey} />
       </div>
+
+      {/* Market-moving news */}
+      <MarketNews tickers={newsTickers} refreshKey={refreshKey} />
     </div>
   )
 }
