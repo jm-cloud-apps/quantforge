@@ -194,6 +194,15 @@ const REGIME_STYLE = {
   overheated:   { ring: 'border-warning/40', bg: 'bg-warning/10', dot: 'bg-warning', text: 'text-warning' },
 }
 
+// Plain-English explanations for the breadth metrics in the regime banner.
+// These are Stockbee-style momentum-breadth *counts* (number of stocks), not
+// moving-average percentages — matching the definitions on the Market Monitor
+// page. (T2108 is the one true percentage here.)
+const TIP_MO_UP_50 = 'Number of stocks up 50%+ over the last ~21 trading sessions (about a month). A momentum-breadth gauge — readings above ~20 can flag an overheated, blow-off market.'
+const TIP_T2108 = 'T2108 — percent of the universe trading above its 40-day moving average. 80%+ = overbought / overheated; 20% or below = oversold, capitulation zone.'
+const TIP_MO_UP_25 = 'Number of stocks up 25%+ over the last ~21 trading sessions (about a month). Surges mark strong, broad momentum environments.'
+const TIP_MO_DOWN_25 = 'Number of stocks down 25%+ over the last ~21 trading sessions (about a month). Spikes show up during sharp corrections and broad damage.'
+
 function RegimeBanner({ breadth }) {
   const { data, loading, error } = breadth
   const regime = data?.regime
@@ -219,10 +228,10 @@ function RegimeBanner({ breadth }) {
 
         {!error && (
           <div className="flex items-center gap-5 lg:ml-auto flex-wrap">
-            <Metric label="% > 50d MA" value={m.mo_up_50 != null ? `${m.mo_up_50}` : '–'} />
-            <Metric label="T2108" value={m.t2108 != null ? `${m.t2108}` : '–'} />
-            <Metric label="4% up" value={m.mo_up_25 != null ? `${m.mo_up_25}` : '–'} tone="text-success" />
-            <Metric label="4% down" value={m.mo_down_25 != null ? `${m.mo_down_25}` : '–'} tone="text-danger" />
+            <Metric label="50% month up" tip={TIP_MO_UP_50} value={m.mo_up_50 != null ? `${m.mo_up_50}` : '–'} />
+            <Metric label="T2108" tip={TIP_T2108} value={m.t2108 != null ? `${m.t2108}` : '–'} />
+            <Metric label="25% month up" tip={TIP_MO_UP_25} value={m.mo_up_25 != null ? `${m.mo_up_25}` : '–'} tone="text-success" />
+            <Metric label="25% month down" tip={TIP_MO_DOWN_25} value={m.mo_down_25 != null ? `${m.mo_down_25}` : '–'} tone="text-danger" />
             <Link to="/market-monitor" className="text-[11px] font-medium text-accent hover:text-accent/80 whitespace-nowrap">
               Market Monitor →
             </Link>
@@ -233,11 +242,20 @@ function RegimeBanner({ breadth }) {
   )
 }
 
-function Metric({ label, value, tone = 'text-surface-100' }) {
+function Metric({ label, value, tone = 'text-surface-100', tip }) {
   return (
     <div className="text-center">
       <div className={`font-mono font-bold text-base ${tone}`}>{value}</div>
-      <div className="text-[9px] uppercase tracking-wider text-surface-500">{label}</div>
+      {tip ? (
+        <InfoTip
+          label={tip}
+          className="text-[9px] uppercase tracking-wider text-surface-500 underline decoration-dotted decoration-surface-600 underline-offset-2"
+        >
+          {label}
+        </InfoTip>
+      ) : (
+        <div className="text-[9px] uppercase tracking-wider text-surface-500">{label}</div>
+      )}
     </div>
   )
 }
