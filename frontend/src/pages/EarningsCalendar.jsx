@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getEarnings } from '../api/calendar'
 import { listWatchlists } from '../api/watchlists'
+import TradingViewLink from '../components/TradingViewLink'
+import EarningsSessionIcon from '../components/EarningsSessionIcon'
 
 const WINDOWS = [
   { value: 5,  label: 'This week' },
@@ -28,13 +30,6 @@ function relativeDay(iso) {
   return `in ${diff}d`
 }
 
-const TIME_LABEL = { bmo: 'Before open', amc: 'After close', other: 'During / TBD' }
-const TIME_TONE = {
-  bmo:   'bg-cyan/10 text-cyan border-cyan/30',
-  amc:   'bg-purple/10 text-purple border-purple/30',
-  other: 'bg-surface-700/40 text-surface-300 border-surface-600/40',
-}
-
 function fmtEps(v) {
   if (v === null || v === undefined) return '—'
   const n = Number(v)
@@ -50,9 +45,10 @@ function EarningRow({ row }) {
         : 'bg-surface-900/60 border-surface-700/40 hover:bg-surface-800/60'
     } transition-colors`}>
       <div className="flex items-center gap-2 min-w-0">
-        <span className={`font-mono font-semibold text-[13px] ${row.in_watchlist ? 'text-accent' : 'text-surface-100'}`}>
-          {row.symbol}
-        </span>
+        <TradingViewLink
+          symbol={row.symbol}
+          className={`font-mono font-semibold text-[13px] ${row.in_watchlist ? 'text-accent' : 'text-surface-100'}`}
+        />
         {row.in_watchlist && (
           <svg className="w-3 h-3 text-accent shrink-0" fill="currentColor" viewBox="0 0 20 20">
             <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
@@ -95,12 +91,13 @@ function DayColumn({ slot }) {
             if (!rows || rows.length === 0) return null
             return (
               <div key={bucket}>
-                <div className={`inline-block px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider border ${TIME_TONE[bucket]} mb-1.5`}>
-                  {TIME_LABEL[bucket]} · {rows.length}
+                <div className="flex items-center gap-1 mb-1.5 h-3.5">
+                  <EarningsSessionIcon time={bucket} className="w-3.5 h-3.5" />
+                  <span className="text-[10px] text-surface-500 tabular-nums">{rows.length}</span>
                 </div>
                 <div className="space-y-1">
-                  {rows.slice(0, 8).map(r => (
-                    <EarningRow key={`${r.symbol}-${r.date}-${bucket}`} row={r} />
+                  {rows.slice(0, 8).map((r, i) => (
+                    <EarningRow key={`${r.symbol}-${r.date}-${bucket}-${i}`} row={r} />
                   ))}
                   {rows.length > 8 && (
                     <div className="text-[10px] text-surface-500 italic px-1">
@@ -220,12 +217,10 @@ export default function EarningsCalendar() {
               <div className="flex flex-wrap gap-1.5">
                 {data.watchlist_hits.map(r => (
                   <div key={`${r.symbol}-${r.date}`} className="px-2.5 py-1 rounded-md bg-accent/15 border border-accent/30 text-[11px] flex items-center gap-1.5">
-                    <span className="font-mono font-semibold text-accent">{r.symbol}</span>
+                    <TradingViewLink symbol={r.symbol} className="font-mono font-semibold text-accent" />
                     <span className="text-surface-400">·</span>
                     <span className="text-surface-300">{relativeDay(r.date)}</span>
-                    {r.time && (
-                      <span className="text-[9px] uppercase text-surface-500 ml-0.5">{r.time}</span>
-                    )}
+                    <EarningsSessionIcon time={r.time} className="w-3 h-3 ml-0.5" />
                   </div>
                 ))}
               </div>
