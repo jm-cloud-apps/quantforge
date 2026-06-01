@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getBreakouts, getRecentDeveloping } from '../api/breakoutScreener'
 import ChartCard from '../components/screener/ChartCard'
 import GlossarySidebar from '../components/screener/GlossarySidebar'
-import TickerLink from '../components/TickerLink'
+import TradingViewLink from '../components/TradingViewLink'
 import { isMarketActiveNow, lastCloseSnapshotMs, marketStatusLabel } from '../utils/marketClock'
 
 const MODES = [
@@ -787,7 +787,7 @@ const Breakouts = () => {
                   className="rounded-lg bg-surface-800/60 border border-surface-700/40 px-3 py-2 text-xs"
                 >
                   <div className="flex items-center justify-between">
-                    <TickerLink symbol={h.symbol} className="font-bold text-surface-100" />
+                    <TradingViewLink symbol={h.symbol} className="font-bold text-surface-100" />
                     <span className="font-mono text-success">{h.score?.toFixed(0)}</span>
                   </div>
                   <div className="text-[10px] text-surface-500 mt-0.5">
