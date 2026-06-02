@@ -81,6 +81,12 @@ app.include_router(daily_journal_router)
 from calendar_router import router as calendar_router
 app.include_router(calendar_router)
 
+from movers_router import router as movers_router
+app.include_router(movers_router)
+
+from review_notes_router import router as review_notes_router, merge_review_notes_into_trades
+app.include_router(review_notes_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -406,7 +412,13 @@ def load_default_trades(force: int = 0):
             and _trades_cache["file_mtime"] == current_mtime
             and _trades_cache["data"] is not None
         ):
-            return {**_trades_cache["data"], "from_cache": True}
+            # Re-overlay review notes on every call — the sidecar can change
+            # without bumping the workbook's mtime, so we never trust a cached
+            # notes snapshot. The merge mutates in place; deep-copying is
+            # avoided since downstream consumers only read.
+            cached = _trades_cache["data"]
+            merged_trades = merge_review_notes_into_trades([dict(t) for t in cached["trades"]])
+            return {**cached, "trades": merged_trades, "from_cache": True}
 
         df = pd.read_excel(default_path)
 
@@ -419,6 +431,11 @@ def load_default_trades(force: int = 0):
         # filters to closed trades only (rows with an exit_price). Open
         # positions are intentionally excluded from the analytics page.
         trades = normalize_trade_data(df)
+
+        # Overlay any per-trade review notes from the sidecar — these are the
+        # authoritative values for the editable fields (notes, setup, grade,
+        # etc.) since the user edits them through the Review UI.
+        trades = merge_review_notes_into_trades(trades)
 
         # Surface how many rows were dropped so the UI can explain
         # "X trades hidden — still open" instead of silently omitting them.
@@ -3135,32 +3152,57 @@ def refresh_news_cache_prices(body: dict = Body(...)):
     }
 
 
+_movers_cache_lock = threading.Lock()
+# Cache the largest list we serve (limit=50) and slice per-request, so callers
+# asking for different limits all share one upstream fetch.
+_movers_cache = {"data": None, "ts": 0.0}
+_MOVERS_ACTIVE_TTL = 60  # seconds during the session; market_clock stretches to 4h when closed
+
+
 @app.get("/api/movers")
 def get_market_movers(limit: int = Query(10, ge=1, le=50)):
     """Today's top gainers and losers across US stocks (Massive snapshot).
 
-    Best-effort: returns empty lists if the provider is unavailable so the
-    dashboard card can degrade gracefully instead of erroring the page.
+    Cached: the snapshot is a couple of live fetches, and after hours the data
+    is frozen — market_clock.effective_cache_ttl keeps it for 4h when closed so
+    the dashboard isn't re-pulling it on every visit. Best-effort: returns
+    empty lists if the provider is unavailable so the card degrades gracefully.
     """
+    from market_clock import effective_cache_ttl
+
+    with _movers_cache_lock:
+        if (
+            _movers_cache["data"] is not None
+            and (time.time() - _movers_cache["ts"]) < effective_cache_ttl(_MOVERS_ACTIVE_TTL)
+        ):
+            c = _movers_cache["data"]
+            return {**c, "gainers": c["gainers"][:limit], "losers": c["losers"][:limit], "from_cache": True}
+
     try:
         from screener.qullamaggie.providers.massive import MassiveProvider
         mp = MassiveProvider()
     except Exception as e:
         return {"gainers": [], "losers": [], "provider": "massive", "error": str(e)}
     try:
-        gainers = mp.fetch_movers("gainers", limit=limit)
-        losers = mp.fetch_movers("losers", limit=limit)
+        # Fetch the max we'd ever serve once; per-request limit is applied below.
+        gainers = mp.fetch_movers("gainers", limit=50)
+        losers = mp.fetch_movers("losers", limit=50)
     finally:
         try:
             mp.close()
         except Exception:
             pass
-    return {
+
+    payload = {
         "gainers": gainers,
         "losers": losers,
         "provider": "massive",
         "as_of": datetime.now().isoformat(timespec="seconds"),
     }
+    with _movers_cache_lock:
+        _movers_cache["data"] = payload
+        _movers_cache["ts"] = time.time()
+    return {**payload, "gainers": gainers[:limit], "losers": losers[:limit], "from_cache": False}
 
 
 @app.delete("/api/news/cache")

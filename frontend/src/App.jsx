@@ -23,6 +23,7 @@ const EarningsCalendar = lazy(() => import('./pages/EarningsCalendar'))
 const Scanner9M       = lazy(() => import('./pages/Scanner9M'))
 const Rules           = lazy(() => import('./pages/Rules'))
 const Dashboard       = lazy(() => import('./pages/Dashboard'))
+const Review          = lazy(() => import('./pages/Review'))
 
 function RouteFallback() {
   return (
@@ -52,6 +53,7 @@ function AnimatedRoutes() {
             <Route path="flow/:underlying" element={<OptionsFlow />} />
             <Route path="bot-trader" element={<BotTrader />} />
             <Route path="trading-analysis" element={<TradingAnalysis />} />
+            <Route path="review" element={<Review />} />
             <Route path="playbook" element={<Playbook />} />
             <Route path="journal" element={<Journal />} />
             <Route path="tools" element={<Tools />} />
