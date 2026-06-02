@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createChart, CandlestickSeries, LineSeries, HistogramSeries } from 'lightweight-charts'
 import IntradayModal from './IntradayModal'
-import TickerLink from '../TickerLink'
+import TradingViewLink from '../TradingViewLink'
 import InfoTip from '../InfoTip'
 
 // Plain-English explainer for each stat-grid label. Surfaced as an instant
@@ -268,7 +268,7 @@ const ChartCard = ({ candidate, rank, isNew = false }) => {
           <div className="min-w-0">
             <div className="flex items-baseline gap-2">
               <span className="text-xs font-mono text-surface-500">#{rank}</span>
-              <TickerLink symbol={candidate.symbol} className="text-base font-bold text-surface-100" />
+              <TradingViewLink symbol={candidate.symbol} className="text-base font-bold text-surface-100" />
               {candidate.rvol_streak_day != null && (
                 <span
                   className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md border ${

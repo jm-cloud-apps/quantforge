@@ -11,3 +11,17 @@ export async function getEarnings({ days = 7, wlId = null, force = false } = {})
   }
   return res.json()
 }
+
+export async function getEarningsReactions(items) {
+  if (!items || items.length === 0) return { reactions: {} }
+  const res = await fetch(`${API_BASE}/reactions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to load earnings reactions')
+  }
+  return res.json()
+}

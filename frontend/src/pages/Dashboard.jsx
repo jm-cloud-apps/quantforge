@@ -9,7 +9,7 @@ import { getSectorPerformance } from '../api/screener'
 import { getBreakouts } from '../api/breakoutScreener'
 import { get9MScan } from '../api/scanner9m'
 import { getEarnings } from '../api/calendar'
-import { getMovers } from '../api/movers'
+import { getMovers, getExtendedMovers, getGapMovers } from '../api/movers'
 import { listWatchlists } from '../api/watchlists'
 import { fetchNews, refreshNewsCachePrices } from '../api/news'
 import { loadRules, getRuleOfDay } from '../utils/tradingRules'
@@ -37,6 +37,13 @@ const fmtPct = (v, digits = 2) =>
   v == null || Number.isNaN(v) ? '–' : `${v >= 0 ? '+' : ''}${Number(v).toFixed(digits)}%`
 
 const fmtPrice = (v) => (v == null || Number.isNaN(v) ? '–' : `$${Number(v).toFixed(2)}`)
+
+const fmtEps = (v) => {
+  if (v == null) return '—'
+  const n = Number(v)
+  if (Number.isNaN(n)) return '—'
+  return n >= 0 ? `$${n.toFixed(2)}` : `-$${Math.abs(n).toFixed(2)}`
+}
 
 const toneFor = (v) =>
   v == null ? 'text-surface-400' : v > 0 ? 'text-success' : v < 0 ? 'text-danger' : 'text-surface-300'
@@ -401,17 +408,25 @@ function localDateKey(dt) {
 function EarningsWeekCard({ refreshKey }) {
   const { data, loading, error } = useCardData(() => getEarnings({ days: 7, force: refreshKey > 0 }), refreshKey)
 
-  // Build a full 7-day strip from the window so empty days still render as
-  // columns. by_date only carries days that actually have reports.
+  // Build a forward strip starting at "today" (the backend's window now
+  // includes a few past days for beat/miss results, but the dashboard card
+  // is forward-looking). Weekends are skipped — US earnings don't print
+  // on Sat/Sun. Empty weekdays still render so the grid stays uniform.
   const days = useMemo(() => {
-    if (!data?.window?.start) return []
+    if (!data?.window) return []
     const byDate = new Map((data.by_date || []).map((d) => [d.date, d]))
-    const start = new Date(`${data.window.start}T00:00:00`)
-    const todayKey = localDateKey(new Date())
+    const todayIso = data.window.today || localDateKey(new Date())
+    const start = new Date(`${todayIso}T00:00:00`)
+    const todayKey = todayIso
     const out = []
-    for (let i = 0; i < (data.window.days || 7); i++) {
+    const forwardDays = data.window.days || 7
+    let cursor = 0
+    while (out.length < 5 && cursor < forwardDays + 3) {
       const dt = new Date(start)
-      dt.setDate(start.getDate() + i)
+      dt.setDate(start.getDate() + cursor)
+      cursor++
+      const dow = dt.getDay()
+      if (dow === 0 || dow === 6) continue
       const key = localDateKey(dt)
       const entry = byDate.get(key)
       const items = entry ? [...(entry.bmo || []), ...(entry.amc || []), ...(entry.other || [])] : []
@@ -442,7 +457,7 @@ function EarningsWeekCard({ refreshKey }) {
       error={error}
     >
       {data && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
           {days.map((day) => (
             <div
               key={day.key}
@@ -460,15 +475,51 @@ function EarningsWeekCard({ refreshKey }) {
                 <div className="flex-1 flex items-center justify-center text-[16px] text-surface-700">·</div>
               ) : (
                 <div className="space-y-0.5">
-                  {day.items.slice(0, 7).map((it) => (
-                    <div key={it.symbol} className="flex items-center gap-1">
-                      <EarningsSessionIcon time={it.time} className="shrink-0 w-3 h-3" />
-                      <TradingViewLink
-                        symbol={it.symbol}
-                        className={`text-[11px] font-semibold truncate ${it.in_watchlist ? 'text-accent' : 'text-surface-200'}`}
-                      />
-                    </div>
-                  ))}
+                  {day.items.slice(0, 7).map((it, itIdx) => {
+                    const act = it.eps_actual
+                    const est = it.eps_estimate
+                    const hasAct = act !== null && act !== undefined && !Number.isNaN(Number(act))
+                    const hasEst = est !== null && est !== undefined && !Number.isNaN(Number(est))
+                    let state = null
+                    if (hasAct && hasEst) {
+                      const a = Number(act), e = Number(est)
+                      if (a > e) state = 'beat'
+                      else if (a < e) state = 'miss'
+                      else state = 'inline'
+                    }
+                    const pct = (hasAct && hasEst && Number(est) !== 0)
+                      ? ((Number(act) - Number(est)) / Math.abs(Number(est))) * 100
+                      : null
+                    const tickerColor = it.in_watchlist
+                      ? 'text-accent'
+                      : state === 'beat' ? 'text-emerald-300'
+                        : state === 'miss' ? 'text-rose-300'
+                          : 'text-surface-200'
+                    const title = hasAct
+                      ? `Actual ${fmtEps(act)} vs est ${fmtEps(est)}`
+                      : (hasEst ? `EPS est ${fmtEps(est)}` : undefined)
+                    return (
+                      <div key={`${it.symbol}-${itIdx}`} className="flex items-center gap-1 justify-between" title={title}>
+                        <div className="flex items-center gap-1 min-w-0">
+                          <EarningsSessionIcon time={it.time} className="shrink-0 w-3 h-3" />
+                          <TradingViewLink
+                            symbol={it.symbol}
+                            className={`text-[11px] font-semibold truncate ${tickerColor}`}
+                          />
+                        </div>
+                        {state === 'beat' && (
+                          <span className="text-[9px] font-mono text-emerald-400 shrink-0 tabular-nums">
+                            {pct !== null ? `+${pct.toFixed(0)}%` : '✓'}
+                          </span>
+                        )}
+                        {state === 'miss' && (
+                          <span className="text-[9px] font-mono text-rose-400 shrink-0 tabular-nums">
+                            {pct !== null ? `-${Math.abs(pct).toFixed(0)}%` : '✗'}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })}
                   {day.items.length > 7 && (
                     <div className="text-[10px] text-surface-500 pt-0.5">+{day.items.length - 7} more</div>
                   )}
@@ -594,6 +645,144 @@ function MoversCard({ refreshKey }) {
           </div>
         </div>
       )}
+    </Card>
+  )
+}
+
+// ─── Extended-hours movers (pre-market / after-hours / regular) ─────────────
+
+const SESSION_LABEL = {
+  premarket: 'Pre-Market Movers',
+  afterhours: 'After-Hours Movers',
+  regular: 'Live Session Movers',
+  closed: 'Latest Session Movers',
+  unknown: 'Session Movers',
+}
+
+const SESSION_SUBTITLE = {
+  premarket: 'Biggest % moves from prior close — pre-market session (4:00 AM ET +)',
+  afterhours: 'Biggest % moves since the regular close',
+  regular: 'Biggest % moves right now',
+  closed: 'Most recent session’s biggest movers',
+  unknown: 'Top movers',
+}
+
+function ExtendedMoversCard({ refreshKey }) {
+  const { data, loading, error } = useCardData(() => getExtendedMovers({ limit: 6 }), refreshKey)
+  const session = data?.session || 'unknown'
+  const gainers = data?.gainers || []
+  const losers = data?.losers || []
+  const empty = data && gainers.length === 0 && losers.length === 0
+
+  return (
+    <Card
+      title={SESSION_LABEL[session] || SESSION_LABEL.unknown}
+      subtitle={SESSION_SUBTITLE[session] || SESSION_SUBTITLE.unknown}
+      accent="warning"
+      loading={loading}
+      error={error}
+    >
+      {empty && <Empty>No extended-hours movers right now.</Empty>}
+      {!empty && (
+        <div className="grid grid-cols-2 gap-x-5">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-success font-semibold pb-1">Gainers</div>
+            {gainers.map((m) => (
+              <MoverRow key={`g-${m.symbol}`} m={m} />
+            ))}
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-danger font-semibold pb-1">Losers</div>
+            {losers.map((m) => (
+              <MoverRow key={`l-${m.symbol}`} m={m} />
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// ─── Gap-and-go scanner ─────────────────────────────────────────────────────
+
+function fmtVolume(v) {
+  if (v == null) return '—'
+  const n = Number(v)
+  if (Number.isNaN(n)) return '—'
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`
+  return String(n)
+}
+
+function GapRow({ r }) {
+  const up = (r.change_pct ?? 0) >= 0
+  return (
+    <div className="flex items-center justify-between gap-2 py-1.5 border-b border-surface-800/40 last:border-0">
+      <div className="flex items-center gap-1.5 min-w-0">
+        <TickerLink symbol={r.symbol} className="text-[12px] font-bold text-surface-100 truncate" />
+        {r.earnings_today_bmo && (
+          <span
+            className="text-[8px] font-semibold uppercase tracking-wider px-1 py-0.5 rounded bg-accent/15 text-accent border border-accent/30 shrink-0"
+            title="Reports earnings before market open today"
+          >
+            ER
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <span className="text-[10px] text-surface-500 tabular-nums w-10 text-right">{fmtVolume(r.volume)}</span>
+        <span className="text-[10px] text-surface-500 tabular-nums w-14 text-right">{fmtPrice(r.price)}</span>
+        <span className={`font-mono text-[12px] font-bold w-14 text-right ${up ? 'text-success' : 'text-danger'}`}>
+          {fmtPct(r.change_pct, 1)}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function GapAndGoCard({ refreshKey }) {
+  const { data, loading, error } = useCardData(
+    () => getGapMovers({ minPct: 5, minVolume: 500_000, limit: 12 }),
+    refreshKey,
+  )
+  const gainers = data?.gainers || []
+  const losers = data?.losers || []
+  const bmoCount = data?.bmo_count || 0
+  const empty = data && gainers.length === 0 && losers.length === 0
+
+  return (
+    <Card
+      title="Gap & Go"
+      subtitle={`≥5% move on ≥500K vol${bmoCount ? ` · ${bmoCount} BMO earnings today` : ''}`}
+      accent="purple"
+      loading={loading}
+      error={error}
+    >
+      {empty && <Empty>No qualifying gaps right now.</Empty>}
+      {!empty && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-success font-semibold pb-1">Gap up</div>
+            {gainers.slice(0, 10).map((r) => (
+              <GapRow key={`gu-${r.symbol}`} r={r} />
+            ))}
+            {gainers.length === 0 && <div className="text-[11px] text-surface-500 italic py-2">No gap-ups</div>}
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-danger font-semibold pb-1">Gap down</div>
+            {losers.slice(0, 10).map((r) => (
+              <GapRow key={`gd-${r.symbol}`} r={r} />
+            ))}
+            {losers.length === 0 && <div className="text-[11px] text-surface-500 italic py-2">No gap-downs</div>}
+          </div>
+        </div>
+      )}
+      <div className="mt-2 text-[10px] text-surface-500">
+        <span className="inline-flex items-center gap-1">
+          <span className="px-1 py-0.5 rounded bg-accent/15 text-accent border border-accent/30 text-[8px] font-semibold">ER</span>
+          = reports earnings before open today
+        </span>
+      </div>
     </Card>
   )
 }
@@ -955,6 +1144,12 @@ export default function Dashboard() {
 
       {/* Earnings — full-width weekly calendar */}
       <EarningsWeekCard refreshKey={refreshKey} />
+
+      {/* Extended-hours movers + gap scanner */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <ExtendedMoversCard refreshKey={refreshKey} />
+        <GapAndGoCard refreshKey={refreshKey} />
+      </div>
 
       {/* The scans */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
