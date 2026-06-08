@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { loadDefaultTrades } from '../api/tradingAnalysis'
 import { getReviewNotes, saveReviewNote, buildTradeKey } from '../api/reviewNotes'
 import LightweightTradeChart from '../components/review/LightweightTradeChart'
@@ -89,7 +89,81 @@ function TradeListItem({ trade, active, reviewed, onClick }) {
   )
 }
 
-function NotesForm({ trade, onSaved }) {
+/* Searchable, free-entry combobox. Suggestions are filtered as you type, but
+   you can also type a brand-new value (it's not a strict select) — so the
+   Setup taxonomy stays consistent without blocking a new variant. */
+function Combobox({ value, onChange, options, placeholder }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState(value || '')
+  // Have they typed since opening? If not, show the full list rather than
+  // filtering by the already-selected value.
+  const [touched, setTouched] = useState(false)
+  const [highlight, setHighlight] = useState(0)
+  const wrapRef = useRef(null)
+
+  // Keep the input in sync when the active trade (and its value) changes.
+  useEffect(() => { setQuery(value || ''); setTouched(false) }, [value])
+
+  // Close the dropdown on an outside click.
+  useEffect(() => {
+    const onDoc = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+
+  const filtered = useMemo(() => {
+    const q = touched ? (query || '').trim().toLowerCase() : ''
+    if (!q) return options
+    // Prefix matches first, then any substring — keeps "EP -" typing tight.
+    const starts = [], contains = []
+    for (const o of options) {
+      const lo = o.toLowerCase()
+      if (lo.startsWith(q)) starts.push(o)
+      else if (lo.includes(q)) contains.push(o)
+    }
+    return [...starts, ...contains]
+  }, [options, query, touched])
+
+  const choose = (val) => { onChange(val); setQuery(val); setTouched(false); setOpen(false) }
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => { setQuery(e.target.value); onChange(e.target.value); setTouched(true); setOpen(true); setHighlight(0) }}
+        onFocus={(e) => { setOpen(true); setTouched(false); e.target.select() }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setHighlight((h) => Math.min(h + 1, filtered.length - 1)) }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)) }
+          else if (e.key === 'Enter' && open && filtered[highlight]) { e.preventDefault(); choose(filtered[highlight]) }
+          else if (e.key === 'Escape') { setOpen(false) }
+        }}
+        placeholder={placeholder}
+        className="w-full rounded-lg bg-surface-900 border border-surface-700/50 px-3 py-2 text-[13px] text-surface-100 focus:border-accent focus:outline-none"
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute z-30 mt-1 w-full max-h-56 overflow-y-auto rounded-lg bg-surface-900 border border-surface-700/60 shadow-xl">
+          {filtered.map((o, i) => (
+            <button
+              key={o}
+              type="button"
+              onMouseEnter={() => setHighlight(i)}
+              onClick={() => choose(o)}
+              className={`w-full text-left px-3 py-1.5 text-[12px] ${
+                i === highlight ? 'bg-accent/15 text-accent' : 'text-surface-200 hover:bg-surface-800'
+              }`}
+            >
+              {o}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function NotesForm({ trade, onSaved, setupOptions = [] }) {
   const [draft, setDraft] = useState(() => ({
     entry_notes: trade.entry_notes ?? trade.notes ?? '',
     exit_notes: trade.exit_notes ?? '',
@@ -193,12 +267,11 @@ function NotesForm({ trade, onSaved }) {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-[11px] uppercase tracking-wider text-surface-400 font-semibold mb-1">Setup</label>
-          <input
-            type="text"
+          <Combobox
             value={draft.setup}
-            onChange={(e) => update('setup', e.target.value)}
-            placeholder="e.g. EP, Pullback, VCP"
-            className="w-full rounded-lg bg-surface-900 border border-surface-700/50 px-3 py-2 text-[13px] text-surface-100 focus:border-accent focus:outline-none"
+            onChange={(v) => update('setup', v)}
+            options={setupOptions}
+            placeholder="Search or type a setup…"
           />
         </div>
         <div>
@@ -339,6 +412,17 @@ export default function Review() {
   }, [allTrades])
 
   const filtered = useMemo(() => filterTrades(allTrades, filter), [allTrades, filter])
+
+  // Recycle the setup taxonomy already present in the user's trades — distinct
+  // values, most-used first — to seed the Setup combobox (no drift, no retyping).
+  const setupOptions = useMemo(() => {
+    const counts = new Map()
+    for (const t of allTrades) {
+      const s = (t.setup || '').trim()
+      if (s) counts.set(s, (counts.get(s) || 0) + 1)
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([s]) => s)
+  }, [allTrades])
 
   // Auto-select the first trade in the queue when the filter changes or on load.
   useEffect(() => {
@@ -516,7 +600,7 @@ export default function Review() {
                   height={560}
                 />
                 <div className="rounded-xl bg-surface-900/60 border border-surface-700/50 p-4">
-                  <NotesForm trade={activeTrade} onSaved={handleSaved} />
+                  <NotesForm trade={activeTrade} onSaved={handleSaved} setupOptions={setupOptions} />
                 </div>
               </div>
             </>

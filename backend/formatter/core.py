@@ -25,8 +25,34 @@ RUN_DAILY_PATH = os.getenv(
 )
 
 
+def current_month_folder() -> str:
+    """MM.YYYY name for the current month, e.g. '06.2026'."""
+    return datetime.now().strftime("%m.%Y")
+
+
+def ensure_current_month_folder() -> str:
+    """Create trades/MM.YYYY for the current month if it doesn't exist yet.
+
+    Keeps the month picker honest at a month rollover: the new month's folder
+    appears (and becomes the default) before the first IB report lands in it,
+    so the daily pipeline runs against the right month instead of last month's.
+    Returns the MM.YYYY name. Best-effort — never raises into the request path.
+    """
+    name = current_month_folder()
+    try:
+        os.makedirs(os.path.join(BASE_PATH_TRADES, name), exist_ok=True)
+    except OSError:
+        pass
+    return name
+
+
 def list_available_months() -> List[str]:
-    """Return MM.YYYY folders under BASE_PATH_TRADES, newest first."""
+    """Return MM.YYYY folders under BASE_PATH_TRADES, newest first.
+
+    Always guarantees the current month is present (creating its folder if
+    needed) so the UI can default to it even on the 1st of the month.
+    """
+    ensure_current_month_folder()
     months = []
     if not os.path.isdir(BASE_PATH_TRADES):
         return months

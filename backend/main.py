@@ -3,6 +3,7 @@
 import os
 import json
 import math
+import re
 import threading
 from datetime import datetime, timedelta
 import pandas as pd
@@ -86,6 +87,9 @@ app.include_router(movers_router)
 
 from review_notes_router import router as review_notes_router, merge_review_notes_into_trades
 app.include_router(review_notes_router)
+
+from wealthsimple_router import router as wealthsimple_router
+app.include_router(wealthsimple_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -395,6 +399,65 @@ def get_file_status():
         raise HTTPException(status_code=404, detail="Default trades file not found")
 
 
+_ARITH_RE = re.compile(r'^[0-9eE+\-*/().\s]+$')
+
+# Numeric columns whose cells can hold partial-fill weighted-average formulas
+# (e.g. a scale-out exit written as =((100*49.401)+(125*54.61))/225). pandas
+# reads those formula cells as NaN, which silently drops the trade from the
+# analysis — so we evaluate the literal arithmetic on read.
+_FORMULA_NUMERIC_COLS = {
+    'Qty', 'Entry Price', 'Exit Qty', 'Exit Price', 'Stop Price', 'Target Price',
+}
+
+
+def _eval_arith_formula(expr):
+    """Safely evaluate a pure-arithmetic Excel formula like '=18+2' or
+    '=((132.2*18)+(2*108.88))/20'. Returns a float, or None if the string
+    isn't a self-contained arithmetic expression (e.g. it references cells)."""
+    if not isinstance(expr, str) or not expr.startswith('='):
+        return None
+    s = expr[1:].replace(',', '').strip()
+    if not s or not _ARITH_RE.match(s):
+        return None
+    try:
+        return float(eval(s, {"__builtins__": {}}, {}))  # noqa: S307 - regex-guarded, no names
+    except Exception:
+        return None
+
+
+def read_trades_excel(source):
+    """Read a trades workbook into a DataFrame, evaluating literal-arithmetic
+    formula cells that pandas returns as NaN. Without this, every multi-fill
+    (scale-out) exit — stored by the formatter as a weighted-average formula —
+    is dropped from the analytics. Falls back to a plain read on any error."""
+    df = pd.read_excel(source)
+    try:
+        from openpyxl import load_workbook
+        if hasattr(source, 'seek'):
+            source.seek(0)
+        wb = load_workbook(source, data_only=False, read_only=True)
+        ws = wb['Trades'] if 'Trades' in wb.sheetnames else wb.active
+        col_pos = {}
+        for ri, row in enumerate(ws.iter_rows(values_only=True)):
+            if ri == 0:
+                for i, name in enumerate(row):
+                    if name in _FORMULA_NUMERIC_COLS and name in df.columns:
+                        col_pos[name] = (i, df.columns.get_loc(name))
+                continue
+            dfi = ri - 1
+            if dfi >= len(df):
+                break
+            for name, (xi, di) in col_pos.items():
+                if pd.isna(df.iat[dfi, di]):
+                    val = _eval_arith_formula(row[xi] if xi < len(row) else None)
+                    if val is not None:
+                        df.iat[dfi, di] = val
+        wb.close()
+    except Exception:
+        pass
+    return df
+
+
 @app.get("/api/trading-analysis/load-default")
 def load_default_trades(force: int = 0):
     """Load trades from the default file path. Uses in-memory cache if file
@@ -420,7 +483,7 @@ def load_default_trades(force: int = 0):
             merged_trades = merge_review_notes_into_trades([dict(t) for t in cached["trades"]])
             return {**cached, "trades": merged_trades, "from_cache": True}
 
-        df = pd.read_excel(default_path)
+        df = read_trades_excel(default_path)
 
         # Clean up dataframe - remove unnamed columns
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
@@ -479,7 +542,7 @@ async def upload_trade_data(file: UploadFile = File(...)):
         if file.filename.endswith('.csv'):
             df = pd.read_csv(io.BytesIO(contents))
         elif file.filename.endswith(('.xlsx', '.xls')):
-            df = pd.read_excel(io.BytesIO(contents))
+            df = read_trades_excel(io.BytesIO(contents))
         else:
             raise HTTPException(status_code=400, detail="Unsupported file format. Please upload CSV or Excel file.")
 
@@ -693,19 +756,31 @@ def normalize_trade_data(df):
     # Convert to list of dicts, handling NaN values
     trades = df_filtered.to_dict('records')
 
-    # Clean up NaN values and convert dates to ISO strings
+    # Clean up NaN values and convert dates to ISO strings.
+    #
+    # NOTE: a missing value comes through as NaN, which is a *float* — so a
+    # naive `isinstance(value, (float, int))` check treats EVERY missing field
+    # (including text columns) as numeric and sets it to 0. That made empty
+    # setup/grade/etc. render as a stray "0" in the UI (e.g. "BRAI0",
+    # "-14.36%0"). Classify columns by name instead.
+    _DATE_COLS = {'entry_date', 'exit_date', 'entry_time', 'exit_time'}
+    _NULL_NUM_COLS = {'stop_price', 'target_price', 'conviction'}
+    _STRING_COLS = {
+        'symbol', 'side', 'setup', 'entry_notes', 'notes',
+        'instrument_type', 'emotion', 'grade', 'market_cap',
+    }
     for trade in trades:
         for key, value in trade.items():
             if pd.isna(value):
-                if key in ['entry_date', 'exit_date', 'entry_time', 'exit_time']:
+                if key in _DATE_COLS:
                     trade[key] = None
-                elif key in ['stop_price', 'target_price', 'conviction']:
+                elif key in _NULL_NUM_COLS:
                     trade[key] = None
-                elif isinstance(value, (float, int)):
-                    trade[key] = 0
-                else:
+                elif key in _STRING_COLS:
                     trade[key] = ''
-            elif key in ['entry_date', 'exit_date'] and hasattr(value, 'isoformat'):
+                else:
+                    trade[key] = 0
+            elif key in ('entry_date', 'exit_date') and hasattr(value, 'isoformat'):
                 trade[key] = value.isoformat()
 
     return trades
@@ -1718,6 +1793,215 @@ def get_calendar_heatmap(request: TradeDataRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating calendar heatmap: {str(e)}")
+
+
+@app.post("/api/trading-analysis/edge-insights")
+def get_edge_insights(request: TradeDataRequest):
+    """Synthesize actionable 'where is my edge' insights from the trade log:
+    performance by hold-duration, position-size, day-of-week and entry-time,
+    after-loss (revenge) behavior, and best/worst setup — plus a ranked list of
+    plain-English findings derived from those breakdowns."""
+    trades = request.trades
+    if not trades:
+        raise HTTPException(status_code=400, detail="No trade data provided")
+
+    df = pd.DataFrame(trades)
+    df['pnl'] = pd.to_numeric(df.get('pnl'), errors='coerce').fillna(0.0)
+    df['quantity'] = pd.to_numeric(df.get('quantity'), errors='coerce').fillna(0.0)
+    df['entry_price'] = pd.to_numeric(df.get('entry_price'), errors='coerce').fillna(0.0)
+    df['_entry'] = pd.to_datetime(df.get('entry_date'), errors='coerce')
+    df['_exit'] = pd.to_datetime(df.get('exit_date'), errors='coerce')
+
+    def _summ(group: pd.DataFrame) -> dict:
+        n = len(group)
+        if n == 0:
+            return {"count": 0, "win_rate": 0, "avg_pnl": 0, "total_pnl": 0}
+        wins = int((group['pnl'] > 0).sum())
+        return {
+            "count": n,
+            "win_rate": round(wins / n * 100, 1),
+            "avg_pnl": round(float(group['pnl'].mean()), 2),
+            "total_pnl": round(float(group['pnl'].sum()), 2),
+        }
+
+    MIN_N = 4  # don't draw conclusions from tiny samples
+
+    # ── Hold-duration buckets ───────────────────────────────────────────────
+    if 'duration_days' in df.columns:
+        dur = pd.to_numeric(df['duration_days'], errors='coerce')
+    else:
+        dur = (df['_exit'] - df['_entry']).dt.days
+    df['_dur'] = dur.fillna(0).clip(lower=0)
+
+    def _dur_bucket(d):
+        if d <= 0: return '0 · Intraday'
+        if d <= 2: return '1 · 1–2 days'
+        if d <= 5: return '2 · 3–5 days'
+        if d <= 10: return '3 · 6–10 days'
+        return '4 · 11+ days'
+    df['_durb'] = df['_dur'].apply(_dur_bucket)
+    hold = []
+    for label in ['0 · Intraday', '1 · 1–2 days', '2 · 3–5 days', '3 · 6–10 days', '4 · 11+ days']:
+        g = df[df['_durb'] == label]
+        if len(g):
+            s = _summ(g); s['bucket'] = label.split(' · ')[1]; hold.append(s)
+
+    # ── Position-size buckets (quartiles of $ exposure) ─────────────────────
+    df['_size'] = (df['quantity'].abs() * df['entry_price'].abs())
+    sized = df[df['_size'] > 0]
+    position_size = []
+    if len(sized) >= 4:
+        try:
+            df['_sizeq'] = pd.qcut(sized['_size'].rank(method='first'), 4, labels=['Q1','Q2','Q3','Q4'])
+        except Exception:
+            df['_sizeq'] = None
+        for q, name in [('Q1','Smallest 25%'), ('Q2','Small–mid'), ('Q3','Mid–large'), ('Q4','Largest 25%')]:
+            g = sized[df.loc[sized.index, '_sizeq'] == q]
+            if len(g):
+                s = _summ(g)
+                s['bucket'] = name
+                s['avg_size'] = round(float(g['_size'].mean()), 0)
+                position_size.append(s)
+
+    # ── Day of week (by exit/realization date) ──────────────────────────────
+    df['_day'] = df['_exit'].fillna(df['_entry']).dt.day_name()
+    day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+    by_dow = []
+    for d in day_order:
+        g = df[df['_day'] == d]
+        if len(g):
+            s = _summ(g); s['day'] = d; by_dow.append(s)
+
+    # ── Entry-time-of-day buckets ───────────────────────────────────────────
+    def _time_bucket(t):
+        if not isinstance(t, str):
+            return None
+        m = pd.Series([t]).str.extract(r'(\d{1,2}):(\d{2})')
+        try:
+            hh = int(m.iloc[0, 0]); mm = int(m.iloc[0, 1])
+        except Exception:
+            return None
+        mins = hh * 60 + mm - 570  # minutes from 9:30 open
+        if mins < 0: return '0 · Pre-market'
+        if mins <= 30: return '1 · Open (9:30–10:00)'
+        if mins <= 120: return '2 · Morning (10:00–11:30)'
+        if mins <= 270: return '3 · Midday (11:30–2:00)'
+        if mins <= 390: return '4 · Power hour (2:00–4:00)'
+        return '5 · After-hours'
+    by_entry_time = []
+    if 'entry_time' in df.columns:
+        df['_tb'] = df['entry_time'].apply(_time_bucket)
+        for label in ['0 · Pre-market', '1 · Open (9:30–10:00)', '2 · Morning (10:00–11:30)',
+                      '3 · Midday (11:30–2:00)', '4 · Power hour (2:00–4:00)', '5 · After-hours']:
+            g = df[df['_tb'] == label]
+            if len(g):
+                s = _summ(g); s['bucket'] = label.split(' · ')[1]; by_entry_time.append(s)
+
+    # ── After-loss (revenge) behavior ───────────────────────────────────────
+    ordered = df.sort_values('_entry')
+    pnls = ordered['pnl'].tolist()
+    after_loss = [pnls[i] for i in range(1, len(pnls)) if pnls[i - 1] < 0]
+    overall_avg = round(float(df['pnl'].mean()), 2)
+    revenge = None
+    if len(after_loss) >= MIN_N:
+        al_avg = round(sum(after_loss) / len(after_loss), 2)
+        al_win = round(len([p for p in after_loss if p > 0]) / len(after_loss) * 100, 1)
+        revenge = {"count": len(after_loss), "avg_pnl": al_avg, "win_rate": al_win,
+                   "overall_avg_pnl": overall_avg}
+
+    # ── Best/worst setup ────────────────────────────────────────────────────
+    setups = []
+    if 'setup' in df.columns:
+        for name, g in df[df['setup'].apply(lambda x: isinstance(x, str) and x.strip() != '')].groupby('setup'):
+            if len(g) >= MIN_N:
+                s = _summ(g); s['setup'] = name; setups.append(s)
+
+    # ── Synthesize plain-English findings, ranked by $ impact ───────────────
+    findings = []
+
+    def best_worst(rows, key='avg_pnl', label_key='bucket', min_n=MIN_N):
+        elig = [r for r in rows if r['count'] >= min_n]
+        if len(elig) < 2:
+            return None, None
+        return max(elig, key=lambda r: r[key]), min(elig, key=lambda r: r[key])
+
+    bd, wd = best_worst(by_dow, label_key='day')
+    if bd and wd and bd['day'] != wd['day']:
+        findings.append({"severity": "good", "title": f"{bd['day']} is your strongest day",
+                         "detail": f"{bd['win_rate']}% win · {_money(bd['avg_pnl'])}/trade avg · {_money(bd['total_pnl'])} total",
+                         "impact": abs(bd['total_pnl'])})
+        if wd['avg_pnl'] < 0:
+            findings.append({"severity": "bad", "title": f"{wd['day']} drags you down",
+                             "detail": f"{wd['win_rate']}% win · {_money(wd['avg_pnl'])}/trade avg · {_money(wd['total_pnl'])} total — consider trading lighter",
+                             "impact": abs(wd['total_pnl'])})
+
+    bt, wt = best_worst(by_entry_time)
+    if bt and wt and bt['bucket'] != wt['bucket']:
+        findings.append({"severity": "good", "title": f"You enter best during {bt['bucket']}",
+                         "detail": f"{bt['win_rate']}% win · {_money(bt['avg_pnl'])}/trade avg",
+                         "impact": abs(bt['total_pnl'])})
+        if wt['avg_pnl'] < 0:
+            findings.append({"severity": "bad", "title": f"Entries during {wt['bucket']} lose money",
+                             "detail": f"{wt['win_rate']}% win · {_money(wt['avg_pnl'])}/trade avg",
+                             "impact": abs(wt['total_pnl'])})
+
+    bh, wh = best_worst(hold)
+    if bh and wh and bh['bucket'] != wh['bucket']:
+        findings.append({"severity": "info", "title": f"{bh['bucket']} holds are your sweet spot",
+                         "detail": f"{_money(bh['avg_pnl'])}/trade vs {_money(wh['avg_pnl'])} for {wh['bucket']}",
+                         "impact": abs(bh['total_pnl'])})
+
+    if len(position_size) >= 2:
+        largest = position_size[-1]; smallest = position_size[0]
+        if largest['count'] >= MIN_N and smallest['count'] >= MIN_N:
+            if largest['avg_pnl'] < smallest['avg_pnl'] and largest['avg_pnl'] < 0:
+                findings.append({"severity": "bad", "title": "Your biggest positions underperform",
+                                 "detail": f"Largest-25% bets avg {_money(largest['avg_pnl'])}/trade vs {_money(smallest['avg_pnl'])} on your smallest — size discipline to review",
+                                 "impact": abs(largest['total_pnl'])})
+            elif largest['avg_pnl'] > smallest['avg_pnl']:
+                findings.append({"severity": "good", "title": "You size up on your winners",
+                                 "detail": f"Largest-25% bets avg {_money(largest['avg_pnl'])}/trade vs {_money(smallest['avg_pnl'])} on the smallest — good conviction sizing",
+                                 "impact": abs(largest['total_pnl'])})
+
+    if revenge and revenge['avg_pnl'] < overall_avg - 1e-9 and revenge['avg_pnl'] < 0:
+        findings.append({"severity": "bad", "title": "Possible revenge trading",
+                         "detail": f"After a loss your next trade averages {_money(revenge['avg_pnl'])} ({revenge['win_rate']}% win) vs {_money(overall_avg)} overall — consider a reset rule",
+                         "impact": abs(revenge['avg_pnl']) * revenge['count']})
+
+    if setups:
+        bs = max(setups, key=lambda r: r['total_pnl'])
+        ws = min(setups, key=lambda r: r['total_pnl'])
+        if bs['total_pnl'] > 0:
+            findings.append({"severity": "good", "title": f"Best setup: {bs['setup']}",
+                             "detail": f"{bs['count']} trades · {bs['win_rate']}% win · {_money(bs['total_pnl'])} total",
+                             "impact": abs(bs['total_pnl'])})
+        if ws['total_pnl'] < 0 and ws['setup'] != bs['setup']:
+            findings.append({"severity": "bad", "title": f"Worst setup: {ws['setup']}",
+                             "detail": f"{ws['count']} trades · {ws['win_rate']}% win · {_money(ws['total_pnl'])} total",
+                             "impact": abs(ws['total_pnl'])})
+
+    findings.sort(key=lambda f: f.get('impact', 0), reverse=True)
+
+    return {
+        "hold_duration": hold,
+        "position_size": position_size,
+        "by_dow": by_dow,
+        "by_entry_time": by_entry_time,
+        "setups": sorted(setups, key=lambda r: r['total_pnl'], reverse=True),
+        "revenge": revenge,
+        "overall_avg_pnl": overall_avg,
+        "findings": findings,
+        "total_trades": len(df),
+    }
+
+
+def _money(v) -> str:
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return "$0"
+    sign = "-" if v < 0 else ""
+    return f"{sign}${abs(v):,.0f}" if abs(v) >= 100 else f"{sign}${abs(v):,.2f}"
 
 
 def calculate_trade_metrics(trades):

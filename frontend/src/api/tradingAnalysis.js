@@ -460,3 +460,16 @@ export function resetFormatter({ onMessage, onDone, onError, onMode }) {
 
   return controller
 }
+
+export async function getEdgeInsights(tradeData) {
+  const res = await fetch(`${API_BASE}/trading-analysis/edge-insights`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ trades: tradeData }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to get edge insights')
+  }
+  return res.json()
+}

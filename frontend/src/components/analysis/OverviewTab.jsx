@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   LineChart, Line, BarChart, Bar, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -5,12 +6,16 @@ import {
 import { CustomTooltip } from './shared';
 import PnLCalendar from '../PnLCalendar';
 import SetupComparison from './SetupComparison';
+import DayTradesModal from './DayTradesModal';
 
 export default function OverviewTab({
   metrics, metricsCards, statistics, streakData, setupStats,
   marketCapData, timePerformance, rMultipleData, benchmarkData,
   cumulativePnLData, monthlyPnLData, trades, calendarData,
 }) {
+  // Day clicked in the P&L calendar → show that day's trade summary.
+  const [selectedDay, setSelectedDay] = useState(null);
+
   // Build key insights
   const strengths = [];
   const warnings = [];
@@ -112,8 +117,20 @@ export default function OverviewTab({
 
   return (
     <div className="space-y-8">
-      {/* P&L Calendar */}
-      <PnLCalendar calendarData={calendarData} loading={!calendarData} />
+      {/* P&L Calendar — click a day or the weekly Total for a trade summary */}
+      <PnLCalendar
+        calendarData={calendarData}
+        loading={!calendarData}
+        onDayClick={(date) => setSelectedDay({ dates: [date] })}
+        onWeekClick={(dates) => setSelectedDay({ dates })}
+      />
+      {selectedDay && (
+        <DayTradesModal
+          dates={selectedDay.dates}
+          trades={trades}
+          onClose={() => setSelectedDay(null)}
+        />
+      )}
 
       {/* Performance Metrics — staggered card entrance */}
       {metrics && (

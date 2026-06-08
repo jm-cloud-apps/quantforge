@@ -10,15 +10,24 @@ from fastapi.responses import StreamingResponse
 
 import os
 
-from .core import list_available_months, SCRIPT_PATH, RUN_DAILY_PATH
+from .core import (
+    list_available_months,
+    current_month_folder,
+    SCRIPT_PATH,
+    RUN_DAILY_PATH,
+)
 
 router = APIRouter(prefix="/api/formatter", tags=["formatter"])
 
 
 @router.get("/months")
 async def get_available_months():
-    """Return available MM.YYYY month folders, newest first."""
-    return {"months": list_available_months()}
+    """Return available MM.YYYY month folders, newest first.
+
+    The current month's folder is created on demand (see list_available_months)
+    so it's always present; `current` lets the UI default to it.
+    """
+    return {"months": list_available_months(), "current": current_month_folder()}
 
 
 @router.post("/run/{date_str}")

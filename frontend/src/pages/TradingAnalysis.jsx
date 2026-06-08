@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { getFileStatus, loadDefaultTrades, uploadTradeData, analyzeTradeData, getTradeStatistics, getSetupStatistics, getSymbolStatistics, getDrawdownAnalysis, getTimePerformance, getRollingPerformance, getAdvancedMetrics, getEntryTimingAnalysis, getStreakDetection, getMarketCapPerformance, getBenchmarkComparison, getRMultipleAnalysis, getEmotionPerformance } from '../api/tradingAnalysis';
+import { getFileStatus, loadDefaultTrades, uploadTradeData, analyzeTradeData, getTradeStatistics, getSetupStatistics, getSymbolStatistics, getDrawdownAnalysis, getTimePerformance, getRollingPerformance, getAdvancedMetrics, getEntryTimingAnalysis, getStreakDetection, getMarketCapPerformance, getBenchmarkComparison, getRMultipleAnalysis, getEmotionPerformance, getEdgeInsights } from '../api/tradingAnalysis';
 import { useToast } from '../components/Toast';
 
 import TabNavigation from '../components/analysis/TabNavigation';
 import OverviewTab from '../components/analysis/OverviewTab';
+import EdgeTab from '../components/analysis/EdgeTab';
 import PerformanceTab from '../components/analysis/PerformanceTab';
 import RiskTab from '../components/analysis/RiskTab';
 import TimingTab from '../components/analysis/TimingTab';
@@ -14,7 +15,7 @@ import TradeFormatterModal from '../components/analysis/TradeFormatterModal';
 const INPUT_STYLE = 'w-full rounded-lg bg-surface-800 border border-surface-600/40 px-4 py-2.5 text-sm text-surface-100 placeholder-surface-500 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30 transition-colors';
 
 // Cache version — bump to force localStorage invalidation after logic changes
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 6;
 
 // Module-level cache — survives React Router unmount/remount (no loading flash)
 let _moduleCache = null;
@@ -88,6 +89,7 @@ const TradingAnalysis = () => {
   const [benchmarkData, setBenchmarkData] = useState(null);
   const [rMultipleData, setRMultipleData] = useState(null);
   const [emotionData, setEmotionData] = useState(null);
+  const [edgeInsights, setEdgeInsights] = useState(null);
   const [calendarData, setCalendarData] = useState(null);
   const [loading, setLoading] = useState(!_moduleCache);
   const [loadingStep, setLoadingStep] = useState({ current: 0, total: 17, label: 'Loading trades file...' });
@@ -144,6 +146,7 @@ const TradingAnalysis = () => {
       setBenchmarkData(_moduleCache.benchmarkData);
       setRMultipleData(_moduleCache.rMultipleData);
       setEmotionData(_moduleCache.emotionData);
+      setEdgeInsights(_moduleCache.edgeInsights);
       setCalendarData(_moduleCache.calendarData || buildCalendarData(_moduleCache.trades));
       setFromCache(true);
       setLoading(false);
@@ -153,11 +156,13 @@ const TradingAnalysis = () => {
     setLoading(true);
     setError(null);
     setFromCache(false);
-    setLoadingStep({ current: 0, total: 17, label: 'Checking for updates...' });
+    let fileName = 'Trades.xlsx';
+    setLoadingStep({ current: 0, total: 17, label: 'Checking for updates…' });
     try {
       if (!forceRefresh) {
         try {
           const status = await getFileStatus();
+          if (status?.path) fileName = status.path.split('/').pop();
           const cachedMtime = localStorage.getItem('trading_analysis_mtime');
           const cachedData = localStorage.getItem('trading_analysis_cache');
           const cachedVersion = localStorage.getItem('trading_analysis_version');
@@ -181,6 +186,7 @@ const TradingAnalysis = () => {
             setBenchmarkData(cached.benchmarkData);
             setRMultipleData(cached.rMultipleData);
             setEmotionData(cached.emotionData);
+            setEdgeInsights(cached.edgeInsights);
             const calData = cached.calendarData || buildCalendarData(cached.trades);
             setCalendarData(calData);
             cached.calendarData = calData;
@@ -194,7 +200,7 @@ const TradingAnalysis = () => {
         }
       }
 
-      setLoadingStep({ current: 1, total: 17, label: 'Loading trades file...' });
+      setLoadingStep({ current: 1, total: 17, label: `Loading ${fileName}…` });
       const result = await loadDefaultTrades();
       setAllTrades(result.trades);
       setTrades(result.trades);
@@ -285,6 +291,11 @@ const TradingAnalysis = () => {
       const emotionPerf = await getEmotionPerformance(tradesToAnalyze);
       setEmotionData(emotionPerf);
       cache.emotionData = emotionPerf;
+
+      setLoadingStep({ current: 16, total, label: 'Edge insights...' });
+      const edge = await getEdgeInsights(tradesToAnalyze);
+      setEdgeInsights(edge);
+      cache.edgeInsights = edge;
 
     } catch (err) {
       console.error('Error updating analytics:', err);
@@ -684,6 +695,9 @@ const TradingAnalysis = () => {
               trades={trades}
               calendarData={calendarData}
             />
+          )}
+          {activeTab === 'edge' && (
+            <EdgeTab edgeInsights={edgeInsights} />
           )}
           {activeTab === 'performance' && (
             <PerformanceTab

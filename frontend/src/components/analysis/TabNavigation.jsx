@@ -2,6 +2,7 @@ import { useRef, useState, useEffect, useCallback } from 'react';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
+  { id: 'edge', label: 'Edge' },
   { id: 'performance', label: 'Performance' },
   { id: 'risk', label: 'Risk' },
   { id: 'timing', label: 'Timing' },

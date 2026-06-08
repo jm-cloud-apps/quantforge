@@ -65,26 +65,36 @@ function nearestBarTime(bars, target) {
   return best
 }
 
-// Decide resolution + fetch window from the hold duration.
-function planFetch(entryDate, exitDate) {
+// Selectable resolutions. "Auto" picks one from the hold duration; the rest
+// force a specific timeframe (e.g. switch a 30-min default to a Daily chart).
+const RES_OPTIONS = [
+  { key: 'auto', label: 'Auto' },
+  { key: '1m', label: '1m' },
+  { key: '5m', label: '5m' },
+  { key: '30m', label: '30m' },
+  { key: '1D', label: '1D' },
+]
+
+// Hold-duration → default resolution key.
+function autoResolution(entryDate, exitDate) {
   const e = new Date(`${datePart(entryDate)}T00:00:00Z`)
   const x = new Date(`${datePart(exitDate)}T00:00:00Z`)
   const holdDays = Math.max(0, Math.round((x - e) / 86400000))
+  if (holdDays <= 1) return '1m'
+  if (holdDays <= 4) return '5m'
+  if (holdDays <= 20) return '30m'
+  return '1D'
+}
 
-  if (holdDays <= 1) {
-    return { multiplier: 1, timespan: 'minute', intraday: true,
-             frm: addDays(entryDate, -1), to: addDays(exitDate, 1) }
+// Resolution key → fetch plan (multiplier/timespan + window around the trade).
+function planForResolution(res, entryDate, exitDate) {
+  if (res === '1D') {
+    return { multiplier: 1, timespan: 'day', intraday: false,
+             frm: addDays(entryDate, -25), to: addDays(exitDate, 12) }
   }
-  if (holdDays <= 4) {
-    return { multiplier: 5, timespan: 'minute', intraday: true,
-             frm: addDays(entryDate, -1), to: addDays(exitDate, 1) }
-  }
-  if (holdDays <= 20) {
-    return { multiplier: 30, timespan: 'minute', intraday: true,
-             frm: addDays(entryDate, -1), to: addDays(exitDate, 1) }
-  }
-  return { multiplier: 1, timespan: 'day', intraday: false,
-           frm: addDays(entryDate, -25), to: addDays(exitDate, 12) }
+  const mult = res === '1m' ? 1 : res === '5m' ? 5 : 30
+  return { multiplier: mult, timespan: 'minute', intraday: true,
+           frm: addDays(entryDate, -1), to: addDays(exitDate, 1) }
 }
 
 const RESOLUTION_LABEL = (p) =>
@@ -98,11 +108,19 @@ export default function LightweightTradeChart({
   const chartRef = useRef(null)
   const [status, setStatus] = useState('loading') // loading | ready | empty | error
   const [resLabel, setResLabel] = useState('')
+  // 'auto' = pick from hold duration; otherwise a forced timeframe.
+  const [resOverride, setResOverride] = useState('auto')
+
+  // Reset to Auto whenever the active trade changes.
+  useEffect(() => { setResOverride('auto') }, [symbol, entryDate, exitDate])
 
   useEffect(() => {
     if (!symbol || !entryDate || !containerRef.current) return
     let disposed = false
-    const plan = planFetch(entryDate, exitDate || entryDate)
+    const effRes = resOverride === 'auto'
+      ? autoResolution(entryDate, exitDate || entryDate)
+      : resOverride
+    const plan = planForResolution(effRes, entryDate, exitDate || entryDate)
     setResLabel(RESOLUTION_LABEL(plan))
     setStatus('loading')
 
@@ -226,7 +244,7 @@ export default function LightweightTradeChart({
       disposed = true
       if (chartRef.current) { chartRef.current.remove(); chartRef.current = null }
     }
-  }, [symbol, entryDate, entryTime, exitDate, exitTime, entryPrice, exitPrice])
+  }, [symbol, entryDate, entryTime, exitDate, exitTime, entryPrice, exitPrice, resOverride])
 
   const fmtDT = (d, t) => {
     const dp = datePart(d)
@@ -246,7 +264,24 @@ export default function LightweightTradeChart({
           <span className="text-danger">▼ Exit {fmtDT(exitDate, exitTime)}</span>
         </div>
         <div className="flex items-center gap-2 text-surface-500">
-          {resLabel && <span className="px-1.5 py-0.5 rounded bg-surface-800/60 text-surface-400">{resLabel}</span>}
+          <div className="flex items-center gap-0.5 rounded-md bg-surface-900/70 border border-surface-700/40 p-0.5">
+            {RES_OPTIONS.map((o) => {
+              const active = resOverride === o.key
+              return (
+                <button
+                  key={o.key}
+                  type="button"
+                  onClick={() => setResOverride(o.key)}
+                  title={o.key === 'auto' ? `Auto${resLabel ? ` · currently ${resLabel}` : ''}` : `Force ${o.label} bars`}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                    active ? 'bg-accent/20 text-accent' : 'text-surface-400 hover:text-surface-200'
+                  }`}
+                >
+                  {o.label}
+                </button>
+              )
+            })}
+          </div>
           <a
             href={`https://www.tradingview.com/chart/?symbol=${symbol?.toUpperCase()}`}
             target="_blank" rel="noopener noreferrer"
