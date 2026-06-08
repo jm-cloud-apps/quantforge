@@ -1,4 +1,5 @@
 import { Fragment, useState, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
 const MONTH_NAMES = [
@@ -20,10 +21,12 @@ function todayStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export default function PnLCalendar({ calendarData, onDayClick, loading }) {
+export default function PnLCalendar({ calendarData, onDayClick, onWeekClick, loading }) {
   const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth())
   const [currentYear, setCurrentYear] = useState(() => new Date().getFullYear())
-  const [hoveredCell, setHoveredCell] = useState(null)
+  // Hover tooltip rendered via a portal (see below) so it can't be clipped by
+  // the grid's overflow-hidden or hidden behind neighbouring cells.
+  const [hover, setHover] = useState(null) // { rect, date, pnl, trades, win_rate, isProfit, isLoss }
 
   const today = todayStr()
 
@@ -222,14 +225,17 @@ export default function PnLCalendar({ calendarData, onDayClick, loading }) {
               const dimmed = cell.isAdjacentMonth
               const isToday = cell.date === today
               const cellId = `${wi}-${ci}`
-              const isHovered = hoveredCell === cellId
 
               return (
                 <div
                   key={cellId}
                   onClick={() => hasData && !dimmed && onDayClick?.(cell.date, cell.data)}
-                  onMouseEnter={() => setHoveredCell(cellId)}
-                  onMouseLeave={() => setHoveredCell(null)}
+                  onMouseEnter={(e) => hasData && !dimmed && setHover({
+                    rect: e.currentTarget.getBoundingClientRect(),
+                    date: cell.date, pnl, trades,
+                    win_rate: cell.data?.win_rate, isProfit, isLoss,
+                  })}
+                  onMouseLeave={() => setHover(null)}
                   className={`
                     relative min-h-[72px] p-2.5 transition-all duration-150
                     ${hasData && !dimmed ? 'cursor-pointer hover:scale-[1.02] hover:z-10 hover:shadow-lg' : 'cursor-default'}
@@ -260,41 +266,32 @@ export default function PnLCalendar({ calendarData, onDayClick, loading }) {
                     </>
                   )}
 
-                  {/* Hover tooltip */}
-                  {isHovered && hasData && !dimmed && (
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none animate-scale-in">
-                      <div className="bg-surface-800 border border-surface-700/60 rounded-xl px-4 py-3 shadow-xl backdrop-blur-xl min-w-[160px]">
-                        <p className="text-[11px] text-surface-400 font-medium mb-1.5">
-                          {new Date(cell.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
-                        </p>
-                        <p className={`text-base font-bold font-mono ${isProfit ? 'text-success' : isLoss ? 'text-danger' : 'text-surface-300'}`}>
-                          {isProfit ? '+' : ''}{fmt(pnl)}
-                        </p>
-                        <div className="flex items-center gap-3 mt-1.5 text-[11px] text-surface-400">
-                          <span>{trades} trade{trades !== 1 ? 's' : ''}</span>
-                          {cell.data.win_rate != null && <span>{cell.data.win_rate}% win</span>}
-                        </div>
-                        {/* Tooltip arrow */}
-                        <div className="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 bg-surface-800 border-r border-b border-surface-700/60 transform rotate-45 -mt-1" />
-                      </div>
-                    </div>
-                  )}
                 </div>
               )
             })}
 
-            {/* Weekly total cell */}
-            <div className={`min-h-[72px] p-2.5 flex flex-col justify-center ${
-              weeklySummaries[wi].pnl > 0 ? 'bg-success/[0.05]' : weeklySummaries[wi].pnl < 0 ? 'bg-danger/[0.05]' : 'bg-surface-900/90'
-            }`}>
-              <div className="text-[10px] text-surface-500 font-medium mb-1">Week {wi + 1}</div>
-              <div className={`text-xs font-semibold font-mono ${weeklySummaries[wi].pnl > 0 ? 'text-success' : weeklySummaries[wi].pnl < 0 ? 'text-danger' : 'text-surface-500'}`}>
-                {weeklySummaries[wi].pnl > 0 ? '+' : ''}{fmt(weeklySummaries[wi].pnl)}
-              </div>
-              <div className="text-[10px] text-surface-500 mt-0.5">
-                {weeklySummaries[wi].trades} trade{weeklySummaries[wi].trades !== 1 ? 's' : ''}
-              </div>
-            </div>
+            {/* Weekly total cell — click for the week's trade summary */}
+            {(() => {
+              const wk = weeklySummaries[wi]
+              const weekDates = week.filter((c) => !c.isAdjacentMonth).map((c) => c.date)
+              const clickable = wk.trades > 0
+              return (
+                <div
+                  onClick={() => clickable && onWeekClick?.(weekDates)}
+                  className={`min-h-[72px] p-2.5 flex flex-col justify-center transition-colors ${
+                    wk.pnl > 0 ? 'bg-success/[0.05]' : wk.pnl < 0 ? 'bg-danger/[0.05]' : 'bg-surface-900/90'
+                  } ${clickable ? 'cursor-pointer hover:bg-surface-800/60' : ''}`}
+                >
+                  <div className="text-[10px] text-surface-500 font-medium mb-1">Week {wi + 1}</div>
+                  <div className={`text-xs font-semibold font-mono ${wk.pnl > 0 ? 'text-success' : wk.pnl < 0 ? 'text-danger' : 'text-surface-500'}`}>
+                    {wk.pnl > 0 ? '+' : ''}{fmt(wk.pnl)}
+                  </div>
+                  <div className="text-[10px] text-surface-500 mt-0.5">
+                    {wk.trades} trade{wk.trades !== 1 ? 's' : ''}
+                  </div>
+                </div>
+              )
+            })()}
           </Fragment>
         ))}
       </div>
@@ -326,6 +323,38 @@ export default function PnLCalendar({ calendarData, onDayClick, loading }) {
           </div>
         </div>
       )}
+
+      {/* Hover tooltip — portaled to <body> with fixed positioning so it's
+          never clipped by the grid's overflow-hidden, and flips below the cell
+          when there isn't room above (top row). */}
+      {hover && createPortal((() => {
+        const above = hover.rect.top > 150
+        const style = {
+          position: 'fixed',
+          left: hover.rect.left + hover.rect.width / 2,
+          top: above ? hover.rect.top - 8 : hover.rect.bottom + 8,
+          transform: above ? 'translate(-50%, -100%)' : 'translate(-50%, 0)',
+          zIndex: 9999,
+          pointerEvents: 'none',
+        }
+        return (
+          <div style={style} className="animate-scale-in">
+            <div className="bg-surface-800 border border-surface-700/60 rounded-xl px-4 py-3 shadow-2xl min-w-[170px]">
+              <p className="text-[11px] text-surface-400 font-medium mb-1.5">
+                {new Date(hover.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+              </p>
+              <p className={`text-base font-bold font-mono ${hover.isProfit ? 'text-success' : hover.isLoss ? 'text-danger' : 'text-surface-300'}`}>
+                {hover.isProfit ? '+' : ''}{fmt(hover.pnl)}
+              </p>
+              <div className="flex items-center gap-3 mt-1.5 text-[11px] text-surface-400">
+                <span>{hover.trades} trade{hover.trades !== 1 ? 's' : ''}</span>
+                {hover.win_rate != null && <span>{hover.win_rate}% win</span>}
+              </div>
+              <p className="text-[10px] text-surface-500 mt-1.5">Click for trade details</p>
+            </div>
+          </div>
+        )
+      })(), document.body)}
     </div>
   )
 }

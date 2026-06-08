@@ -1,6 +1,31 @@
 import { useState, useEffect, useRef } from 'react';
 import { getFormatterMonths, runFormatter, resetFormatter, runDaily } from '../../api/tradingAnalysis';
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+// "06.2026" → "June 2026" (falls back to the raw value if it doesn't parse).
+function monthLabel(mmYYYY) {
+  const m = /^(\d{2})\.(\d{4})$/.exec(mmYYYY || '');
+  if (!m) return mmYYYY;
+  return `${MONTH_NAMES[parseInt(m[1], 10) - 1] || m[1]} ${m[2]}`;
+}
+
+// Bucket the (already newest-first) MM.YYYY list into year groups, preserving
+// order so the latest year + month sits at the top.
+function groupByYear(months) {
+  const order = [];
+  const byYear = new Map();
+  for (const m of months) {
+    const yr = (m.split('.')[1]) || '—';
+    if (!byYear.has(yr)) { byYear.set(yr, []); order.push(yr); }
+    byYear.get(yr).push(m);
+  }
+  return order.map((yr) => ({ year: yr, months: byYear.get(yr) }));
+}
+
 const TradeFormatterModal = ({ onClose, onComplete }) => {
   const [months, setMonths] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState('');
@@ -20,12 +45,15 @@ const TradeFormatterModal = ({ onClose, onComplete }) => {
     /DAY-TRADES.*\((\d+)\s+row/.test(l.text)
   );
 
-  // Load available months on mount
+  // Load available months on mount. Default to the current month (the backend
+  // ensures its folder exists) so the daily pipeline runs against today's
+  // month, not last month's — which is what caused the 05/06 mismatch.
   useEffect(() => {
     getFormatterMonths()
-      .then(({ months: m }) => {
+      .then(({ months: m, current }) => {
         setMonths(m);
-        if (m.length > 0) setSelectedMonth(m[0]);
+        const def = current && m.includes(current) ? current : (m[0] || '');
+        setSelectedMonth(def);
       })
       .catch(() => {
         setLogs((prev) => [...prev, { type: 'error', text: 'Failed to load available months' }]);
@@ -185,8 +213,12 @@ const TradeFormatterModal = ({ onClose, onComplete }) => {
             className="flex-1 rounded-lg bg-surface-800 border border-surface-600/40 px-4 py-2.5 text-sm text-surface-100 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30 transition-colors disabled:opacity-50"
           >
             {months.length === 0 && <option value="">No folders found</option>}
-            {months.map((m) => (
-              <option key={m} value={m}>{m}</option>
+            {groupByYear(months).map((g) => (
+              <optgroup key={g.year} label={g.year}>
+                {g.months.map((m) => (
+                  <option key={m} value={m}>{monthLabel(m)}</option>
+                ))}
+              </optgroup>
             ))}
           </select>
 

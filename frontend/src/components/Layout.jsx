@@ -1,6 +1,20 @@
-import { useState, useEffect, useMemo } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { useState, useEffect, useMemo, Suspense } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { loadRules, getRuleOfDay } from '../utils/tradingRules'
+
+// Content-area loader shown while a lazy page chunk downloads. Scoped to the
+// main panel so the sidebar/header stay put — only the page is "loading".
+function PageLoading() {
+  return (
+    <div className="flex flex-col items-center justify-center py-28 text-surface-500 gap-3">
+      <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+      </svg>
+      <span className="text-xs">Loading page…</span>
+    </div>
+  )
+}
 
 const icons = {
   trading: (
@@ -106,6 +120,7 @@ const navGroups = [
     label: 'Analyze',
     items: [
       { path: '/trading-analysis', label: 'Trading Analysis', icon: icons.trading },
+      { path: '/wealthsimple',    label: 'Wealthsimple',     icon: icons.journal },
       { path: '/news',            label: 'Stock Analysis',   icon: icons.stock },
       { path: '/market-monitor',  label: 'Market Monitor',   icon: icons.monitor },
       { path: '/earnings',        label: 'Earnings',         icon: icons.calendar },
@@ -140,6 +155,7 @@ const flatNavItems = navGroups.flatMap(g => g.items)
 const COLLAPSE_KEY = 'qf:sidebar:collapsed'
 
 export default function Layout() {
+  const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem(COLLAPSE_KEY) === '1' } catch { return false }
@@ -344,7 +360,14 @@ export default function Layout() {
       {/* Content area — pushed right of fixed sidebar on desktop */}
       <main className={`flex-1 min-w-0 ${collapsed ? 'lg:pl-[64px]' : 'lg:pl-[232px]'} transition-[padding] duration-200 ease-out`}>
         <div className="max-w-[1440px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-          <Outlet />
+          {/* Suspense scoped to the content panel: the sidebar/header persist
+              across navigation; only the page area shows the loader and the
+              per-route fade. */}
+          <Suspense fallback={<PageLoading />}>
+            <div key={location.pathname} className="animate-fade-in">
+              <Outlet />
+            </div>
+          </Suspense>
         </div>
       </main>
     </div>

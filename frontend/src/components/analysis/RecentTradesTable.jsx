@@ -186,7 +186,10 @@ export default function RecentTradesTable({ trades }) {
             {paginatedTrades.map((trade, index) => {
               const globalIndex = startIndex + index;
               const isExpanded = expandedRows.has(globalIndex);
-              const hasDetails = trade.setup || trade.emotion || trade.notes || trade.stop_price || trade.conviction || trade.grade;
+              // Coerce to a real boolean — these fields can be 0 (a missing
+              // value), and `{0 && <jsx/>}` would render a literal "0".
+              const hasDetails = !!(trade.setup || trade.emotion || trade.notes || trade.stop_price || trade.conviction || trade.grade);
+              const setupLabel = typeof trade.setup === 'string' ? trade.setup : '';
               return (
                 <Fragment key={globalIndex}>
                   <tr
@@ -199,8 +202,8 @@ export default function RecentTradesTable({ trades }) {
                     <td className="py-3 px-4 text-surface-100 font-mono text-sm">{trade.exit_date ? new Date(trade.exit_date).toLocaleDateString() : 'N/A'}</td>
                     <td className="py-3 px-4 font-mono text-sm font-semibold">
                       <span className="text-surface-100">{trade.symbol}</span>
-                      {trade.setup && (
-                        <span className="ml-2 text-[10px] text-surface-500 font-normal hidden lg:inline">{trade.setup.split(' - ')[0]}</span>
+                      {setupLabel && (
+                        <span className="ml-2 text-[10px] text-surface-500 font-normal hidden lg:inline">{setupLabel.split(' - ')[0]}</span>
                       )}
                     </td>
                     <td className="py-3 px-4">
