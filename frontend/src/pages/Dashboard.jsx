@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import TickerLink from '../components/TickerLink'
 import TradingViewLink from '../components/TradingViewLink'
@@ -48,9 +48,60 @@ const fmtEps = (v) => {
 const toneFor = (v) =>
   v == null ? 'text-surface-400' : v > 0 ? 'text-success' : v < 0 ? 'text-danger' : 'text-surface-300'
 
+// ─── Unified load progress ──────────────────────────────────────────────────
+//
+// Every card loads independently (so the page paints progressively), which is
+// great for perceived speed but leaves the user staring at a scatter of
+// spinners with no sense of "how much is left." This context lets each loader
+// register a labelled entry and report its loading state; a single bar near
+// the top then shows "8/13 (62%)" plus what's still in flight. It's purely
+// observational — it doesn't change how anything fetches.
+
+const LoadProgressContext = createContext(null)
+
+function LoadProgressProvider({ children }) {
+  const [items, setItems] = useState({}) // id -> { label, loading }
+
+  const report = useCallback((id, label, loading) => {
+    setItems((m) => {
+      const prev = m[id]
+      if (prev && prev.label === label && prev.loading === loading) return m // no-op
+      return { ...m, [id]: { label, loading } }
+    })
+  }, [])
+
+  const unregister = useCallback((id) => {
+    setItems((m) => {
+      if (!(id in m)) return m
+      const next = { ...m }
+      delete next[id]
+      return next
+    })
+  }, [])
+
+  return (
+    <LoadProgressContext.Provider value={{ items, report, unregister }}>
+      {children}
+    </LoadProgressContext.Provider>
+  )
+}
+
+// Register this loader with the progress bar and keep its state in sync.
+// Safe to call when there's no provider (ctx is null) — it just no-ops, so
+// cards still work if rendered outside the dashboard.
+function useProgressReport(label, loading) {
+  const ctx = useContext(LoadProgressContext)
+  const id = useId()
+  useEffect(() => {
+    ctx?.report(id, label, loading)
+  }, [ctx, id, label, loading])
+  useEffect(() => () => ctx?.unregister(id), [ctx, id])
+}
+
 // Generic async loader. Re-runs whenever `refreshKey` changes. `fetcher`
 // receives the current refreshKey so it can decide whether to force-bust.
-function useCardData(fetcher, refreshKey) {
+// `label` (optional) names this loader in the unified progress bar.
+function useCardData(fetcher, refreshKey, label) {
   const [state, setState] = useState({ data: null, loading: true, error: null })
   const fetcherRef = useRef(fetcher)
   fetcherRef.current = fetcher
@@ -65,6 +116,7 @@ function useCardData(fetcher, refreshKey) {
     return () => { alive = false }
   }, [refreshKey])
 
+  useProgressReport(label, state.loading)
   return state
 }
 
@@ -136,7 +188,7 @@ const INDEX_SYMS = ['SPY', 'QQQ', 'IWM', 'DIA']
 const INDEX_NAMES = { SPY: 'S&P 500', QQQ: 'Nasdaq 100', IWM: 'Russell 2000', DIA: 'Dow 30' }
 
 function IndexStrip({ refreshKey }) {
-  const { data, loading } = useCardData(() => refreshNewsCachePrices(INDEX_SYMS), refreshKey)
+  const { data, loading } = useCardData(() => refreshNewsCachePrices(INDEX_SYMS), refreshKey, 'Index prices')
   const prices = data?.prices || {}
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -406,7 +458,7 @@ function localDateKey(dt) {
 }
 
 function EarningsWeekCard({ refreshKey }) {
-  const { data, loading, error } = useCardData(() => getEarnings({ days: 7, force: refreshKey > 0 }), refreshKey)
+  const { data, loading, error } = useCardData(() => getEarnings({ days: 7, force: refreshKey > 0 }), refreshKey, 'Earnings (7d)')
 
   // Build a forward strip starting at "today" (the backend's window now
   // includes a few past days for beat/miss results, but the dashboard card
@@ -547,7 +599,7 @@ function WatchlistPulseCard({ refreshKey }) {
     if (!symbols.length) return { lists, symbols: [], prices: {} }
     const { prices } = await refreshNewsCachePrices(symbols.slice(0, 60))
     return { lists, symbols, prices: prices || {} }
-  }, refreshKey)
+  }, refreshKey, 'Watchlist pulse')
 
   const movers = useMemo(() => {
     if (!data?.symbols?.length) return []
@@ -616,7 +668,7 @@ function MoverRow({ m }) {
 }
 
 function MoversCard({ refreshKey }) {
-  const { data, loading, error } = useCardData(() => getMovers({ limit: 8 }), refreshKey)
+  const { data, loading, error } = useCardData(() => getMovers({ limit: 8 }), refreshKey, 'Top movers')
   const gainers = (data?.gainers || []).slice(0, 8)
   const losers = (data?.losers || []).slice(0, 8)
   const empty = data && gainers.length === 0 && losers.length === 0
@@ -668,7 +720,7 @@ const SESSION_SUBTITLE = {
 }
 
 function ExtendedMoversCard({ refreshKey }) {
-  const { data, loading, error } = useCardData(() => getExtendedMovers({ limit: 6 }), refreshKey)
+  const { data, loading, error } = useCardData(() => getExtendedMovers({ limit: 6 }), refreshKey, 'Extended-hours movers')
   const session = data?.session || 'unknown'
   const gainers = data?.gainers || []
   const losers = data?.losers || []
@@ -744,6 +796,7 @@ function GapAndGoCard({ refreshKey }) {
   const { data, loading, error } = useCardData(
     () => getGapMovers({ minPct: 5, minVolume: 500_000, limit: 12 }),
     refreshKey,
+    'Gap & go',
   )
   const gainers = data?.gainers || []
   const losers = data?.losers || []
@@ -836,6 +889,7 @@ function VolumeSurgeCard({ refreshKey }) {
   const { data, loading, error } = useCardData(
     () => getBreakouts({ mode: 'volume', limit: 24, minAdr: 0.05, minRvol: 1.5, fresh: refreshKey > 0 }),
     refreshKey,
+    'Volume surge',
   )
   const rows = (data?.results || []).slice(0, 10)
   return (
@@ -930,6 +984,7 @@ function Scanner9MCard({ refreshKey }) {
   const { data, loading, error } = useCardData(
     () => get9MScan({ force: refreshKey > 0 }),
     refreshKey,
+    '9M scanner',
   )
   const rows = (data?.candidates || []).slice(0, 10)
   const counts = data?.counts
@@ -1002,6 +1057,10 @@ function MarketNews({ tickers, refreshKey }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, refreshKey])
 
+  // News depends on the breakout/unusual scans finishing first (it derives its
+  // tickers from them), so it's the natural last entry in the progress bar.
+  useProgressReport('Market news', state.loading)
+
   // One freshest headline per name, newest names first.
   const headlines = useMemo(() => {
     const articles = state.data?.articles || []
@@ -1060,9 +1119,64 @@ function MarketNews({ tickers, refreshKey }) {
   )
 }
 
+// Unified loading bar — reads the registry every card reports into and shows
+// overall progress plus what's still in flight. Renders nothing once every
+// loader has resolved (or before any has registered), so it's invisible on a
+// fully-warm/cached load and only appears while there's real work outstanding.
+function LoadProgress() {
+  const ctx = useContext(LoadProgressContext)
+  const items = Object.values(ctx?.items || {})
+  const total = items.length
+  const done = items.filter((it) => !it.loading).length
+  const pending = items.filter((it) => it.loading).map((it) => it.label).filter(Boolean)
+
+  if (total === 0 || done >= total) return null
+
+  const pct = Math.round((done / total) * 100)
+  const shown = pending.slice(0, 4)
+  const extra = pending.length - shown.length
+
+  return (
+    <div
+      className="rounded-xl border border-surface-700/50 bg-surface-900/40 px-4 py-3"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-center justify-between gap-3 text-[12px] mb-2">
+        <span className="font-medium text-surface-200">
+          Loading market data… {done}/{total}{' '}
+          <span className="text-surface-500">({pct}%)</span>
+        </span>
+        {shown.length > 0 && (
+          <span className="text-surface-500 truncate text-right min-w-0">
+            {shown.join(' · ')}{extra > 0 ? ` +${extra} more` : ''}
+          </span>
+        )}
+      </div>
+      <div className="h-1.5 w-full rounded-full bg-surface-800 overflow-hidden">
+        <div
+          className="h-full bg-accent rounded-full transition-all duration-500 ease-out"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+// The provider has to sit ABOVE the component that runs the parent-level
+// loaders (sectors/breadth/breakouts/unusual) so those register too, hence the
+// thin wrapper around DashboardInner.
 export default function Dashboard() {
+  return (
+    <LoadProgressProvider>
+      <DashboardInner />
+    </LoadProgressProvider>
+  )
+}
+
+function DashboardInner() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [refreshedAt, setRefreshedAt] = useState(() => new Date())
   const status = marketStatusLabel()
@@ -1070,15 +1184,17 @@ export default function Dashboard() {
   // Lift the shared fetches to the parent so we never double-hit the backend:
   // sectors + breadth each feed two cards; the breakout/unusual results also
   // feed the Market-Moving News card (it derives its tickers from them).
-  const sectors = useCardData(() => getSectorPerformance({ forceRefresh: refreshKey > 0 }), refreshKey)
-  const breadth = useCardData(() => getBreadthSnapshot(), refreshKey)
+  const sectors = useCardData(() => getSectorPerformance({ forceRefresh: refreshKey > 0 }), refreshKey, 'Sectors')
+  const breadth = useCardData(() => getBreadthSnapshot(), refreshKey, 'Breadth')
   const breakouts = useCardData(
     () => getBreakouts({ mode: 'breakout', limit: 24, minAdr: 0.05, minRvol: 1.5, fresh: refreshKey > 0 }),
     refreshKey,
+    'Breakouts',
   )
   const unusual = useCardData(
     () => getBreakouts({ mode: 'unusual_volume', limit: 24, minAdr: 0.05, minRvol: 2.0, dayFilter: 0, fresh: refreshKey > 0 }),
     refreshKey,
+    'Unusual volume',
   )
 
   // Names for the news card: top movers from both scans, deduped.
@@ -1126,6 +1242,9 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
+
+      {/* Unified load progress — visible only while cards are still fetching */}
+      <LoadProgress />
 
       {/* Index / market pulse strip */}
       <IndexStrip refreshKey={refreshKey} />

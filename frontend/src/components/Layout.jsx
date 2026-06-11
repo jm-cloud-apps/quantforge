@@ -133,6 +133,7 @@ const navGroups = [
   {
     label: 'Trade',
     items: [
+      { path: '/ai-trader',   label: 'AI Trader',   icon: icons.signal },
       { path: '/watchlist',   label: 'Watchlist',   icon: icons.watchlist },
       { path: '/review',      label: 'Review',      icon: icons.journal },
       { path: '/journal',     label: 'Journal',     icon: icons.journal },

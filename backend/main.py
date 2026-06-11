@@ -2,9 +2,12 @@
 
 import os
 import json
+import logging
 import math
 import re
+import sys
 import threading
+import time
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
@@ -29,12 +32,58 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(_HERE, ".env"))
 load_dotenv(os.path.join(os.path.dirname(_HERE), ".env"), override=False)
 
+# ---------------------------------------------------------------------------
+# Logging
+#
+# The app and its routers are full of `logger.info(...)` progress lines (e.g.
+# the screener logs "refresh_universe progress: 50/250 ..." every 25 symbols
+# plus per-scan timing). None of it was ever visible because logging was never
+# configured — under uvicorn the root logger has no INFO handler, so every
+# INFO record was silently dropped. Configuring it here lights all of that up
+# in the terminal you launched the app from, which is the only way to tell
+# what a slow dashboard load is actually waiting on.
+#
+# Level is INFO by default; set QF_LOG_LEVEL=DEBUG for the chattier per-symbol
+# enrichment lines, or WARNING to quiet things back down.
+# ---------------------------------------------------------------------------
+def _configure_logging() -> logging.Logger:
+    level_name = os.getenv("QF_LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+
+    root = logging.getLogger()
+    root.setLevel(level)
+
+    # Guard against duplicate handlers: uvicorn's --reload reimports this module
+    # in the same process, which would otherwise stack a new handler each time
+    # and print every line N times.
+    if not any(getattr(h, "_qf_handler", False) for h in root.handlers):
+        handler = logging.StreamHandler(sys.stdout)
+        handler._qf_handler = True  # tag so the guard above can find it
+        handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s %(levelname)-7s %(name)s | %(message)s",
+                datefmt="%H:%M:%S",
+            )
+        )
+        root.addHandler(handler)
+
+    # Third-party libraries are noisy at INFO/DEBUG — keep them at WARNING so the
+    # signal stays our own progress lines, not HTTP plumbing.
+    for noisy in ("httpx", "httpcore", "urllib3", "yfinance", "peewee", "asyncio"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+    return logging.getLogger("quantforge")
+
+
+logger = _configure_logging()
+
 # One-shot startup log so it's easy to see which providers are wired.
-print(
-    f"[startup] MASSIVE_API_KEY={'set' if os.getenv('MASSIVE_API_KEY') else 'MISSING'} "
-    f"FINNHUB_API_KEY={'set' if os.getenv('FINNHUB_API_KEY') else 'missing'} "
-    f"QF_DATA_PROVIDER={os.getenv('QF_DATA_PROVIDER', 'massive')} "
-    f"QF_NEWS_PROVIDER={os.getenv('QF_NEWS_PROVIDER', 'massive')}"
+logger.info(
+    "[startup] MASSIVE_API_KEY=%s FINNHUB_API_KEY=%s QF_DATA_PROVIDER=%s QF_NEWS_PROVIDER=%s",
+    "set" if os.getenv("MASSIVE_API_KEY") else "MISSING",
+    "set" if os.getenv("FINNHUB_API_KEY") else "missing",
+    os.getenv("QF_DATA_PROVIDER", "massive"),
+    os.getenv("QF_NEWS_PROVIDER", "massive"),
 )
 
 # In-memory cache for trading analysis data
@@ -69,6 +118,9 @@ app.include_router(advisor_router)
 from screener.qullamaggie.router import router as qullamaggie_router
 app.include_router(qullamaggie_router)
 
+from ai_trader.router import router as ai_trader_router
+app.include_router(ai_trader_router)
+
 # Register Options Flow router (Tier-D — Unusual Whales-style)
 from options_flow.router import router as options_flow_router
 app.include_router(options_flow_router)
@@ -98,6 +150,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Request timing — logs each API call as it arrives and again when it finishes,
+# with the wall-clock duration. The dashboard fires ~13 of these in parallel on
+# load; watching them stream in (and which one sits there for 8s) is the
+# fastest way to see where a slow "Market Overview" is actually spending time.
+# Slow responses (>3s) are flagged with a marker so they're easy to scan for.
+@app.middleware("http")
+async def log_requests(request, call_next):
+    path = request.url.path
+    # CORS preflight and non-API noise add nothing — skip arrival logging.
+    is_api = path.startswith("/api") and request.method != "OPTIONS"
+    start = time.perf_counter()
+    if is_api:
+        logger.info("→ %s %s", request.method, path)
+    try:
+        response = await call_next(request)
+    except Exception:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        logger.exception("✗ %s %s failed after %.0fms", request.method, path, elapsed_ms)
+        raise
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    if is_api:
+        marker = " ⏳ SLOW" if elapsed_ms > 3000 else ""
+        logger.info(
+            "✓ %s %s → %s in %.0fms%s",
+            request.method, path, response.status_code, elapsed_ms, marker,
+        )
+    return response
 
 
 class BacktestRequest(BaseModel):
