@@ -10,6 +10,7 @@ const Backtesting     = lazy(() => import('./pages/Backtesting'))
 const Screener        = lazy(() => import('./pages/Screener'))
 const BotTrader       = lazy(() => import('./pages/BotTrader'))
 const TradingAnalysis = lazy(() => import('./pages/TradingAnalysis'))
+const YearlyStrongest = lazy(() => import('./pages/YearlyStrongest'))
 const Wealthsimple    = lazy(() => import('./pages/Wealthsimple'))
 const Playbook        = lazy(() => import('./pages/Playbook'))
 const Journal         = lazy(() => import('./pages/Journal'))
@@ -46,6 +47,7 @@ function AppRoutes() {
         <Route path="ai-trader" element={<AITrader />} />
         <Route path="bot-trader" element={<BotTrader />} />
         <Route path="trading-analysis" element={<TradingAnalysis />} />
+        <Route path="yearly-strongest" element={<YearlyStrongest />} />
         <Route path="wealthsimple" element={<Wealthsimple />} />
         <Route path="review" element={<Review />} />
         <Route path="playbook" element={<Playbook />} />

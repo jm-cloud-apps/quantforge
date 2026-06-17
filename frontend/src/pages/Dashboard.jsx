@@ -91,11 +91,19 @@ function LoadProgressProvider({ children }) {
 // cards still work if rendered outside the dashboard.
 function useProgressReport(label, loading) {
   const ctx = useContext(LoadProgressContext)
+  // Depend on the *stable* report/unregister callbacks, not the whole ctx
+  // object. The provider's value is a fresh object literal each render, so
+  // depending on `ctx` makes both effects re-run on every provider render —
+  // and the unregister-cleanup vs. report-effect then fight over `items`,
+  // causing an infinite update loop. report/unregister are useCallback([]),
+  // so their identity is stable across renders.
+  const report = ctx?.report
+  const unregister = ctx?.unregister
   const id = useId()
   useEffect(() => {
-    ctx?.report(id, label, loading)
-  }, [ctx, id, label, loading])
-  useEffect(() => () => ctx?.unregister(id), [ctx, id])
+    report?.(id, label, loading)
+  }, [report, id, label, loading])
+  useEffect(() => () => unregister?.(id), [unregister, id])
 }
 
 // Generic async loader. Re-runs whenever `refreshKey` changes. `fetcher`
