@@ -14,6 +14,7 @@ const ALL_SETUP_VALUES = SETUP_TYPES.flatMap(g => g.items)
 const SORT_OPTIONS = [
   { value: 'date_desc', label: 'Most recent' },
   { value: 'date_asc', label: 'Oldest first' },
+  { value: 'added_desc', label: 'Recently added' },
   { value: 'pnl_desc', label: 'Highest P&L' },
   { value: 'pnl_asc', label: 'Lowest P&L' },
   { value: 'pct_desc', label: 'Biggest %' },
@@ -28,6 +29,22 @@ const INITIAL_FORM = {
   pnl_pct: '',
   notes: '',
   tags: [],
+}
+
+// The moment an entry was added to the database, as epoch-ms. Prefer the stored
+// `created_at` timestamp; fall back to the entry id, which is itself the
+// creation time in epoch-milliseconds (see backend create_playbook_entry).
+function addedTimestamp(entry) {
+  const raw = entry?.created_at || (entry?.id ? Number(entry.id) : null)
+  if (raw == null) return 0
+  const t = new Date(raw).getTime()
+  return isNaN(t) ? 0 : t
+}
+
+function formatAddedDate(entry) {
+  const t = addedTimestamp(entry)
+  if (!t) return null
+  return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 /* ── Custom Dropdown ── */
@@ -411,6 +428,7 @@ export default function Playbook() {
         case 'pnl_asc': return (a.pnl ?? 0) - (b.pnl ?? 0)
         case 'pct_desc': return (b.pnl_pct ?? 0) - (a.pnl_pct ?? 0)
         case 'pct_asc': return (a.pnl_pct ?? 0) - (b.pnl_pct ?? 0)
+        case 'added_desc': return addedTimestamp(b) - addedTimestamp(a)
         case 'date_desc':
         default:
           return (b.date || '').localeCompare(a.date || '')
@@ -591,6 +609,14 @@ export default function Playbook() {
                     ))}
                   </div>
                 )}
+                {formatAddedDate(entry) && (
+                  <div className="flex items-center gap-1 text-surface-600 text-[10px] pt-0.5">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Added {formatAddedDate(entry)}
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -758,8 +784,18 @@ export default function Playbook() {
                 </div>
               </div>
 
-              <div className="text-surface-400 text-sm">
-                {new Date(detailEntry.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <span className="text-surface-400 text-sm">
+                  {new Date(detailEntry.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                </span>
+                {formatAddedDate(detailEntry) && (
+                  <span className="inline-flex items-center gap-1.5 text-surface-500 text-xs">
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Added {formatAddedDate(detailEntry)}
+                  </span>
+                )}
               </div>
 
               {detailEntry.notes && (

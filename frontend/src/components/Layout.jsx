@@ -27,6 +27,11 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
     </svg>
   ),
+  trophy: (
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 21h8m-4-4v4m-5-17h10v4a5 5 0 01-10 0V4zm0 1H5a2 2 0 002 4m10-4h2a2 2 0 01-2 4" />
+    </svg>
+  ),
   journal: (
     <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -120,6 +125,7 @@ const navGroups = [
     label: 'Analyze',
     items: [
       { path: '/trading-analysis', label: 'Trading Analysis', icon: icons.trading },
+      { path: '/yearly-strongest', label: 'Yearly Strongest', icon: icons.trophy },
       { path: '/wealthsimple',    label: 'Wealthsimple',     icon: icons.journal },
       { path: '/news',            label: 'Stock Analysis',   icon: icons.stock },
       { path: '/market-monitor',  label: 'Market Monitor',   icon: icons.monitor },
