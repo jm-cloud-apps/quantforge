@@ -41,6 +41,15 @@ export async function getAITraderBacktest({ asOf, budget = 500, account = 25000,
   return res.json()
 }
 
+export async function getAITraderBacktestHistory({ fresh = false } = {}) {
+  const res = await fetch(`${API_BASE}/backtest/history?fresh=${fresh ? '1' : '0'}`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to load backtest history')
+  }
+  return res.json()
+}
+
 export async function getAITraderWalkforward({ start, end, stepDays = 7, budget = 500, account = 25000, riskPct = 1.0, minAdr = 0.03, fresh = false } = {}) {
   const params = new URLSearchParams({
     step_days: String(stepDays),

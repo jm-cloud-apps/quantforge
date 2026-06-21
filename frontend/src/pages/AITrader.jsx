@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts'
-import { getAITraderIdeas, getAITraderHistory, getAITraderBacktest, getAITraderWalkforward } from '../api/aiTrader'
+import { getAITraderIdeas, getAITraderHistory, getAITraderBacktest, getAITraderBacktestHistory, getAITraderWalkforward } from '../api/aiTrader'
 
 const fmtUSD = (v, d = 2) =>
   v == null || Number.isNaN(Number(v))
@@ -306,19 +306,24 @@ function TrackRecord({ stats }) {
   )
 }
 
-function HistoryLedger({ records }) {
+function HistoryLedger({
+  records,
+  title = 'Suggestion history',
+  subtitle = 'outcome · R-multiple · vs SPY · 1/day · last 365 days',
+  empty = "No history yet — today's picks will appear here, then track against the price going forward.",
+}) {
   if (!records || records.length === 0) {
     return (
       <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-6 text-center text-sm text-surface-500">
-        No history yet — today's picks will appear here, then track against the price going forward.
+        {empty}
       </div>
     )
   }
   return (
     <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-5">
       <div className="flex items-baseline justify-between mb-3">
-        <h2 className="font-display font-semibold text-lg text-surface-50">Suggestion history</h2>
-        <span className="text-[11px] text-surface-500">outcome · R-multiple · vs SPY · 1/day · last 365 days</span>
+        <h2 className="font-display font-semibold text-lg text-surface-50">{title}</h2>
+        <span className="text-[11px] text-surface-500">{subtitle}</span>
       </div>
       <div className="space-y-3">
         {records.map((r) => (
@@ -390,7 +395,7 @@ function EquityCurve({ points }) {
   )
 }
 
-function BacktestInspector({ budget, account, riskPct }) {
+function BacktestInspector({ budget, account, riskPct, onRan }) {
   const [asOf, setAsOf] = useState('')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -406,12 +411,13 @@ function BacktestInspector({ budget, account, riskPct }) {
     setError(null)
     try {
       setData(await getAITraderBacktest({ asOf, budget, account, riskPct }))
+      onRan?.() // refresh the saved backtest ledger below
     } catch (e) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [asOf, budget, account, riskPct])
+  }, [asOf, budget, account, riskPct, onRan])
 
   const ideas = data?.ideas || []
   return (
@@ -512,6 +518,39 @@ function WalkForwardPanel({ budget, account, riskPct }) {
   const agg = data?.aggregate
   return (
     <div className="space-y-4">
+      {/* plain-English explainer */}
+      <div className="rounded-xl border border-accent/20 bg-accent/[0.04] p-4 space-y-3">
+        <div className="flex items-start gap-2.5">
+          <span className="text-accent text-base leading-none mt-0.5">ℹ</span>
+          <div className="space-y-2 text-[13px] text-surface-300 leading-relaxed">
+            <p>
+              The <span className="text-surface-100 font-semibold">single-day replay</span> above answers
+              “how did <em>one</em> day’s picks do?” A <span className="text-surface-100 font-semibold">walk-forward backtest</span> answers
+              the bigger question: <span className="text-surface-100">does this strategy work over time, or was that day just luck?</span>
+            </p>
+            <p>
+              It steps through history — e.g. every week across the last ~8 months — and on each date re-runs the engine
+              seeing <span className="text-surface-100 font-semibold">only the data available that day</span> (no peeking ahead).
+              Every simulated pick is then tracked to its real outcome. Stacking all those days together is the strategy’s track record.
+            </p>
+          </div>
+        </div>
+        <div className="grid sm:grid-cols-3 gap-2 pt-1">
+          <div className="rounded-lg bg-surface-800/40 px-3 py-2">
+            <div className="text-[11px] font-semibold text-surface-200">Expectancy</div>
+            <div className="text-[11px] text-surface-400 leading-snug">Avg profit per trade in <span className="text-surface-300">R</span> (1R = what you risk per trade). Above 0 = an edge.</div>
+          </div>
+          <div className="rounded-lg bg-surface-800/40 px-3 py-2">
+            <div className="text-[11px] font-semibold text-surface-200">Equity curve</div>
+            <div className="text-[11px] text-surface-400 leading-snug">Running total of R if you took every pick. Up-and-to-the-right is good.</div>
+          </div>
+          <div className="rounded-lg bg-surface-800/40 px-3 py-2">
+            <div className="text-[11px] font-semibold text-surface-200">By regime</div>
+            <div className="text-[11px] text-surface-400 leading-snug">Whether the edge holds in healthy vs. weak market breadth.</div>
+          </div>
+        </div>
+      </div>
+
       <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-4">
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-xs text-surface-400">
@@ -646,12 +685,22 @@ export default function AITrader() {
   const [error, setError] = useState(null)
   const [history, setHistory] = useState(null)
   const [stats, setStats] = useState(null)
+  const [btHistory, setBtHistory] = useState(null)
 
   const loadHistory = useCallback(async () => {
     try {
       const h = await getAITraderHistory()
       setHistory(h.records || [])
       setStats(h.stats || null)
+    } catch {
+      /* non-fatal */
+    }
+  }, [])
+
+  const loadBtHistory = useCallback(async () => {
+    try {
+      const h = await getAITraderBacktestHistory()
+      setBtHistory(h.records || [])
     } catch {
       /* non-fatal */
     }
@@ -676,6 +725,10 @@ export default function AITrader() {
     loadHistory()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (tab === 'backtest' && btHistory === null) loadBtHistory()
+  }, [tab, btHistory, loadBtHistory])
 
   const ideas = data?.ideas || []
 
@@ -758,12 +811,18 @@ export default function AITrader() {
           </div>
           <div>
             <h2 className="font-display font-semibold text-lg text-surface-50 mb-2">Inspect a single day</h2>
-            <BacktestInspector budget={budget} account={account} riskPct={riskPct} />
+            <BacktestInspector budget={budget} account={account} riskPct={riskPct} onRan={loadBtHistory} />
           </div>
           <div>
             <h2 className="font-display font-semibold text-lg text-surface-50 mb-2">Walk-forward backtest</h2>
             <WalkForwardPanel budget={budget} account={account} riskPct={riskPct} />
           </div>
+          <HistoryLedger
+            records={btHistory}
+            title="Backtest history"
+            subtitle="back-then price → today · % gain · outcome/R · saved per date"
+            empty="No saved backtests yet — replay a date above and it'll be saved here, re-priced to today."
+          />
         </div>
       )}
 

@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from market_clock import effective_cache_ttl
 from .backtest import run_single, run_walkforward
+from .backtest_history import load_backtest_history, record_backtest
 from .engine import build_ideas
 from .history import load_history_priced, record_today
 from .safe import json_safe
@@ -22,6 +23,7 @@ _CACHE: dict[str, tuple[float, dict]] = {}
 _TTL_ACTIVE = 1800  # 30 minutes
 _HISTORY_CACHE: dict[str, tuple[float, dict]] = {}
 _HISTORY_TTL = 300  # 5 minutes (re-pricing is mildly expensive)
+_BT_HISTORY_CACHE: dict[str, tuple[float, dict]] = {}
 
 
 @router.get("/ideas")
@@ -93,6 +95,12 @@ def get_backtest(
     data = run_single(as_of, budget=budget, account=account, risk_pct=risk_pct, min_adr=min_adr)
     logger.info("ai-trader backtest %s: %d idea(s) in %.1fs",
                 as_of, len(data.get("ideas") or []), time.time() - started)
+    # Persist this inspected date to the backtest ledger and bust its cache.
+    try:
+        record_backtest(data)
+        _BT_HISTORY_CACHE.pop("all", None)
+    except Exception as e:
+        logger.warning("ai-trader backtest history record failed: %s", e)
     return json_safe(data)
 
 
@@ -118,3 +126,17 @@ def get_walkforward(
                 data.get("params", {}).get("start"), data.get("params", {}).get("end"),
                 step_days, len(data.get("dates") or []), time.time() - started)
     return json_safe(data)
+
+
+@router.get("/backtest/history")
+def get_backtest_history(fresh: bool = Query(False, description="Bypass the 5-minute re-pricing cache")):
+    """Ledger of inspected backtest dates, re-priced to the latest close (% gain
+    to today + outcome/R), newest first, with aggregate expectancy."""
+    ttl = effective_cache_ttl(_HISTORY_TTL)
+    if not fresh:
+        hit = _BT_HISTORY_CACHE.get("all")
+        if hit and (time.time() - hit[0]) < ttl:
+            return {**hit[1], "cached": True}
+    data = load_backtest_history()  # {records, stats}
+    _BT_HISTORY_CACHE["all"] = (time.time(), data)
+    return json_safe({**data, "cached": False})
