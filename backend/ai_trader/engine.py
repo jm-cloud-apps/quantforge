@@ -1,9 +1,9 @@
-"""AI Trader — turns the Qullamaggie scan into the day's top-3 actionable LONG
+"""AI Trader — turns the Qullamaggie scan into the day's top-5 actionable LONG
 trade ideas via Claude, each sized for a fixed daily budget.
 
 Flow: run the existing Qullamaggie breakout scan (ADR-gated, liquidity-gated,
 today's movers merged) → compact each candidate to the few numbers that matter
-→ ask Claude to act as a disciplined Qullamaggie trader and pick the best 0-3
+→ ask Claude to act as a disciplined Qullamaggie trader and pick the best 0-5
 setups with entry/stop/target → size each idea in Python for the budget.
 
 The model never invents tickers or prices: it only ranks/annotates the scanned
@@ -24,10 +24,19 @@ from screener.qullamaggie.enrich import enrich_with_calendar, enrich_with_news
 from screener.qullamaggie.scorer import rank_candidates
 from screener.qullamaggie.universe import get_universe
 
+from . import regime as regime_mod
+from .audit import record_run
+from .portfolio import correlation_flags, portfolio_summary, size_idea
+from .ranking import rank_ideas
+
 logger = logging.getLogger(__name__)
 
 MODEL = "claude-sonnet-4-6"
-SCAN_LIMIT = 15  # candidates handed to the model
+TEMPERATURE = 0.0  # deterministic ranking so the track record is auditable
+SCAN_LIMIT = 20  # candidates handed to the model
+MAX_IDEAS = 5  # most actionable ideas surfaced per day
+DEFAULT_ACCOUNT = 25_000.0  # account size for risk-based sizing
+DEFAULT_RISK_PCT = 1.0  # % of account risked per idea (fixed-fractional)
 
 
 # ── small helpers ────────────────────────────────────────────────────────────
@@ -95,20 +104,6 @@ def _compact(c):
     }
 
 
-def _size(entry, stop, budget):
-    if not entry or entry <= 0:
-        return {"shares": 0, "position_cost": None, "risk_dollars": None, "risk_pct": None}
-    shares = int(budget // entry)
-    cost = round(shares * entry, 2)
-    risk = round(shares * (entry - stop), 2) if (stop and 0 < stop < entry) else None
-    return {
-        "shares": shares,
-        "position_cost": cost,
-        "risk_dollars": risk,
-        "risk_pct": round(risk / budget * 100, 1) if (risk and budget) else None,
-    }
-
-
 def _extract_json(raw):
     if not raw:
         return None
@@ -153,47 +148,58 @@ SYSTEM = (
     "Hard rules: ADR must be >= the stated minimum. Demand real liquidity. Require clear prior "
     "momentum and/or a real catalyst. Always set a hard stop and a realistic first profit target "
     "(you sell into strength and trail the rest, so risk:reward to first target should be sound). "
-    "Be extremely selective: most days have only 0-3 clean setups. NEVER force trades — if nothing "
+    "Be extremely selective: most days have only a handful of clean setups. NEVER force trades — if nothing "
     "qualifies, return an empty list and explain why. Only use the candidates and data provided; "
     "never invent tickers or numbers."
 )
 
 
-def build_ideas(budget: float, min_adr: float) -> dict:
-    """Scan, ask the model for the day's best 0-3 ideas, and size each one."""
+def build_ideas(budget: float, min_adr: float,
+                account: float = DEFAULT_ACCOUNT, risk_pct: float = DEFAULT_RISK_PCT) -> dict:
+    """Scan, read the regime, ask the model for the day's best 0-5 ideas, then
+    size/rank/aggregate them deterministically."""
     as_of = datetime.now().isoformat(timespec="seconds")
     active = is_market_active_now()
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
 
+    regime = regime_mod.get_regime()
     candidates = scan(min_adr)
     compact = [_compact(c) for c in candidates]
+    tail_by_ticker = {c.get("symbol"): c.get("ohlcv_tail") for c in candidates}
 
     base = {
         "as_of": as_of,
         "market_active": active,
         "budget": budget,
+        "account": account,
+        "risk_pct": risk_pct,
         "min_adr": min_adr,
+        "regime": regime,
         "candidates_considered": len(compact),
         "scanned_candidates": compact,
         "model": MODEL,
+        "temperature": TEMPERATURE,
     }
 
     if not compact:
-        return {**base, "ideas": [], "ai_available": bool(api_key),
-                "no_setups_reason": "No liquid candidates cleared the ADR/liquidity gate in today's scan."}
+        return _finalize(base, [], account, tail_by_ticker, ai_available=bool(api_key),
+                         candidates=compact, model_output=None,
+                         no_setups_reason="No liquid candidates cleared the ADR/liquidity gate in today's scan.")
 
     # ── Ask the model to rank/annotate, with graceful degradation ────────────
     ai_error = None
     parsed = None
+    raw = None
     if not api_key:
         ai_error = "ANTHROPIC_API_KEY not configured — add it to backend/.env to enable AI ranking."
     else:
         user = (
             f"Date/time: {as_of}. Market is currently {'OPEN' if active else 'CLOSED'}.\n"
+            f"{regime_mod.prompt_line(regime)}\n"
             f"Daily budget per idea: ${int(budget)}. Minimum ADR: {min_adr * 100:.0f}%.\n\n"
             "Today's scanned Qullamaggie candidates (all percent fields are already in %):\n"
             f"{json.dumps(compact, default=str)}\n\n"
-            "Pick the TOP 3 actionable LONG setups for today, best first. Return FEWER than 3 — "
+            "Pick the TOP 5 actionable LONG setups for today, best first. Return FEWER than 5 — "
             "or an empty list — if there aren't that many clean setups. Do not pad the list.\n"
             "Reply with ONLY a JSON object of exactly this shape (no prose, no markdown):\n"
             '{"ideas":[{"ticker":"","setup":"Breakout|Episodic Pivot","conviction":"high|medium|low",'
@@ -213,7 +219,7 @@ def build_ideas(budget: float, min_adr: float) -> dict:
         try:
             client = anthropic.Anthropic(api_key=api_key)
             msg = client.messages.create(
-                model=MODEL, max_tokens=1600, system=SYSTEM,
+                model=MODEL, max_tokens=2600, temperature=TEMPERATURE, system=SYSTEM,
                 messages=[{"role": "user", "content": user}],
             )
             raw = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
@@ -234,32 +240,64 @@ def build_ideas(budget: float, min_adr: float) -> dict:
 
     if parsed is not None:
         ideas = []
-        for it in (parsed.get("ideas") or [])[:3]:
+        for it in (parsed.get("ideas") or [])[:MAX_IDEAS]:
             ticker = (it.get("ticker") or "").upper()
             entry, stop, target = _num(it.get("entry")), _num(it.get("stop")), _num(it.get("target"))
             ideas.append(_assemble_idea(
                 ticker=ticker, setup=it.get("setup"), conviction=(it.get("conviction") or "").lower(),
                 entry=entry, stop=stop, target=target, rationale=it.get("rationale"),
                 thesis=it.get("thesis"), key_points=it.get("key_points"),
-                risk_note=it.get("risk_note"), stats=by_ticker.get(ticker), budget=budget, source="ai",
+                risk_note=it.get("risk_note"), stats=by_ticker.get(ticker),
+                budget=budget, account=account, risk_pct=risk_pct, source="ai",
             ))
-        return {
-            **base, "ai_available": True, "ideas": ideas,
-            "market_note": parsed.get("market_note"),
-            "no_setups_reason": parsed.get("no_setups_reason") if not ideas else None,
-        }
+        return _finalize(
+            base, ideas, account, tail_by_ticker, ai_available=True,
+            candidates=compact, model_output=raw,
+            market_note=parsed.get("market_note"),
+            no_setups_reason=parsed.get("no_setups_reason") if not ideas else None,
+        )
 
     # ── Fallback: rule-based ideas straight from the scan ────────────────────
-    ideas = _fallback_ideas(compact, budget)
-    return {
-        **base, "ai_available": False, "error": ai_error, "ideas": ideas,
-        "market_note": "AI ranking unavailable — showing the scan's top rule-based setups." if ideas else None,
-        "no_setups_reason": None if ideas else "No breakout-ready setups in today's scan.",
-    }
+    ideas = _fallback_ideas(compact, budget, account, risk_pct)
+    return _finalize(
+        base, ideas, account, tail_by_ticker, ai_available=False, error=ai_error,
+        candidates=compact, model_output=raw,
+        market_note="AI ranking unavailable — showing the scan's top rule-based setups." if ideas else None,
+        no_setups_reason=None if ideas else "No breakout-ready setups in today's scan.",
+    )
+
+
+def _finalize(base, ideas, account, tail_by_ticker, *, ai_available, candidates,
+              model_output, error=None, market_note=None, no_setups_reason=None):
+    """Shared tail for every code path: rank ideas by the deterministic composite
+    score, aggregate portfolio-level risk + correlation, write the audit trail,
+    and assemble the response."""
+    ideas = rank_ideas(ideas)
+    portfolio = portfolio_summary(ideas, account) if ideas else None
+    correlations = correlation_flags(ideas, tail_by_ticker) if len(ideas) > 1 else []
+    if portfolio is not None:
+        portfolio["correlated_pairs"] = correlations
+        # How much total heat the regime suggests carrying: full per-idea risk on
+        # every name in a healthy tape, scaled down (risk_factor < 1) in a weak one.
+        rf = (base.get("regime") or {}).get("risk_factor")
+        if rf is not None:
+            portfolio["regime_suggested_heat_pct"] = round((base.get("risk_pct") or 0) * len(ideas) * rf, 2)
+
+    record_run(
+        inputs={k: base.get(k) for k in ("budget", "account", "risk_pct", "min_adr", "model", "temperature")},
+        candidates=candidates, model_output=model_output, ideas=ideas,
+        regime=base.get("regime"),
+    )
+    out = {**base, "ai_available": ai_available, "ideas": ideas, "portfolio": portfolio,
+           "market_note": market_note, "no_setups_reason": no_setups_reason}
+    if error:
+        out["error"] = error
+    return out
 
 
 def _assemble_idea(ticker, setup, conviction, entry, stop, target, rationale,
-                   risk_note, stats, budget, source, thesis=None, key_points=None):
+                   risk_note, stats, budget, account, risk_pct, source,
+                   thesis=None, key_points=None):
     rr = None
     if entry and stop and target and entry > stop and target > entry:
         rr = round((target - entry) / (entry - stop), 2)
@@ -269,7 +307,7 @@ def _assemble_idea(ticker, setup, conviction, entry, stop, target, rationale,
         "rationale": rationale, "thesis": thesis,
         "key_points": [str(p) for p in key_points] if isinstance(key_points, list) else None,
         "risk_note": risk_note, "source": source,
-        **_size(entry, stop, budget), "stats": stats,
+        **size_idea(entry, stop, budget, account, risk_pct), "stats": stats,
     }
 
 
@@ -289,7 +327,7 @@ def _fallback_passes(c, budget):
     return True
 
 
-def _fallback_ideas(compact, budget, top_n=3):
+def _fallback_ideas(compact, budget, account=DEFAULT_ACCOUNT, risk_pct=DEFAULT_RISK_PCT, top_n=MAX_IDEAS):
     """Build rule-based ideas from the scan when the model is unavailable:
     entry at the pivot, stop under the consolidation low (risk bounded to ~ADR),
     first target at 2R."""
@@ -336,7 +374,7 @@ def _fallback_ideas(compact, budget, top_n=3):
             rationale=rationale, thesis=_fallback_thesis(c, round(entry, 2), round(stop, 2), target),
             key_points=key_points[:5],
             risk_note="Rule-based read from the scan — add Anthropic credits for a full AI thesis.",
-            stats=c, budget=budget, source="scan",
+            stats=c, budget=budget, account=account, risk_pct=risk_pct, source="scan",
         ))
     return ideas
 
