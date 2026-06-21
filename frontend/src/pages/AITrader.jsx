@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getAITraderIdeas, getAITraderHistory } from '../api/aiTrader'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts'
+import { getAITraderIdeas, getAITraderHistory, getAITraderBacktest, getAITraderWalkforward } from '../api/aiTrader'
 
 const fmtUSD = (v, d = 2) =>
   v == null || Number.isNaN(Number(v))
@@ -7,6 +8,7 @@ const fmtUSD = (v, d = 2) =>
     : `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })}`
 const fmtPct = (v, d = 1) => (v == null || Number.isNaN(Number(v)) ? '—' : `${Number(v) >= 0 ? '' : ''}${Number(v).toFixed(d)}%`)
 const signPct = (v, d = 1) => (v == null ? '—' : `${Number(v) >= 0 ? '+' : ''}${Number(v).toFixed(d)}%`)
+const fmtR = (v) => (v == null || Number.isNaN(Number(v)) ? '—' : `${Number(v) >= 0 ? '+' : ''}${Number(v).toFixed(2)}R`)
 const tone = (v) => (v == null ? 'text-surface-500' : v > 0 ? 'text-success' : v < 0 ? 'text-danger' : 'text-surface-400')
 
 const SETUP_STYLE = {
@@ -17,6 +19,21 @@ const CONV_STYLE = {
   high: 'bg-success/15 text-success',
   medium: 'bg-amber-500/15 text-amber-300',
   low: 'bg-surface-700 text-surface-300',
+}
+const REGIME_STYLE = {
+  bullish: { dot: 'bg-success', text: 'text-success', ring: 'border-success/30 bg-success/[0.06]' },
+  overheated: { dot: 'bg-amber-400', text: 'text-amber-300', ring: 'border-amber-500/30 bg-amber-500/[0.06]' },
+  neutral: { dot: 'bg-surface-400', text: 'text-surface-300', ring: 'border-surface-700/50 bg-surface-800/40' },
+  bearish: { dot: 'bg-danger', text: 'text-danger', ring: 'border-danger/30 bg-danger/[0.06]' },
+  capitulation: { dot: 'bg-danger', text: 'text-danger', ring: 'border-danger/40 bg-danger/[0.1]' },
+  unknown: { dot: 'bg-surface-500', text: 'text-surface-400', ring: 'border-surface-700/50 bg-surface-800/40' },
+}
+const OUTCOME_STYLE = {
+  target: { label: 'Target ✓', cls: 'bg-success/15 text-success' },
+  stop: { label: 'Stopped', cls: 'bg-danger/15 text-danger' },
+  open: { label: 'Open', cls: 'bg-accent/15 text-accent' },
+  no_entry: { label: 'No entry', cls: 'bg-surface-700 text-surface-400' },
+  untracked: { label: '—', cls: 'bg-surface-700 text-surface-500' },
 }
 
 function Chip({ label, value, tone = 'text-surface-200' }) {
@@ -37,12 +54,86 @@ function PlanCell({ label, value, tone }) {
   )
 }
 
-function IdeaCard({ idea, rank, budget }) {
+function RegimeBanner({ regime }) {
+  if (!regime) return null
+  const st = REGIME_STYLE[regime.level] || REGIME_STYLE.unknown
+  return (
+    <div className={`rounded-xl border ${st.ring} px-4 py-3`}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${st.dot}`} />
+          <span className={`text-sm font-display font-semibold ${st.text} capitalize`}>{regime.level} regime</span>
+        </span>
+        {regime.summary && <span className="text-sm text-surface-300">{regime.summary}</span>}
+        {regime.selectivity && (
+          <span className="text-[10px] uppercase tracking-wider text-surface-500">
+            · {regime.selectivity === 'strict' ? 'be highly selective' : regime.selectivity === 'raised' ? 'raised bar' : 'tailwind'}
+          </span>
+        )}
+        {!regime.available && <span className="text-[10px] text-surface-500">(breadth cache cold)</span>}
+      </div>
+      {regime.posture && <p className="text-xs text-surface-400 mt-1">{regime.posture}</p>}
+      {Array.isArray(regime.warnings) && regime.warnings.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5">
+          {regime.warnings.slice(0, 2).map((w, i) => (
+            <li key={i} className="text-[11px] text-amber-300/80">⚠ {w}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function PortfolioPanel({ portfolio, regime }) {
+  if (!portfolio) return null
+  const heat = portfolio.heat_pct
+  const suggested = portfolio.regime_suggested_heat_pct
+  const hot = suggested != null && heat != null && heat > suggested
+  return (
+    <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-4">
+      <div className="flex items-baseline justify-between mb-3">
+        <h2 className="font-display font-semibold text-surface-50">Portfolio risk</h2>
+        <span className="text-[11px] text-surface-500">if all {portfolio.ideas} ideas are taken & every stop hits</span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <Chip label="Capital deployed" value={`${fmtUSD(portfolio.total_cost, 0)}`} tone="text-surface-100" />
+        <Chip label="% of account" value={portfolio.deployed_pct != null ? `${portfolio.deployed_pct}%` : '—'} />
+        <Chip label="Total $ at risk" value={fmtUSD(portfolio.total_risk_dollars, 0)} tone="text-danger" />
+        <Chip
+          label="Portfolio heat"
+          value={heat != null ? `${heat}%` : '—'}
+          tone={hot ? 'text-danger' : 'text-success'}
+        />
+      </div>
+      {suggested != null && (
+        <p className={`text-[11px] mt-2 ${hot ? 'text-amber-300' : 'text-surface-500'}`}>
+          {hot ? '⚠ ' : ''}Regime-suggested max heat ≈ {suggested}% {hot ? '— current heat exceeds it, consider trimming size or count.' : '— within budget.'}
+        </p>
+      )}
+      {Array.isArray(portfolio.correlated_pairs) && portfolio.correlated_pairs.length > 0 && (
+        <div className="mt-3 border-t border-surface-800 pt-2.5">
+          <div className="text-[10px] uppercase tracking-wider text-surface-500 mb-1.5">Correlated bets — not independent positions</div>
+          <div className="flex flex-wrap gap-1.5">
+            {portfolio.correlated_pairs.map((p, i) => (
+              <span key={i} className="text-[11px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300/90 border border-amber-500/20">
+                {p.a} ↔ {p.b} · ρ {p.corr}
+              </span>
+            ))}
+          </div>
+          <p className="text-[11px] text-surface-500 mt-1.5">These move together — treat them as one position when sizing total risk.</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function IdeaCard({ idea, rank, budget, account }) {
   const s = idea.stats || {}
   const tvUrl = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(idea.ticker)}`
   const setupCls = SETUP_STYLE[idea.setup] || 'bg-surface-700 text-surface-200 border-surface-600'
   const convCls = CONV_STYLE[idea.conviction] || CONV_STYLE.low
   const change = s.today_change_pct
+  const budgetCapped = idea.sizing_basis === 'budget'
   return (
     <div className="rounded-xl bg-surface-900/70 border border-surface-700/50 p-5 space-y-4">
       {/* header */}
@@ -56,7 +147,7 @@ function IdeaCard({ idea, rank, budget }) {
                className="font-display font-bold text-lg text-surface-50 hover:text-accent transition-colors">
               {idea.ticker}
             </a>
-            <div className="flex items-center gap-1.5 mt-0.5">
+            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${setupCls}`}>{idea.setup}</span>
               {idea.conviction && (
                 <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${convCls}`}>{idea.conviction} conviction</span>
@@ -72,8 +163,30 @@ function IdeaCard({ idea, rank, budget }) {
           {change != null && (
             <div className={`font-mono text-xs ${change >= 0 ? 'text-success' : 'text-danger'}`}>{signPct(change)} today</div>
           )}
+          {idea.composite_score != null && (
+            <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent/10 text-accent"
+                 title={(idea.score_breakdown || []).map((b) => `${b.factor}: ${b.points}`).join('  ·  ')}>
+              Q {idea.composite_score}
+            </div>
+          )}
         </div>
       </div>
+
+      {/* backtest outcome strip (only present on backtested ideas) */}
+      {idea.outcome && (
+        <div className="flex items-center justify-between rounded-lg bg-surface-800/50 border border-surface-700/40 px-3 py-2">
+          <span className="flex items-center gap-2">
+            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${(OUTCOME_STYLE[idea.outcome] || OUTCOME_STYLE.untracked).cls}`}>
+              {(OUTCOME_STYLE[idea.outcome] || OUTCOME_STYLE.untracked).label}
+            </span>
+            <span className="text-[11px] text-surface-500">since suggested → now</span>
+          </span>
+          <span className="flex items-center gap-3 font-mono text-sm">
+            <span className={tone(idea.change_pct)}>{signPct(idea.change_pct)}</span>
+            <span className={idea.r_multiple == null ? 'text-surface-500' : `font-semibold ${tone(idea.r_multiple)}`}>{fmtR(idea.r_multiple)}</span>
+          </span>
+        </div>
+      )}
 
       {/* trade plan */}
       <div className="flex gap-2">
@@ -83,17 +196,17 @@ function IdeaCard({ idea, rank, budget }) {
         <PlanCell label="R:R" value={idea.rr_to_target ? `${idea.rr_to_target}×` : '—'} tone="text-surface-200" />
       </div>
 
-      {/* sizing */}
-      <div className="rounded-lg bg-surface-800/40 border border-surface-700/40 px-3 py-2 flex items-center justify-between text-xs">
+      {/* sizing — risk-based */}
+      <div className="rounded-lg bg-surface-800/40 border border-surface-700/40 px-3 py-2 flex flex-wrap items-center justify-between gap-y-1 text-xs">
         <span className="text-surface-400">
-          {fmtUSD(budget, 0)} →{' '}
           <span className="text-surface-100 font-semibold">{idea.shares} sh</span>
           <span className="text-surface-500"> ≈ {fmtUSD(idea.position_cost)}</span>
+          {budgetCapped && <span className="ml-1 text-[10px] text-amber-300/80">(budget-capped)</span>}
         </span>
         <span className="text-surface-400">
           risk{' '}
           <span className="text-danger font-semibold">{fmtUSD(idea.risk_dollars)}</span>
-          {idea.risk_pct != null && <span className="text-surface-500"> ({idea.risk_pct}%)</span>}
+          {idea.account_risk_pct != null && <span className="text-surface-500"> · {idea.account_risk_pct}% of acct</span>}
         </span>
       </div>
 
@@ -147,6 +260,52 @@ function IdeaCard({ idea, rank, budget }) {
   )
 }
 
+function StatTile({ label, value, tone = 'text-surface-100', sub }) {
+  return (
+    <div className="rounded-lg bg-surface-800/40 border border-surface-700/30 px-3 py-2.5">
+      <div className="text-[10px] uppercase tracking-wider text-surface-500">{label}</div>
+      <div className={`font-mono text-lg font-semibold ${tone}`}>{value}</div>
+      {sub && <div className="text-[10px] text-surface-500 mt-0.5">{sub}</div>}
+    </div>
+  )
+}
+
+function TrackRecord({ stats }) {
+  if (!stats || !stats.resolved) {
+    return (
+      <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-4 text-sm text-surface-500">
+        <span className="font-display font-semibold text-surface-300">Track record</span> — no trades have resolved
+        (hit target or stop) yet. Stats populate as suggested setups play out.
+      </div>
+    )
+  }
+  const exp = stats.expectancy_r
+  const pf = stats.profit_factor
+  return (
+    <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-5">
+      <div className="flex items-baseline justify-between mb-3">
+        <h2 className="font-display font-semibold text-lg text-surface-50">Track record</h2>
+        <span className="text-[11px] text-surface-500">realized R-multiples · entry-triggered setups only</span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+        <StatTile label="Expectancy" value={fmtR(exp)} tone={exp >= 0 ? 'text-success' : 'text-danger'} sub="per trade" />
+        <StatTile label="Hit rate" value={stats.hit_rate_pct != null ? `${stats.hit_rate_pct}%` : '—'}
+          sub={`${stats.wins}W / ${stats.losses}L`} />
+        <StatTile label="Profit factor" value={stats.all_wins ? '∞' : pf == null ? '—' : pf}
+          tone={stats.all_wins || (pf && pf >= 1) ? 'text-success' : 'text-danger'} />
+        <StatTile label="Avg win" value={fmtR(stats.avg_win_r)} tone="text-success" />
+        <StatTile label="Avg loss" value={fmtR(stats.avg_loss_r)} tone="text-danger" />
+        <StatTile label="Total" value={fmtR(stats.total_r)} tone={stats.total_r >= 0 ? 'text-success' : 'text-danger'}
+          sub={`${stats.resolved} resolved`} />
+      </div>
+      <p className="text-[11px] text-surface-500 mt-2">
+        {stats.open} open · {stats.no_entry} never triggered the entry. Target = +planned R, stop = −1R; ties within a bar
+        resolve to the stop (conservative).
+      </p>
+    </div>
+  )
+}
+
 function HistoryLedger({ records }) {
   if (!records || records.length === 0) {
     return (
@@ -159,7 +318,7 @@ function HistoryLedger({ records }) {
     <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-5">
       <div className="flex items-baseline justify-between mb-3">
         <h2 className="font-display font-semibold text-lg text-surface-50">Suggestion history</h2>
-        <span className="text-[11px] text-surface-500">suggested price → latest close · 1/day · last 365 days</span>
+        <span className="text-[11px] text-surface-500">outcome · R-multiple · vs SPY · 1/day · last 365 days</span>
       </div>
       <div className="space-y-3">
         {records.map((r) => (
@@ -168,23 +327,39 @@ function HistoryLedger({ records }) {
               <span className="text-xs font-semibold text-surface-200">
                 {r.date}
                 {!r.ai_available && <span className="ml-2 text-[10px] text-surface-500 font-normal">rule-based</span>}
+                {r.regime && <span className="ml-2 text-[10px] text-surface-500 font-normal capitalize">· {r.regime}</span>}
               </span>
-              {r.avg_change_pct != null && (
-                <span className={`text-xs font-mono font-semibold ${tone(r.avg_change_pct)}`}>avg {signPct(r.avg_change_pct)}</span>
-              )}
+              <span className="flex items-center gap-2">
+                {r.alpha_pct != null && (
+                  <span className={`text-[11px] font-mono ${tone(r.alpha_pct)}`} title={`vs SPY ${signPct(r.benchmark_change_pct)}`}>
+                    α {signPct(r.alpha_pct)}
+                  </span>
+                )}
+                {r.avg_change_pct != null && (
+                  <span className={`text-xs font-mono font-semibold ${tone(r.avg_change_pct)}`}>avg {signPct(r.avg_change_pct)}</span>
+                )}
+              </span>
             </div>
             <table className="w-full text-xs">
               <tbody>
-                {r.ideas.map((i, idx) => (
-                  <tr key={idx} className="border-t border-surface-800/40">
-                    <td className="py-1.5 px-3 font-semibold text-surface-100">{i.ticker}</td>
-                    <td className="py-1.5 px-2 text-surface-500 hidden sm:table-cell">{i.setup}</td>
-                    <td className="py-1.5 px-2 text-right font-mono text-surface-400">{fmtUSD(i.suggested_price)}</td>
-                    <td className="py-1.5 px-1 text-surface-600 text-center">→</td>
-                    <td className="py-1.5 px-2 text-right font-mono text-surface-200">{fmtUSD(i.current_price)}</td>
-                    <td className={`py-1.5 px-3 text-right font-mono font-semibold ${tone(i.change_pct)}`}>{signPct(i.change_pct)}</td>
-                  </tr>
-                ))}
+                {r.ideas.map((i, idx) => {
+                  const oc = OUTCOME_STYLE[i.outcome] || OUTCOME_STYLE.untracked
+                  return (
+                    <tr key={idx} className="border-t border-surface-800/40">
+                      <td className="py-1.5 px-3 font-semibold text-surface-100">{i.ticker}</td>
+                      <td className="py-1.5 px-2">
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${oc.cls}`}>{oc.label}</span>
+                      </td>
+                      <td className="py-1.5 px-2 text-right font-mono text-surface-400 hidden sm:table-cell">{fmtUSD(i.suggested_price)}</td>
+                      <td className="py-1.5 px-1 text-surface-600 text-center hidden sm:table-cell">→</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-surface-200">{fmtUSD(i.current_price)}</td>
+                      <td className={`py-1.5 px-2 text-right font-mono ${tone(i.change_pct)}`}>{signPct(i.change_pct)}</td>
+                      <td className={`py-1.5 px-3 text-right font-mono font-semibold ${i.r_multiple == null ? 'text-surface-500' : tone(i.r_multiple)}`}>
+                        {fmtR(i.r_multiple)}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -194,17 +369,289 @@ function HistoryLedger({ records }) {
   )
 }
 
+function EquityCurve({ points }) {
+  if (!points || points.length < 2) return null
+  return (
+    <div className="h-56 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={points} margin={{ top: 8, right: 12, bottom: 4, left: -8 }}>
+          <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={(d) => d.slice(5)} minTickGap={24} />
+          <YAxis tick={{ fontSize: 10, fill: '#64748b' }} width={40} unit="R" />
+          <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" />
+          <Tooltip
+            contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
+            labelStyle={{ color: '#cbd5e1' }}
+            formatter={(v) => [`${Number(v) >= 0 ? '+' : ''}${v}R`, 'Cumulative']}
+          />
+          <Line type="monotone" dataKey="cum_r" stroke="#6366f1" strokeWidth={2} dot={false} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+function BacktestInspector({ budget, account, riskPct }) {
+  const [asOf, setAsOf] = useState('')
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const win = data?.data_window
+
+  const run = useCallback(async () => {
+    if (!asOf) {
+      setError('Pick a date first.')
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      setData(await getAITraderBacktest({ asOf, budget, account, riskPct }))
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [asOf, budget, account, riskPct])
+
+  const ideas = data?.ideas || []
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="text-xs text-surface-400">
+            As-of date
+            <input
+              type="date" value={asOf}
+              min={win?.earliest || undefined} max={win?.latest || undefined}
+              onChange={(e) => setAsOf(e.target.value)}
+              className="mt-1 block rounded-lg bg-surface-800 border border-surface-700 px-2.5 py-2 text-sm text-surface-100 font-mono focus:outline-none focus:border-accent"
+            />
+          </label>
+          <button
+            onClick={run} disabled={loading}
+            className="rounded-lg bg-accent text-white text-sm font-semibold px-4 py-2 hover:bg-accent/90 disabled:opacity-50 transition-colors"
+          >
+            {loading ? 'Replaying…' : 'Replay this date'}
+          </button>
+          <p className="text-[11px] text-surface-500">
+            Rule-based engine, data ≤ chosen date only · then scored forward to today.
+            {win?.earliest && <> Window {win.earliest} → {win.latest}.</>}
+          </p>
+        </div>
+      </div>
+
+      {loading && (
+        <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-10 text-center">
+          <div className="inline-block w-7 h-7 border-2 border-accent/30 border-t-accent rounded-full animate-spin mb-2" />
+          <p className="text-surface-400 text-sm">Loading point-in-time data &amp; replaying… (~30s on first run)</p>
+        </div>
+      )}
+      {error && !loading && (
+        <div className="rounded-xl border border-danger/30 bg-danger/[0.06] p-4 text-center text-danger text-sm">{error}</div>
+      )}
+
+      {!loading && data && (
+        <>
+          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+            <span className="text-surface-500">as of <span className="text-surface-200 font-mono">{data.as_of}</span></span>
+            <span className="text-surface-600">·</span>
+            <span className="text-surface-500 capitalize">regime: {data.regime?.level}</span>
+            <span className="text-surface-600">·</span>
+            <span className="text-surface-500">{data.candidates_considered} candidates</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <StatTile label="Avg since" value={signPct(data.avg_change_pct)} tone={tone(data.avg_change_pct)} sub="raw % to today" />
+            <StatTile label="Alpha vs SPY" value={signPct(data.alpha_pct)} tone={tone(data.alpha_pct)} sub={`SPY ${signPct(data.benchmark_change_pct)}`} />
+            <StatTile label="Expectancy" value={fmtR(data.stats?.expectancy_r)} tone={data.stats?.expectancy_r >= 0 ? 'text-success' : 'text-danger'} sub="per trade" />
+            <StatTile label="Hit rate" value={data.stats?.hit_rate_pct != null ? `${data.stats.hit_rate_pct}%` : '—'} sub={`${data.stats?.wins || 0}W / ${data.stats?.losses || 0}L`} />
+          </div>
+          <p className="text-[11px] text-surface-500">
+            ⚠ Raw % is survivorship-biased (today's universe) and ignores the stop — the R-multiple is the honest read.
+          </p>
+          {ideas.length > 0 ? (
+            <div className="space-y-4">
+              {ideas.map((idea, i) => (
+                <IdeaCard key={`${idea.ticker}-${i}`} idea={idea} rank={i + 1} budget={budget} account={account} />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-8 text-center text-surface-400 text-sm">
+              No rule-based setups qualified on {data.as_of}.
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+const STEP_OPTIONS = [
+  { label: 'Weekly', days: 7 },
+  { label: 'Biweekly', days: 14 },
+  { label: 'Monthly', days: 30 },
+]
+
+function WalkForwardPanel({ budget, account, riskPct }) {
+  const [stepDays, setStepDays] = useState(7)
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  const run = useCallback(async (fresh = false) => {
+    setLoading(true)
+    setError(null)
+    try {
+      setData(await getAITraderWalkforward({ stepDays, budget, account, riskPct, fresh }))
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [stepDays, budget, account, riskPct])
+
+  const agg = data?.aggregate
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="text-xs text-surface-400">
+            Cadence
+            <select
+              value={stepDays} onChange={(e) => setStepDays(Number(e.target.value))}
+              className="mt-1 block rounded-lg bg-surface-800 border border-surface-700 px-2.5 py-2 text-sm text-surface-100 focus:outline-none focus:border-accent"
+            >
+              {STEP_OPTIONS.map((o) => <option key={o.days} value={o.days}>{o.label}</option>)}
+            </select>
+          </label>
+          <button
+            onClick={() => run(false)} disabled={loading}
+            className="rounded-lg bg-accent text-white text-sm font-semibold px-4 py-2 hover:bg-accent/90 disabled:opacity-50 transition-colors"
+          >
+            {loading ? 'Running…' : 'Run backtest'}
+          </button>
+          {data && !loading && (
+            <button onClick={() => run(true)} disabled={loading} className="text-[11px] text-surface-500 hover:text-surface-300 underline">
+              re-run fresh
+            </button>
+          )}
+          <p className="text-[11px] text-surface-500">Replays the rule-based engine across the window. First run ~30–60s; cached after.</p>
+        </div>
+      </div>
+
+      {loading && (
+        <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-10 text-center">
+          <div className="inline-block w-7 h-7 border-2 border-accent/30 border-t-accent rounded-full animate-spin mb-2" />
+          <p className="text-surface-400 text-sm">Walking the engine forward through history…</p>
+        </div>
+      )}
+      {error && !loading && (
+        <div className="rounded-xl border border-danger/30 bg-danger/[0.06] p-4 text-center text-danger text-sm">{error}</div>
+      )}
+
+      {!loading && agg && (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            <StatTile label="Expectancy" value={fmtR(agg.expectancy_r)} tone={agg.expectancy_r >= 0 ? 'text-success' : 'text-danger'} sub="per trade" />
+            <StatTile label="Total" value={fmtR(agg.total_r)} tone={agg.total_r >= 0 ? 'text-success' : 'text-danger'} sub={`${agg.resolved} resolved`} />
+            <StatTile label="Hit rate" value={agg.hit_rate_pct != null ? `${agg.hit_rate_pct}%` : '—'} sub={`${agg.wins}W / ${agg.losses}L`} />
+            <StatTile label="Profit factor" value={agg.all_wins ? '∞' : agg.profit_factor == null ? '—' : agg.profit_factor} tone={agg.all_wins || (agg.profit_factor && agg.profit_factor >= 1) ? 'text-success' : 'text-danger'} />
+            <StatTile label="Ideas" value={agg.total_ideas} sub={`${agg.dates_run} dates`} />
+            <StatTile label="Avg win / loss" value={`${fmtR(agg.avg_win_r)} / ${fmtR(agg.avg_loss_r)}`} />
+          </div>
+
+          <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-4">
+            <div className="flex items-baseline justify-between mb-1">
+              <h3 className="font-display font-semibold text-surface-100">Equity curve</h3>
+              <span className="text-[11px] text-surface-500">cumulative R · {data.window?.earliest} → {data.window?.latest}</span>
+            </div>
+            <EquityCurve points={data.equity_curve} />
+          </div>
+
+          {data.by_regime && Object.keys(data.by_regime).length > 0 && (
+            <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-4">
+              <h3 className="font-display font-semibold text-surface-100 mb-2">By regime</h3>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-surface-500 text-left">
+                    <th className="py-1 font-medium">Regime</th>
+                    <th className="py-1 font-medium text-right">Ideas</th>
+                    <th className="py-1 font-medium text-right">Hit rate</th>
+                    <th className="py-1 font-medium text-right">Expectancy</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(data.by_regime).map(([lvl, s]) => (
+                    <tr key={lvl} className="border-t border-surface-800/40">
+                      <td className="py-1.5 capitalize text-surface-200">{lvl}</td>
+                      <td className="py-1.5 text-right font-mono text-surface-300">{s.ideas}</td>
+                      <td className="py-1.5 text-right font-mono text-surface-300">{s.hit_rate_pct != null ? `${s.hit_rate_pct}%` : '—'}</td>
+                      <td className={`py-1.5 text-right font-mono font-semibold ${s.expectancy_r >= 0 ? 'text-success' : 'text-danger'}`}>{fmtR(s.expectancy_r)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {Array.isArray(data.dates) && data.dates.length > 0 && (
+            <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-4">
+              <h3 className="font-display font-semibold text-surface-100 mb-2">By date</h3>
+              <div className="space-y-1.5">
+                {data.dates.map((d) => (
+                  <details key={d.as_of} className="rounded-lg bg-surface-800/30 border border-surface-700/30">
+                    <summary className="flex items-center justify-between px-3 py-1.5 cursor-pointer text-xs">
+                      <span className="text-surface-200 font-mono">{d.as_of}</span>
+                      <span className="flex items-center gap-3">
+                        <span className="text-surface-500 capitalize">{d.regime}</span>
+                        {d.alpha_pct != null && <span className={`font-mono ${tone(d.alpha_pct)}`}>α {signPct(d.alpha_pct)}</span>}
+                        <span className="text-surface-500">{d.ideas.length} ideas</span>
+                      </span>
+                    </summary>
+                    <table className="w-full text-xs border-t border-surface-800/40">
+                      <tbody>
+                        {d.ideas.map((i, idx) => {
+                          const oc = OUTCOME_STYLE[i.outcome] || OUTCOME_STYLE.untracked
+                          return (
+                            <tr key={idx} className="border-t border-surface-800/30">
+                              <td className="py-1 px-3 font-semibold text-surface-100">{i.ticker}</td>
+                              <td className="py-1 px-2"><span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${oc.cls}`}>{oc.label}</span></td>
+                              <td className={`py-1 px-2 text-right font-mono ${tone(i.change_pct)}`}>{signPct(i.change_pct)}</td>
+                              <td className={`py-1 px-3 text-right font-mono font-semibold ${i.r_multiple == null ? 'text-surface-500' : tone(i.r_multiple)}`}>{fmtR(i.r_multiple)}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </details>
+                ))}
+              </div>
+            </div>
+          )}
+          <p className="text-[11px] text-surface-600">
+            Backtests the deterministic rule-based engine (not the live LLM picks). See limitations in the strategy doc: survivorship in the universe, daily-bar resolution, no fees/slippage.
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function AITrader() {
+  const [tab, setTab] = useState('live')
   const [budget, setBudget] = useState(500)
+  const [account, setAccount] = useState(25000)
+  const [riskPct, setRiskPct] = useState(1.0)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [history, setHistory] = useState(null)
+  const [stats, setStats] = useState(null)
 
   const loadHistory = useCallback(async () => {
     try {
       const h = await getAITraderHistory()
       setHistory(h.records || [])
+      setStats(h.stats || null)
     } catch {
       /* non-fatal */
     }
@@ -214,7 +661,7 @@ export default function AITrader() {
     setLoading(true)
     setError(null)
     try {
-      const d = await getAITraderIdeas({ budget, minAdr: 0.03, fresh })
+      const d = await getAITraderIdeas({ budget, minAdr: 0.03, account, riskPct, fresh })
       setData(d)
       loadHistory() // refresh ledger (today's run may have just been recorded)
     } catch (e) {
@@ -222,7 +669,7 @@ export default function AITrader() {
     } finally {
       setLoading(false)
     }
-  }, [budget, loadHistory])
+  }, [budget, account, riskPct, loadHistory])
 
   useEffect(() => {
     load(false)
@@ -239,12 +686,34 @@ export default function AITrader() {
         <div>
           <h1 className="font-display font-bold text-2xl text-surface-50">AI Trader</h1>
           <p className="text-sm text-surface-400 mt-1">
-            Today's top <span className="text-surface-200">Qullamaggie</span> setups · ADR ≥ 3% · sized for your daily budget
+            Today's top <span className="text-surface-200">Qullamaggie</span> setups · ADR ≥ 3% · regime-aware · risk-sized
           </p>
         </div>
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-2 flex-wrap">
           <label className="text-xs text-surface-400">
-            Daily budget
+            Account
+            <div className="mt-1 flex items-center rounded-lg bg-surface-800 border border-surface-700 px-2.5">
+              <span className="text-surface-500 text-sm">$</span>
+              <input
+                type="number" min="500" step="1000" value={account}
+                onChange={(e) => setAccount(Math.max(500, Number(e.target.value) || 0))}
+                className="w-24 bg-transparent py-2 px-1 text-sm text-surface-100 font-mono focus:outline-none"
+              />
+            </div>
+          </label>
+          <label className="text-xs text-surface-400">
+            Risk / idea
+            <div className="mt-1 flex items-center rounded-lg bg-surface-800 border border-surface-700 px-2.5">
+              <input
+                type="number" min="0.05" max="10" step="0.25" value={riskPct}
+                onChange={(e) => setRiskPct(Math.min(10, Math.max(0.05, Number(e.target.value) || 0)))}
+                className="w-12 bg-transparent py-2 px-1 text-sm text-surface-100 font-mono focus:outline-none"
+              />
+              <span className="text-surface-500 text-sm">%</span>
+            </div>
+          </label>
+          <label className="text-xs text-surface-400">
+            Per-idea cap
             <div className="mt-1 flex items-center rounded-lg bg-surface-800 border border-surface-700 px-2.5">
               <span className="text-surface-500 text-sm">$</span>
               <input
@@ -254,14 +723,54 @@ export default function AITrader() {
               />
             </div>
           </label>
-          <button
-            onClick={() => load(true)} disabled={loading}
-            className="rounded-lg bg-accent text-white text-sm font-semibold px-4 py-2 hover:bg-accent/90 disabled:opacity-50 transition-colors"
-          >
-            {loading ? 'Scanning…' : 'Generate ideas'}
-          </button>
+          {tab === 'live' && (
+            <button
+              onClick={() => load(true)} disabled={loading}
+              className="rounded-lg bg-accent text-white text-sm font-semibold px-4 py-2 hover:bg-accent/90 disabled:opacity-50 transition-colors"
+            >
+              {loading ? 'Scanning…' : 'Generate ideas'}
+            </button>
+          )}
         </div>
       </div>
+
+      {/* tabs */}
+      <div className="flex items-center gap-1 border-b border-surface-800">
+        {[['live', 'Live ideas'], ['backtest', 'Backtest']].map(([id, label]) => (
+          <button
+            key={id} onClick={() => setTab(id)}
+            className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+              tab === id ? 'border-accent text-surface-50' : 'border-transparent text-surface-400 hover:text-surface-200'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'backtest' && (
+        <div className="space-y-6">
+          <div className="rounded-xl border border-surface-700/40 bg-surface-800/30 px-4 py-3">
+            <p className="text-sm text-surface-300">
+              Point-in-time backtest of the <span className="text-surface-100 font-semibold">rule-based</span> engine — only data on/before
+              the chosen date drives the picks, then they're scored forward to today. Uses your Account / Risk / Cap settings above.
+            </p>
+          </div>
+          <div>
+            <h2 className="font-display font-semibold text-lg text-surface-50 mb-2">Inspect a single day</h2>
+            <BacktestInspector budget={budget} account={account} riskPct={riskPct} />
+          </div>
+          <div>
+            <h2 className="font-display font-semibold text-lg text-surface-50 mb-2">Walk-forward backtest</h2>
+            <WalkForwardPanel budget={budget} account={account} riskPct={riskPct} />
+          </div>
+        </div>
+      )}
+
+      {tab === 'live' && (
+      <>
+      {/* regime banner */}
+      {data?.regime && !loading && <RegimeBanner regime={data.regime} />}
 
       {/* status line */}
       {data && !loading && (
@@ -274,7 +783,7 @@ export default function AITrader() {
           <span className="text-surface-500">{data.candidates_considered} candidates scanned</span>
           {data.cached && <span className="text-surface-600">· cached {Math.round((data.cache_age_seconds || 0) / 60)}m ago</span>}
           {data.ai_available
-            ? <span className="px-2 py-0.5 rounded-full bg-accent/15 text-accent font-semibold">AI ranked</span>
+            ? <span className="px-2 py-0.5 rounded-full bg-accent/15 text-accent font-semibold">AI ranked · T={data.temperature ?? 0}</span>
             : <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-semibold">rule-based</span>}
         </div>
       )}
@@ -302,11 +811,16 @@ export default function AITrader() {
         </div>
       )}
 
+      {/* portfolio risk */}
+      {!loading && !error && ideas.length > 0 && data?.portfolio && (
+        <PortfolioPanel portfolio={data.portfolio} regime={data.regime} />
+      )}
+
       {/* ideas */}
       {!loading && !error && ideas.length > 0 && (
         <div className="space-y-4">
           {ideas.map((idea, i) => (
-            <IdeaCard key={`${idea.ticker}-${i}`} idea={idea} rank={i + 1} budget={data.budget} />
+            <IdeaCard key={`${idea.ticker}-${i}`} idea={idea} rank={i + 1} budget={data.budget} account={data.account} />
           ))}
         </div>
       )}
@@ -321,8 +835,11 @@ export default function AITrader() {
         </div>
       )}
 
-      {/* history ledger */}
+      {/* track record + history ledger */}
+      <TrackRecord stats={stats} />
       <HistoryLedger records={history} />
+      </>
+      )}
 
       {/* disclaimer */}
       <p className="text-[11px] text-surface-600 text-center pt-2">

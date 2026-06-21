@@ -191,7 +191,11 @@ export default function Layout() {
   const dailyRule = useMemo(() => getRuleOfDay(loadRules()), [])
 
   return (
-    <div className="min-h-screen flex">
+    // Column on mobile (header stacks above content); row at lg+ where the
+    // sidebar is fixed/out-of-flow. Without flex-col on mobile, the w-full
+    // header is a flex sibling of <main> in a row and eats the full width,
+    // collapsing the content area to 0.
+    <div className="min-h-screen flex flex-col lg:flex-row">
       {/* Desktop sidebar */}
       <aside
         className={`hidden lg:flex flex-col fixed inset-y-0 left-0 z-40 ${sidebarWidth} bg-surface-950/95 backdrop-blur-xl border-r border-surface-700/50 transition-[width] duration-200 ease-out`}
