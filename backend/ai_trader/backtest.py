@@ -41,11 +41,23 @@ logger = logging.getLogger(__name__)
 
 MIN_BARS = 150            # bars required before as_of (≈ 6mo history for ret_6m/base)
 MAX_WALKFORWARD_DATES = 60
+_SCHEMA = 3               # bump when the result shape changes so stale caches are ignored
 _BENCHMARK = "SPY"
 _CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "ai_trader_backtest")
 
 
 # ── single date ──────────────────────────────────────────────────────────────
+def _close_on(df, on: str):
+    """Latest close on/before `on` (for benchmark % over the window)."""
+    if df is None or not len(df):
+        return None
+    try:
+        prior = df[df.index <= on]
+        return float(prior["close"].iloc[-1]) if len(prior) else None
+    except Exception:
+        return None
+
+
 def _truncate(frames: dict, as_of: str) -> dict:
     """Frames cut to bars on/before as_of, keeping only names with enough history."""
     out = {}
@@ -156,13 +168,15 @@ def run_walkforward(*, start: str | None, end: str | None, step_days: int,
     if not start or not end:
         return {"error": "No price history available to backtest.", "dates": [], "window": window}
 
-    params = {"start": start, "end": end, "step_days": step_days, "budget": budget,
-              "account": account, "risk_pct": risk_pct, "min_adr": min_adr}
+    params = {"start": start, "end": end, "step_days": int(step_days), "budget": float(budget),
+              "account": float(account), "risk_pct": float(risk_pct), "min_adr": float(min_adr)}
     path = _cache_path(params)
     if not fresh and os.path.exists(path):
         try:
             with open(path) as f:
-                return {**json.load(f), "cached": True}
+                cached = json.load(f)
+            if cached.get("schema") == _SCHEMA:  # ignore results from an older shape
+                return {**cached, "cached": True}
         except Exception:
             pass
 
@@ -172,15 +186,30 @@ def run_walkforward(*, start: str | None, end: str | None, step_days: int,
 
     per_date, all_evals, equity, by_regime = [], [], [], {}
     cum_r = 0.0
+    peak_r = 0.0
+    max_dd_r = 0.0
+    spy_base = _close_on(spy, dates[0]) if dates else None
     for d in dates:
         res = simulate(d, frames=frames, spy=spy, regime_rows=rows,
                        budget=budget, account=account, risk_pct=risk_pct, min_adr=min_adr)
         ideas = res["ideas"]
         if not ideas:
             continue
-        day_r = sum(i["r_multiple"] for i in ideas if i.get("r_multiple") is not None)
+        # Realized R only — open trades' mark-to-market would inflate the curve
+        # and desync it from the (realized) aggregate stats.
+        day_r = sum(i["r_multiple"] for i in ideas
+                    if i.get("realized") and i.get("r_multiple") is not None)
         cum_r = round(cum_r + day_r, 2)
-        equity.append({"date": d, "cum_r": cum_r, "day_r": round(day_r, 2)})
+        peak_r = max(peak_r, cum_r)
+        max_dd_r = max(max_dd_r, peak_r - cum_r)
+        spy_now = _close_on(spy, d)
+        spy_pct = round((spy_now / spy_base - 1) * 100, 1) if (spy_base and spy_now) else None
+        equity.append({
+            "date": d, "cum_r": cum_r, "day_r": round(day_r, 2),
+            # strategy return assuming each idea risks `risk_pct` of the account
+            "strategy_pct": round(cum_r * risk_pct, 1),
+            "spy_pct": spy_pct,
+        })
         per_date.append({
             "as_of": d, "regime": res["regime"]["level"],
             "avg_change_pct": res["avg_change_pct"], "alpha_pct": res["alpha_pct"],
@@ -189,7 +218,8 @@ def run_walkforward(*, start: str | None, end: str | None, step_days: int,
                 "composite_score": i.get("composite_score"),
                 "entry": i.get("entry"), "stop": i.get("stop"), "target": i.get("target"),
                 "outcome": i.get("outcome"), "r_multiple": i.get("r_multiple"),
-                "change_pct": i.get("change_pct"),
+                "change_pct": i.get("change_pct"), "mfe_r": i.get("mfe_r"),
+                "exit_price": i.get("exit_price"), "realized_return_pct": i.get("realized_return_pct"),
             } for i in ideas],
         })
         all_evals.extend(ideas)
@@ -199,9 +229,15 @@ def run_walkforward(*, start: str | None, end: str | None, step_days: int,
     aggregate = _expectancy(all_evals)
     aggregate["total_ideas"] = len(all_evals)
     aggregate["dates_run"] = len(per_date)
+    aggregate["max_drawdown_r"] = round(max_dd_r, 2)
+    # Strategy vs passive over the window (strategy sized at risk_pct per idea).
+    spy_last = _close_on(spy, dates[-1]) if dates else None
+    aggregate["strategy_return_pct"] = round((aggregate.get("total_r") or 0) * risk_pct, 1)
+    aggregate["spy_return_pct"] = round((spy_last / spy_base - 1) * 100, 1) if (spy_base and spy_last) else None
     regime_stats = {lvl: {**_expectancy(evs), "ideas": len(evs)} for lvl, evs in by_regime.items()}
 
     out = {
+        "schema": _SCHEMA,
         "params": params, "window": window,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "dates": per_date, "equity_curve": equity,

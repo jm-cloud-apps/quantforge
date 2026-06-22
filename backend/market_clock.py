@@ -16,7 +16,7 @@ Single source of truth — DO NOT duplicate the holiday list elsewhere.
 
 from __future__ import annotations
 
-from datetime import datetime, time as dtime
+from datetime import datetime, time as dtime, timedelta
 from zoneinfo import ZoneInfo
 
 PT = ZoneInfo("America/Los_Angeles")
@@ -90,3 +90,22 @@ DEFAULT_CLOSED_TTL_SEC = 4 * 3600
 def effective_cache_ttl(active_ttl: int, closed_ttl: int = DEFAULT_CLOSED_TTL_SEC) -> int:
     """Return TTL based on whether the market is actively trading."""
     return active_ttl if is_market_active_now() else closed_ttl
+
+
+def last_market_close() -> datetime:
+    """PT datetime of the most recent active→closed transition.
+
+    Walks back from now to the most recent trading day (weekday, not an NYSE
+    holiday) whose close cutoff has already passed. Used to decide whether a
+    market-closed cache still reflects the latest session: anything generated
+    at/after this timestamp is current, so weekend/holiday hits never need to
+    re-scan until the next session actually closes."""
+    now = datetime.now(PT)
+    d = now.date()
+    for _ in range(10):  # cover long holiday weekends
+        is_trading = d.weekday() < 5 and d.isoformat() not in _NYSE_HOLIDAYS
+        cutoff = datetime.combine(d, _ACTIVE_CUTOFF_PT, tzinfo=PT)
+        if is_trading and now >= cutoff:
+            return cutoff
+        d -= timedelta(days=1)
+    return datetime.combine(d, _ACTIVE_CUTOFF_PT, tzinfo=PT)  # pathological fallback

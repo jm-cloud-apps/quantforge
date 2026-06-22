@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts'
-import { getAITraderIdeas, getAITraderHistory, getAITraderBacktest, getAITraderWalkforward } from '../api/aiTrader'
+import { getAITraderIdeas, getAITraderHistory, getAITraderBacktest, getAITraderBacktestHistory, getAITraderWalkforward } from '../api/aiTrader'
 
 const fmtUSD = (v, d = 2) =>
   v == null || Number.isNaN(Number(v))
@@ -10,6 +10,15 @@ const fmtPct = (v, d = 1) => (v == null || Number.isNaN(Number(v)) ? '—' : `${
 const signPct = (v, d = 1) => (v == null ? '—' : `${Number(v) >= 0 ? '+' : ''}${Number(v).toFixed(d)}%`)
 const fmtR = (v) => (v == null || Number.isNaN(Number(v)) ? '—' : `${Number(v) >= 0 ? '+' : ''}${Number(v).toFixed(2)}R`)
 const tone = (v) => (v == null ? 'text-surface-500' : v > 0 ? 'text-success' : v < 0 ? 'text-danger' : 'text-surface-400')
+const fmtAge = (s) => {
+  s = Number(s) || 0
+  if (s < 90) return 'just now'
+  const m = Math.round(s / 60)
+  if (m < 90) return `${m}m ago`
+  const h = Math.round(m / 60)
+  if (h < 36) return `${h}h ago`
+  return `${Math.round(h / 24)}d ago`
+}
 
 const SETUP_STYLE = {
   Breakout: 'bg-accent/15 text-accent border-accent/30',
@@ -29,6 +38,7 @@ const REGIME_STYLE = {
   unknown: { dot: 'bg-surface-500', text: 'text-surface-400', ring: 'border-surface-700/50 bg-surface-800/40' },
 }
 const OUTCOME_STYLE = {
+  trail: { label: 'Trailed', cls: 'bg-success/15 text-success' },
   target: { label: 'Target ✓', cls: 'bg-success/15 text-success' },
   stop: { label: 'Stopped', cls: 'bg-danger/15 text-danger' },
   open: { label: 'Open', cls: 'bg-accent/15 text-accent' },
@@ -179,10 +189,17 @@ function IdeaCard({ idea, rank, budget, account }) {
             <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${(OUTCOME_STYLE[idea.outcome] || OUTCOME_STYLE.untracked).cls}`}>
               {(OUTCOME_STYLE[idea.outcome] || OUTCOME_STYLE.untracked).label}
             </span>
-            <span className="text-[11px] text-surface-500">since suggested → now</span>
+            <span className="text-[11px] text-surface-500">
+              {idea.exit_price != null
+                ? `exit ${fmtUSD(idea.exit_price)}${idea.holding_bars ? ` · ${idea.holding_bars}d` : ''}`
+                : 'open · mark-to-market'}
+            </span>
           </span>
           <span className="flex items-center gap-3 font-mono text-sm">
-            <span className={tone(idea.change_pct)}>{signPct(idea.change_pct)}</span>
+            {idea.mfe_r != null && <span className="text-[11px] text-surface-500" title="max favorable excursion">peak ↑{idea.mfe_r}R</span>}
+            <span className={tone(idea.exit_price != null ? idea.realized_return_pct : idea.change_pct)}>
+              {signPct(idea.exit_price != null ? idea.realized_return_pct : idea.change_pct)}
+            </span>
             <span className={idea.r_multiple == null ? 'text-surface-500' : `font-semibold ${tone(idea.r_multiple)}`}>{fmtR(idea.r_multiple)}</span>
           </span>
         </div>
@@ -306,19 +323,24 @@ function TrackRecord({ stats }) {
   )
 }
 
-function HistoryLedger({ records }) {
+function HistoryLedger({
+  records,
+  title = 'Suggestion history',
+  subtitle = 'suggested → exit/now · realized % · peak MFE · R · 1/day',
+  empty = "No history yet — today's picks will appear here, then track against the price going forward.",
+}) {
   if (!records || records.length === 0) {
     return (
       <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-6 text-center text-sm text-surface-500">
-        No history yet — today's picks will appear here, then track against the price going forward.
+        {empty}
       </div>
     )
   }
   return (
     <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-5">
       <div className="flex items-baseline justify-between mb-3">
-        <h2 className="font-display font-semibold text-lg text-surface-50">Suggestion history</h2>
-        <span className="text-[11px] text-surface-500">outcome · R-multiple · vs SPY · 1/day · last 365 days</span>
+        <h2 className="font-display font-semibold text-lg text-surface-50">{title}</h2>
+        <span className="text-[11px] text-surface-500">{subtitle}</span>
       </div>
       <div className="space-y-3">
         {records.map((r) => (
@@ -344,6 +366,9 @@ function HistoryLedger({ records }) {
               <tbody>
                 {r.ideas.map((i, idx) => {
                   const oc = OUTCOME_STYLE[i.outcome] || OUTCOME_STYLE.untracked
+                  const closed = i.exit_price != null
+                  const px = closed ? i.exit_price : i.current_price
+                  const ret = closed ? i.realized_return_pct : i.change_pct
                   return (
                     <tr key={idx} className="border-t border-surface-800/40">
                       <td className="py-1.5 px-3 font-semibold text-surface-100">{i.ticker}</td>
@@ -352,8 +377,11 @@ function HistoryLedger({ records }) {
                       </td>
                       <td className="py-1.5 px-2 text-right font-mono text-surface-400 hidden sm:table-cell">{fmtUSD(i.suggested_price)}</td>
                       <td className="py-1.5 px-1 text-surface-600 text-center hidden sm:table-cell">→</td>
-                      <td className="py-1.5 px-2 text-right font-mono text-surface-200">{fmtUSD(i.current_price)}</td>
-                      <td className={`py-1.5 px-2 text-right font-mono ${tone(i.change_pct)}`}>{signPct(i.change_pct)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-surface-200" title={closed ? `exit ${i.exit_date || ''}` : 'latest close'}>{fmtUSD(px)}</td>
+                      <td className={`py-1.5 px-2 text-right font-mono ${tone(ret)}`}>{signPct(ret)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-surface-600 hidden md:table-cell" title="peak unrealized (max favorable excursion)">
+                        {i.mfe_r != null ? `↑${i.mfe_r}R` : ''}
+                      </td>
                       <td className={`py-1.5 px-3 text-right font-mono font-semibold ${i.r_multiple == null ? 'text-surface-500' : tone(i.r_multiple)}`}>
                         {fmtR(i.r_multiple)}
                       </td>
@@ -371,26 +399,28 @@ function HistoryLedger({ records }) {
 
 function EquityCurve({ points }) {
   if (!points || points.length < 2) return null
+  const hasSpy = points.some((p) => p.spy_pct != null)
   return (
     <div className="h-56 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={points} margin={{ top: 8, right: 12, bottom: 4, left: -8 }}>
+        <LineChart data={points} margin={{ top: 8, right: 12, bottom: 4, left: -4 }}>
           <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={(d) => d.slice(5)} minTickGap={24} />
-          <YAxis tick={{ fontSize: 10, fill: '#64748b' }} width={40} unit="R" />
+          <YAxis tick={{ fontSize: 10, fill: '#64748b' }} width={44} unit="%" />
           <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" />
           <Tooltip
             contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
             labelStyle={{ color: '#cbd5e1' }}
-            formatter={(v) => [`${Number(v) >= 0 ? '+' : ''}${v}R`, 'Cumulative']}
+            formatter={(v, name) => [`${Number(v) >= 0 ? '+' : ''}${v}%`, name]}
           />
-          <Line type="monotone" dataKey="cum_r" stroke="#6366f1" strokeWidth={2} dot={false} />
+          {hasSpy && <Line type="monotone" dataKey="spy_pct" name="SPY" stroke="#64748b" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />}
+          <Line type="monotone" dataKey="strategy_pct" name="Strategy" stroke="#6366f1" strokeWidth={2} dot={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>
   )
 }
 
-function BacktestInspector({ budget, account, riskPct }) {
+function BacktestInspector({ budget, account, riskPct, onRan }) {
   const [asOf, setAsOf] = useState('')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -406,12 +436,13 @@ function BacktestInspector({ budget, account, riskPct }) {
     setError(null)
     try {
       setData(await getAITraderBacktest({ asOf, budget, account, riskPct }))
+      onRan?.() // refresh the saved backtest ledger below
     } catch (e) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [asOf, budget, account, riskPct])
+  }, [asOf, budget, account, riskPct, onRan])
 
   const ideas = data?.ideas || []
   return (
@@ -512,6 +543,39 @@ function WalkForwardPanel({ budget, account, riskPct }) {
   const agg = data?.aggregate
   return (
     <div className="space-y-4">
+      {/* plain-English explainer */}
+      <div className="rounded-xl border border-accent/20 bg-accent/[0.04] p-4 space-y-3">
+        <div className="flex items-start gap-2.5">
+          <span className="text-accent text-base leading-none mt-0.5">ℹ</span>
+          <div className="space-y-2 text-[13px] text-surface-300 leading-relaxed">
+            <p>
+              The <span className="text-surface-100 font-semibold">single-day replay</span> above answers
+              “how did <em>one</em> day’s picks do?” A <span className="text-surface-100 font-semibold">walk-forward backtest</span> answers
+              the bigger question: <span className="text-surface-100">does this strategy work over time, or was that day just luck?</span>
+            </p>
+            <p>
+              It steps through history — e.g. every week across the last ~8 months — and on each date re-runs the engine
+              seeing <span className="text-surface-100 font-semibold">only the data available that day</span> (no peeking ahead).
+              Every simulated pick is then tracked to its real outcome. Stacking all those days together is the strategy’s track record.
+            </p>
+          </div>
+        </div>
+        <div className="grid sm:grid-cols-3 gap-2 pt-1">
+          <div className="rounded-lg bg-surface-800/40 px-3 py-2">
+            <div className="text-[11px] font-semibold text-surface-200">Expectancy</div>
+            <div className="text-[11px] text-surface-400 leading-snug">Avg profit per trade in <span className="text-surface-300">R</span> (1R = what you risk per trade). Above 0 = an edge.</div>
+          </div>
+          <div className="rounded-lg bg-surface-800/40 px-3 py-2">
+            <div className="text-[11px] font-semibold text-surface-200">Equity curve</div>
+            <div className="text-[11px] text-surface-400 leading-snug">Running total of R if you took every pick. Up-and-to-the-right is good.</div>
+          </div>
+          <div className="rounded-lg bg-surface-800/40 px-3 py-2">
+            <div className="text-[11px] font-semibold text-surface-200">By regime</div>
+            <div className="text-[11px] text-surface-400 leading-snug">Whether the edge holds in healthy vs. weak market breadth.</div>
+          </div>
+        </div>
+      </div>
+
       <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-4">
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-xs text-surface-400">
@@ -558,11 +622,23 @@ function WalkForwardPanel({ budget, account, riskPct }) {
             <StatTile label="Ideas" value={agg.total_ideas} sub={`${agg.dates_run} dates`} />
             <StatTile label="Avg win / loss" value={`${fmtR(agg.avg_win_r)} / ${fmtR(agg.avg_loss_r)}`} />
           </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            <StatTile label="Max drawdown" value={fmtR(agg.max_drawdown_r)} tone="text-danger" sub="peak-to-trough" />
+            <StatTile label="System quality" value={agg.system_quality != null ? agg.system_quality : '—'} tone={agg.system_quality >= 0 ? 'text-success' : 'text-danger'} sub="expectancy / R std" />
+            <StatTile label="Avg hold" value={agg.avg_holding_bars != null ? `${agg.avg_holding_bars}d` : '—'} sub="bars in trade" />
+            <StatTile label="Avg peak (MFE)" value={fmtR(agg.avg_mfe_r)} tone="text-surface-200" sub="ran in favor" />
+            <StatTile label="Strategy" value={signPct(agg.strategy_return_pct)} tone={tone(agg.strategy_return_pct)} sub={`at ${data.params?.risk_pct}%/idea`} />
+            <StatTile label="SPY (buy & hold)" value={signPct(agg.spy_return_pct)} tone={tone(agg.spy_return_pct)} sub="same window" />
+          </div>
 
           <div className="rounded-xl bg-surface-900/60 border border-surface-700/40 p-4">
             <div className="flex items-baseline justify-between mb-1">
               <h3 className="font-display font-semibold text-surface-100">Equity curve</h3>
-              <span className="text-[11px] text-surface-500">cumulative R · {data.window?.earliest} → {data.window?.latest}</span>
+              <span className="text-[11px] text-surface-500 flex items-center gap-2">
+                <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-accent" />strategy</span>
+                <span className="flex items-center gap-1"><span className="inline-block w-3 border-t border-dashed border-surface-500" />SPY</span>
+                <span className="text-surface-600">· % return</span>
+              </span>
             </div>
             <EquityCurve points={data.equity_curve} />
           </div>
@@ -615,7 +691,8 @@ function WalkForwardPanel({ budget, account, riskPct }) {
                             <tr key={idx} className="border-t border-surface-800/30">
                               <td className="py-1 px-3 font-semibold text-surface-100">{i.ticker}</td>
                               <td className="py-1 px-2"><span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${oc.cls}`}>{oc.label}</span></td>
-                              <td className={`py-1 px-2 text-right font-mono ${tone(i.change_pct)}`}>{signPct(i.change_pct)}</td>
+                              <td className="py-1 px-2 text-right font-mono text-surface-600 hidden sm:table-cell" title="peak (MFE)">{i.mfe_r != null ? `↑${i.mfe_r}R` : ''}</td>
+                              <td className={`py-1 px-2 text-right font-mono ${tone(i.exit_price != null ? i.realized_return_pct : i.change_pct)}`}>{signPct(i.exit_price != null ? i.realized_return_pct : i.change_pct)}</td>
                               <td className={`py-1 px-3 text-right font-mono font-semibold ${i.r_multiple == null ? 'text-surface-500' : tone(i.r_multiple)}`}>{fmtR(i.r_multiple)}</td>
                             </tr>
                           )
@@ -646,12 +723,22 @@ export default function AITrader() {
   const [error, setError] = useState(null)
   const [history, setHistory] = useState(null)
   const [stats, setStats] = useState(null)
+  const [btHistory, setBtHistory] = useState(null)
 
   const loadHistory = useCallback(async () => {
     try {
       const h = await getAITraderHistory()
       setHistory(h.records || [])
       setStats(h.stats || null)
+    } catch {
+      /* non-fatal */
+    }
+  }, [])
+
+  const loadBtHistory = useCallback(async () => {
+    try {
+      const h = await getAITraderBacktestHistory()
+      setBtHistory(h.records || [])
     } catch {
       /* non-fatal */
     }
@@ -676,6 +763,10 @@ export default function AITrader() {
     loadHistory()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (tab === 'backtest' && btHistory === null) loadBtHistory()
+  }, [tab, btHistory, loadBtHistory])
 
   const ideas = data?.ideas || []
 
@@ -758,12 +849,18 @@ export default function AITrader() {
           </div>
           <div>
             <h2 className="font-display font-semibold text-lg text-surface-50 mb-2">Inspect a single day</h2>
-            <BacktestInspector budget={budget} account={account} riskPct={riskPct} />
+            <BacktestInspector budget={budget} account={account} riskPct={riskPct} onRan={loadBtHistory} />
           </div>
           <div>
             <h2 className="font-display font-semibold text-lg text-surface-50 mb-2">Walk-forward backtest</h2>
             <WalkForwardPanel budget={budget} account={account} riskPct={riskPct} />
           </div>
+          <HistoryLedger
+            records={btHistory}
+            title="Backtest history"
+            subtitle="entry → exit · realized % · peak MFE · R · scale-out + MA trail"
+            empty="No saved backtests yet — replay a date above and it'll be saved here, re-priced to today."
+          />
         </div>
       )}
 
@@ -781,7 +878,11 @@ export default function AITrader() {
           <span className="text-surface-500">as of {new Date(data.as_of).toLocaleString()}</span>
           <span className="text-surface-600">·</span>
           <span className="text-surface-500">{data.candidates_considered} candidates scanned</span>
-          {data.cached && <span className="text-surface-600">· cached {Math.round((data.cache_age_seconds || 0) / 60)}m ago</span>}
+          {data.cached && (
+            <span className="text-surface-600">
+              · {data.market_active ? 'cached' : 'last session'} {fmtAge(data.cache_age_seconds)}
+            </span>
+          )}
           {data.ai_available
             ? <span className="px-2 py-0.5 rounded-full bg-accent/15 text-accent font-semibold">AI ranked · T={data.temperature ?? 0}</span>
             : <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-semibold">rule-based</span>}
