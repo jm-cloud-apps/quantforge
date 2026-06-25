@@ -137,6 +137,7 @@ const navGroups = [
       { path: '/news',            label: 'Stock Analysis',   icon: icons.stock },
       { path: '/market-monitor',  label: 'Market Monitor',   icon: icons.monitor },
       { path: '/situational-awareness', label: 'Situational Awareness', icon: icons.awareness },
+      { path: '/theme-radar',     label: 'Theme Radar',      icon: icons.signal },
       { path: '/earnings',        label: 'Earnings',         icon: icons.calendar },
       { path: '/scanner-9m',      label: '$9M Scanner',      icon: icons.ninem },
       { path: '/screener',        label: 'Sector Scan',      icon: icons.sector },
