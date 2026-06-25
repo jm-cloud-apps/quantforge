@@ -57,6 +57,13 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
     </svg>
   ),
+  awareness: (
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="4.5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v3m0 12v3m9-9h-3M6 12H3" />
+    </svg>
+  ),
   ninem: (
     <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -129,6 +136,7 @@ const navGroups = [
       { path: '/wealthsimple',    label: 'Wealthsimple',     icon: icons.journal },
       { path: '/news',            label: 'Stock Analysis',   icon: icons.stock },
       { path: '/market-monitor',  label: 'Market Monitor',   icon: icons.monitor },
+      { path: '/situational-awareness', label: 'Situational Awareness', icon: icons.awareness },
       { path: '/earnings',        label: 'Earnings',         icon: icons.calendar },
       { path: '/scanner-9m',      label: '$9M Scanner',      icon: icons.ninem },
       { path: '/screener',        label: 'Sector Scan',      icon: icons.sector },

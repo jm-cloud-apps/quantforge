@@ -13,6 +13,9 @@ is internal.
 from .calculator import compute_snapshot, compute_history
 from .cache import refresh_grouped_cache, list_cached_days
 from .regime import classify
+from . import sa_history
+from .regime_backtest import run as run_regime_backtest
+from .situational import assess as assess_situational, compact_record as sa_compact_record
 from .universe import load_universe, load_or_refresh_universe, refresh_universe
 
 __all__ = [
@@ -21,6 +24,10 @@ __all__ = [
     "refresh_grouped_cache",
     "list_cached_days",
     "classify",
+    "assess_situational",
+    "sa_compact_record",
+    "sa_history",
+    "run_regime_backtest",
     "load_universe",
     "load_or_refresh_universe",
     "refresh_universe",
