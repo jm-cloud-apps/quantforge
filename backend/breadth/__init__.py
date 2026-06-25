@@ -16,6 +16,7 @@ from .regime import classify
 from . import sa_history
 from .regime_backtest import run as run_regime_backtest
 from .situational import assess as assess_situational, compact_record as sa_compact_record
+from .verify import recount_4pct
 from .universe import load_universe, load_or_refresh_universe, refresh_universe
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "sa_compact_record",
     "sa_history",
     "run_regime_backtest",
+    "recount_4pct",
     "load_universe",
     "load_or_refresh_universe",
     "refresh_universe",
