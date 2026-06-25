@@ -4094,6 +4094,84 @@ def get_breadth_history(days: int = Query(15, ge=1, le=120)):
     return compute_history(days=days)
 
 
+# Roughly a year of trading days — how far back we seed the SA ledger from the
+# breadth cache so the 1-year history chart fills in as the cache allows.
+_SA_BACKFILL_DAYS = 400
+
+
+def _sa_compute(trend_days: int = 30) -> dict:
+    """Compute the SA read, persist today's record, and attach 1y stats.
+
+    Shared by the snapshot + history endpoints so the ledger is seeded the same
+    way from either entry point. Pure compute over cached pickles + a small
+    JSON ledger write — no upstream calls.
+    """
+    from breadth import compute_history, assess_situational, sa_compact_record, sa_history
+
+    full = compute_history(days=max(trend_days, _SA_BACKFILL_DAYS))
+    rows = full.get("rows", [])
+
+    # Seed/extend the durable ledger only with days that have a fully warmed-up
+    # lookback. The calculator returns qtr_up_25/qtr_down_25 = 0 (not None) for
+    # early rows lacking ~63 prior sessions, so gate on T2108 being defined
+    # (needs 40 obs) AND the quarterly counts not being a 0/0 warmup artifact —
+    # otherwise we'd plot scores computed on incomplete inputs.
+    def _seedable(r: dict) -> bool:
+        if r.get("t2108") is None:
+            return False
+        qu, qd = r.get("qtr_up_25"), r.get("qtr_down_25")
+        if qu is None or qd is None or (qu + qd) == 0:
+            return False
+        return True
+
+    records = [sa_compact_record(r) for r in rows if _seedable(r)]
+    if records:
+        sa_history.upsert(records)
+
+    read = assess_situational(
+        rows[-trend_days:] if trend_days else rows,
+        universe_size=full.get("universe_size", 0),
+        universe_as_of=full.get("universe_as_of"),
+    )
+    ledger = sa_history.load(days=365)
+    read["stats"] = sa_history.stats(ledger, read.get("score"), (read.get("stance") or {}).get("level"))
+    return read
+
+
+@app.get("/api/breadth/situational")
+def get_breadth_situational(trend_days: int = Query(30, ge=5, le=120)):
+    """Situational-awareness read: translate the local breadth history into an
+    exposure stance + per-setup lights + decision criteria + score trend, and
+    record today's read into the persistent daily ledger. Pure compute over the
+    cached pickles — no upstream calls. Drives the Situational Awareness page
+    and the dashboard snippet."""
+    return _sa_compute(trend_days)
+
+
+@app.get("/api/breadth/regime-backtest")
+def get_breadth_regime_backtest():
+    """Regime-conditioned backtest: join the SA ledger to equal-weight universe
+    forward returns and report forward return by stance level + green-vs-red
+    edge per setup family. Pure compute over the cached pickles + ledger.
+    Seeds the ledger first so the join has rows to work with."""
+    _sa_compute(30)  # ensure the ledger is seeded/current before joining
+    from breadth import run_regime_backtest
+    return run_regime_backtest()
+
+
+@app.get("/api/breadth/situational/history")
+def get_breadth_situational_history(days: int = Query(365, ge=5, le=800)):
+    """Persistent daily SA history (exposure score + stance level per trading
+    day) for the long-range trend chart. Seeds the ledger from the breadth
+    cache on first access if it's empty."""
+    from breadth import sa_history
+    rows = sa_history.load(days=days)
+    if not rows:
+        _sa_compute(30)  # seed from cache, then re-read
+        rows = sa_history.load(days=days)
+    return {"rows": rows, "count": len(rows)}
+
+
 @app.post("/api/breadth/refresh")
 def refresh_breadth(body: dict = Body(default={})):
     """Pull any missing trading days into the grouped cache, optionally

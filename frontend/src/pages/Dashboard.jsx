@@ -4,13 +4,13 @@ import TickerLink from '../components/TickerLink'
 import TradingViewLink from '../components/TradingViewLink'
 import EarningsSessionIcon from '../components/EarningsSessionIcon'
 import InfoTip from '../components/InfoTip'
-import { getBreadthSnapshot } from '../api/breadth'
+import { getBreadthSnapshot, getSituationalAwareness } from '../api/breadth'
 import { getSectorPerformance } from '../api/screener'
 import { getBreakouts } from '../api/breakoutScreener'
 import { get9MScan } from '../api/scanner9m'
 import { getEarnings } from '../api/calendar'
 import { getMovers, getExtendedMovers, getGapMovers } from '../api/movers'
-import { listWatchlists } from '../api/watchlists'
+import { getWatchlist } from '../api/watchlists'
 import { fetchNews, refreshNewsCachePrices } from '../api/news'
 import { loadRules, getRuleOfDay } from '../utils/tradingRules'
 import { marketStatusLabel } from '../utils/marketClock'
@@ -327,6 +327,93 @@ function Metric({ label, value, tone = 'text-surface-100', tip }) {
   )
 }
 
+// ─── Situational Awareness snippet ──────────────────────────────────────────
+//
+// The actionable companion to the regime banner: instead of "what the tape is"
+// it answers "how aggressive should I be, and which setups are in season." A
+// compact summary of the Situational Awareness page — stance + exposure score
+// + the breakout call and per-setup lights. Deep-links to the full page.
+
+const SA_STANCE_TONE = {
+  aggressive:   { text: 'text-success', bar: 'bg-success' },
+  constructive: { text: 'text-success', bar: 'bg-success' },
+  selective:    { text: 'text-warning', bar: 'bg-warning' },
+  defensive:    { text: 'text-danger',  bar: 'bg-danger' },
+  cash:         { text: 'text-danger',  bar: 'bg-danger' },
+  neutral:      { text: 'text-surface-200', bar: 'bg-surface-500' },
+}
+
+const SA_LIGHT_DOT = { green: 'bg-success', amber: 'bg-warning', red: 'bg-danger' }
+const SA_SETUP_SHORT = {
+  breakout: 'Breakouts',
+  ep: 'EPs / Gaps',
+  pullback: 'Pullbacks',
+  mean_reversion: 'Mean-Rev',
+  short: 'Shorts',
+}
+
+function SituationalSnippet({ sa }) {
+  const { data, loading, error } = sa
+  const stance = data?.stance
+  const tone = SA_STANCE_TONE[stance?.level] || SA_STANCE_TONE.neutral
+  const score = data?.score
+  const delta = data?.score_delta_5d
+
+  return (
+    <section className="rounded-xl border border-surface-700/50 bg-surface-900/40 px-5 py-4">
+      <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
+        {/* Stance + breakout call */}
+        <div className="flex items-center gap-3 min-w-0">
+          <span className={`shrink-0 w-3 h-3 rounded-full ${tone.bar} ${loading ? 'animate-pulse' : ''}`} aria-hidden="true" />
+          <div className="min-w-0">
+            <div className="text-[10px] uppercase tracking-wider text-surface-500 font-semibold">Situational Awareness · Posture</div>
+            <div className={`font-display font-bold text-lg ${tone.text} leading-tight`}>
+              {error ? 'Unavailable' : stance ? `${stance.label} — ${stance.headline}` : loading ? 'Reading the tape…' : 'No data'}
+            </div>
+            {!error && data?.breakout_takeaway && (
+              <div className="text-[12px] text-surface-400 mt-0.5 leading-snug">{data.breakout_takeaway}</div>
+            )}
+          </div>
+        </div>
+
+        {!error && (
+          <div className="flex items-center gap-5 lg:ml-auto flex-wrap">
+            {/* Exposure score + mini dial */}
+            <div className="min-w-[120px]">
+              <div className="flex items-baseline gap-1.5">
+                <span className={`font-mono font-bold text-xl ${tone.text}`}>{score ?? '–'}</span>
+                <span className="text-[9px] uppercase tracking-wider text-surface-500">exposure</span>
+                {delta != null && delta !== 0 && (
+                  <span className={`text-[10px] font-mono ${delta > 0 ? 'text-success' : 'text-danger'}`}>
+                    {delta > 0 ? '▲' : '▼'}{Math.abs(delta)}
+                  </span>
+                )}
+              </div>
+              <div className="mt-1 h-1.5 w-full rounded-full bg-surface-800 overflow-hidden">
+                <div className={`h-full rounded-full ${tone.bar} transition-all duration-500`} style={{ width: `${Math.max(0, Math.min(100, score ?? 0))}%` }} />
+              </div>
+            </div>
+
+            {/* Setup lights */}
+            <div className="flex items-center gap-3 flex-wrap">
+              {(data?.setups || []).map((s) => (
+                <div key={s.key} className="flex items-center gap-1.5" title={s.why}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${SA_LIGHT_DOT[s.light] || 'bg-surface-500'}`} aria-hidden="true" />
+                  <span className="text-[11px] text-surface-300 whitespace-nowrap">{SA_SETUP_SHORT[s.key] || s.name}</span>
+                </div>
+              ))}
+            </div>
+
+            <Link to="/situational-awareness" className="text-[11px] font-medium text-accent hover:text-accent/80 whitespace-nowrap">
+              Situational Awareness →
+            </Link>
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
 // ─── Sector rotation ────────────────────────────────────────────────────────
 
 function rankSectors(sectors) {
@@ -602,11 +689,11 @@ function EarningsWeekCard({ refreshKey }) {
 
 function WatchlistPulseCard({ refreshKey }) {
   const { data, loading, error } = useCardData(async () => {
-    const lists = await listWatchlists()
-    const symbols = [...new Set((lists || []).flatMap((l) => (l.entries || []).map((e) => e.symbol)))]
-    if (!symbols.length) return { lists, symbols: [], prices: {} }
+    const wl = await getWatchlist()
+    const symbols = [...new Set((wl?.entries || []).map((e) => e.symbol))]
+    if (!symbols.length) return { symbols: [], prices: {} }
     const { prices } = await refreshNewsCachePrices(symbols.slice(0, 60))
-    return { lists, symbols, prices: prices || {} }
+    return { symbols, prices: prices || {} }
   }, refreshKey, 'Watchlist pulse')
 
   const movers = useMemo(() => {
@@ -620,7 +707,7 @@ function WatchlistPulseCard({ refreshKey }) {
 
   const subtitle = data?.symbols?.length
     ? `${data.symbols.length} names · biggest movers`
-    : 'Your watchlists at a glance'
+    : 'Your watchlist at a glance'
 
   return (
     <Card
@@ -634,7 +721,7 @@ function WatchlistPulseCard({ refreshKey }) {
     >
       {data && data.symbols.length === 0 && (
         <Empty>
-          No watchlists yet —{' '}
+          Nothing on your watchlist yet —{' '}
           <Link to="/watchlist" className="text-accent hover:text-accent/80">
             add names on the Watchlist page
           </Link>
@@ -1194,6 +1281,7 @@ function DashboardInner() {
   // feed the Market-Moving News card (it derives its tickers from them).
   const sectors = useCardData(() => getSectorPerformance({ forceRefresh: refreshKey > 0 }), refreshKey, 'Sectors')
   const breadth = useCardData(() => getBreadthSnapshot(), refreshKey, 'Breadth')
+  const situational = useCardData(() => getSituationalAwareness(30), refreshKey, 'Situational awareness')
   const breakouts = useCardData(
     () => getBreakouts({ mode: 'breakout', limit: 24, minAdr: 0.05, minRvol: 1.5, fresh: refreshKey > 0 }),
     refreshKey,
@@ -1262,6 +1350,9 @@ function DashboardInner() {
 
       {/* Regime banner */}
       <RegimeBanner breadth={breadth} />
+
+      {/* Situational awareness — what to do about the regime */}
+      <SituationalSnippet sa={situational} />
 
       {/* Sectors + themes */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

@@ -21,6 +21,7 @@ const Breakouts       = lazy(() => import('./pages/Breakouts'))
 const OptionsFlow     = lazy(() => import('./pages/OptionsFlow'))
 const Watchlist       = lazy(() => import('./pages/Watchlist'))
 const MarketMonitor   = lazy(() => import('./pages/MarketMonitor'))
+const SituationalAwareness = lazy(() => import('./pages/SituationalAwareness'))
 const EarningsCalendar = lazy(() => import('./pages/EarningsCalendar'))
 const Scanner9M       = lazy(() => import('./pages/Scanner9M'))
 const Rules           = lazy(() => import('./pages/Rules'))
@@ -59,6 +60,7 @@ function AppRoutes() {
         <Route path="watchlist" element={<Watchlist />} />
         <Route path="signal-lab" element={<Suggestions />} />
         <Route path="market-monitor" element={<MarketMonitor />} />
+        <Route path="situational-awareness" element={<SituationalAwareness />} />
         <Route path="earnings" element={<EarningsCalendar />} />
         <Route path="scanner-9m" element={<Scanner9M />} />
       </Route>
