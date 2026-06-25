@@ -4156,6 +4156,26 @@ def get_breadth_regime_backtest():
     return run_regime_backtest()
 
 
+@app.get("/api/breadth/verify")
+def verify_breadth():
+    """Independently recount today's 4%-up/down from the raw cached EOD bars
+    (a separate code path from the calculator) and compare against the figure
+    the pages display. Proves the pipeline from vendor data → on-screen number,
+    with sample tickers the user can spot-check on any chart."""
+    from breadth import recount_4pct, compute_snapshot
+    rc = recount_4pct()
+    snap = compute_snapshot()
+    m = snap.get("metrics") or {}
+    rc["official"] = {"up_4": m.get("up_4"), "down_4": m.get("down_4"), "as_of": snap.get("as_of")}
+    rc["matches"] = bool(
+        rc.get("available")
+        and rc.get("date") == snap.get("as_of")
+        and rc.get("up_4_recount") == m.get("up_4")
+        and rc.get("down_4_recount") == m.get("down_4")
+    )
+    return rc
+
+
 @app.get("/api/breadth/situational/history")
 def get_breadth_situational_history(days: int = Query(365, ge=5, le=800)):
     """Persistent daily SA history (exposure score + stance level per trading

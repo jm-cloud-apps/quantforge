@@ -10,7 +10,7 @@ import {
   ReferenceLine,
 } from 'recharts'
 import { Link } from 'react-router-dom'
-import { getSituationalAwareness, getSituationalHistory, getRegimeBacktest, refreshBreadth } from '../api/breadth'
+import { getSituationalAwareness, getSituationalHistory, getRegimeBacktest, getBreadthVerify, refreshBreadth } from '../api/breadth'
 
 // ---------------------------------------------------------------------------
 // Situational Awareness — the actionable layer on top of market breadth.
@@ -491,6 +491,166 @@ function RegimeEdge({ data, loading, error, horizon, setHorizon }) {
   )
 }
 
+// ─── Data & methodology (provenance + live pipeline verifier) ───────────────
+
+// How current each signal is — sets expectations that this is a backward-looking
+// regime/context filter, not a timing trigger.
+const LAG_ROWS = [
+  { label: '4% up/down counts', lag: 'Coincident', note: "Today's action across the average stock", tone: 'text-emerald-300' },
+  { label: '5d / 10d thrust ratios', lag: 'Mildly lagging', note: 'Smoothed; can lead slightly at turns', tone: 'text-amber-300' },
+  { label: 'Qtr / Mo ±25% leadership', lag: 'Lagging', note: 'Trend confirmation (~21–63 sessions)', tone: 'text-orange-300' },
+  { label: 'T2108 (% > 40-day SMA)', lag: 'Lagging', note: '40-day moving average base', tone: 'text-orange-300' },
+]
+
+function VerifyPanel() {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  const run = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      setData(await getBreadthVerify())
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  return (
+    <div className="rounded-xl border border-surface-700/50 bg-surface-950/40 p-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="text-[12px] font-semibold text-surface-200">Verify the pipeline</div>
+        <button
+          onClick={run}
+          disabled={loading}
+          className="text-[11px] font-medium px-2.5 py-1 rounded-lg border border-accent/30 bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-50 transition"
+        >
+          {loading ? 'Recounting…' : 'Recompute from raw data'}
+        </button>
+      </div>
+      <p className="text-[11px] text-surface-500 mt-1 leading-snug">
+        Independently recounts today's 4%-movers straight from the raw cached end-of-day bars — a separate code path
+        from the calculator — and checks it against the figure shown above.
+      </p>
+
+      {error && <div className="text-[11px] text-warning/90 mt-2">{error}</div>}
+
+      {data && data.available === false && (
+        <div className="text-[11px] text-surface-500 mt-2">{data.reason}</div>
+      )}
+
+      {data && data.available && (
+        <div className="mt-2.5 space-y-2">
+          <div className={`flex items-center gap-2 text-[12px] font-medium ${data.matches ? 'text-emerald-300' : 'text-danger'}`}>
+            <span>{data.matches ? '✓' : '✗'}</span>
+            <span>
+              {data.date}: recounted <span className="font-mono">{data.up_4_recount}</span> up ≥4% /{' '}
+              <span className="font-mono">{data.down_4_recount}</span> down ≥4% from {data.compared_symbols} raw bars —{' '}
+              {data.matches
+                ? 'matches the displayed figure.'
+                : `page shows ${data.official?.up_4}/${data.official?.down_4}.`}
+            </span>
+          </div>
+          {data.sample_up?.length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-surface-600 font-semibold mb-1">
+                Sample 4%-up names (spot-check on any chart · {data.prev_date} → {data.date})
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {data.sample_up.map((s) => (
+                  <span key={s.ticker} className="text-[11px] font-mono px-2 py-0.5 rounded border border-surface-700 bg-surface-900/60 text-surface-300">
+                    {s.ticker} {s.prev_close}→{s.close} <span className="text-emerald-300">+{s.pct}%</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DataMethodology({ sa, stats }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="rounded-2xl bg-surface-900/50 border border-surface-700/40 p-4">
+      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 text-left">
+        <span className={`text-surface-500 transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
+        <span className="text-[12px] font-semibold text-surface-200">Data &amp; methodology — where this comes from &amp; how far to trust it</span>
+        <span className="ml-auto text-[11px] text-surface-500">{open ? 'Hide' : 'Show'}</span>
+      </button>
+
+      {/* Always-visible one-liner so the caveat travels with the tool. */}
+      <p className="text-[11px] text-surface-500 mt-2 leading-relaxed">
+        Built on real end-of-day prices; the read is a <span className="text-surface-400">backward-looking regime filter, not a timing signal</span>.
+        Thresholds are Stockbee's published method plus heuristic scoring priors — validate them with the regime backtest above.
+      </p>
+
+      {open && (
+        <div className="mt-3 space-y-4">
+          {/* Provenance */}
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-surface-600 font-semibold mb-1.5">Where the data comes from</div>
+            <ul className="space-y-1 text-[12px] text-surface-300 leading-snug">
+              <li><span className="text-surface-500">Prices:</span> Massive grouped-daily endpoint — official US end-of-day OHLCV (adjusted), one call per session, cached locally.</li>
+              <li><span className="text-surface-500">Universe:</span> active common stock (NYSE/NASDAQ/NYSE Arca) from the vendor's reference API — ETFs, ADRs, warrants &amp; preferreds excluded ({sa?.coverage?.universe_size ? `${sa.coverage.universe_size.toLocaleString()} names` : '~5,000 names'}).</li>
+              <li><span className="text-surface-500">Compute:</span> deterministic pandas math — same cache in, same numbers out, fully reproducible.</li>
+              <li>
+                <span className="text-surface-500">As of:</span>{' '}
+                <span className="font-mono">{sa?.as_of || '—'}</span>
+                {sa?.coverage?.universe_size ? ` · ${sa.coverage.count}/${sa.coverage.universe_size} symbols covered` : ''}
+                {stats?.history_len ? ` · ${stats.history_len}-session ledger` : ''}
+              </li>
+            </ul>
+          </div>
+
+          {/* Lagging-indicator breakdown */}
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-surface-600 font-semibold mb-1.5">How current each signal is</div>
+            <div className="space-y-1">
+              {LAG_ROWS.map((r) => (
+                <div key={r.label} className="flex items-center gap-3 text-[12px]">
+                  <span className="text-surface-300 w-48 shrink-0">{r.label}</span>
+                  <span className={`font-semibold w-28 shrink-0 ${r.tone}`}>{r.lag}</span>
+                  <span className="text-surface-500 truncate hidden sm:block">{r.note}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-surface-500 mt-2 leading-snug">
+              Everything is end-of-day, so the read is always ≥1 session behind intraday. Use it for <em>environment</em>
+              {' '}(are breakouts working lately?), then pair with a forward-looking entry on the chart.
+            </p>
+          </div>
+
+          {/* Threshold trust */}
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-surface-600 font-semibold mb-1.5">How far to trust the criteria</div>
+            <ul className="space-y-1 text-[12px] text-surface-300 leading-snug">
+              <li><span className="text-emerald-300 font-medium">Data &amp; math:</span> trust fully — verifiable below.</li>
+              <li><span className="text-amber-300 font-medium">Breadth thresholds</span> (e.g. 10-day ratio ≥ 2 = thrust): Stockbee's published method — respected, but discretionary in origin.</li>
+              <li><span className="text-orange-300 font-medium">Scoring weights &amp; setup rules:</span> my heuristic priors, <em>not</em> yet empirically optimized. The breakout filter is the most defensible; the EP/gaps filter is the weakest (catalyst dominates breadth). Let the regime backtest above tune your trust.</li>
+            </ul>
+          </div>
+
+          <VerifyPanel />
+
+          <div className="text-[11px] text-surface-500 leading-relaxed">
+            Lights are a regime filter, not buy/sell orders. Raw numbers live on the{' '}
+            <Link to="/market-monitor" className="text-accent hover:text-accent/80">Market Monitor</Link>. Methodology:{' '}
+            <a href="https://stockbee.blogspot.com/p/mm.html" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent/80">
+              Stockbee Market Monitor
+            </a>.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function SituationalAwareness() {
@@ -736,17 +896,8 @@ export default function SituationalAwareness() {
             setHorizon={setHorizon}
           />
 
-          {/* Footer / methodology */}
-          <div className="rounded-2xl bg-surface-900/50 border border-surface-700/40 px-4 py-3 text-[11px] text-surface-500 leading-relaxed">
-            Computed from the local Stockbee-style breadth cache
-            {sa.coverage?.universe_size ? ` (${sa.coverage.count}/${sa.coverage.universe_size} symbols)` : ''}; daily reads are
-            stored to a persistent ledger ({stats?.history_len || 0} sessions on record). Lights are a regime filter, not
-            buy/sell orders — confirm with the chart and your own rules. Raw numbers live on the{' '}
-            <Link to="/market-monitor" className="text-accent hover:text-accent/80">Market Monitor</Link>. Methodology:{' '}
-            <a href="https://stockbee.blogspot.com/p/mm.html" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent/80">
-              Stockbee Market Monitor
-            </a>.
-          </div>
+          {/* Data & methodology — provenance, lag caveat, live verifier */}
+          <DataMethodology sa={sa} stats={stats} />
         </>
       )}
     </div>

@@ -45,6 +45,15 @@ export async function getRegimeBacktest() {
   return res.json()
 }
 
+export async function getBreadthVerify() {
+  const res = await fetch(`${API_BASE}/breadth/verify`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to verify breadth pipeline')
+  }
+  return res.json()
+}
+
 export async function refreshBreadth({ lookbackDays = 130, refreshUniverse = false } = {}) {
   const res = await fetch(`${API_BASE}/breadth/refresh`, {
     method: 'POST',

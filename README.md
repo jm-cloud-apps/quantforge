@@ -49,6 +49,14 @@ Upload your real trade data (Excel) or load a default file, then get:
 - File-based caching with in-memory 5-minute cache
 - Automatic fallback to demo data when rate-limited
 
+### Market Breadth & Situational Awareness
+- **Market Monitor** — Stockbee-style breadth across the active US common-stock universe (~5,000 names): 4% up/down movers, 5/10-day thrust ratios, quarterly/monthly ±25% leadership, and a local T2108 (% of the universe above its 40-day SMA)
+- **Situational Awareness** — turns that breadth into an *actionable, setup-specific* read: an exposure score (0–100) and stance (aggressive → cash), plus a green/amber/red light per setup family (momentum breakouts, episodic pivots, pullbacks, mean-reversion, shorts), each with a live ✓/✗ decision checklist
+- **How & why** — every read is fully auditable: score build-up off a neutral 50 baseline, a stance-band ladder, per-factor scoring criteria, and the drivers behind the number (rules-as-data, so what's shown can't drift from what's computed)
+- **Persistent daily ledger** with 1-year statistical context (percentile vs the trailing year, days-in-regime) and a 1M/3M/6M/1Y exposure history chart
+- **Regime-conditioned backtest** — joins the ledger to equal-weight universe forward returns to measure forward return by stance and the green-vs-red edge per setup (the empirical check on whether the filter actually works)
+- **Provenance & honesty** — real end-of-day prices from the Massive grouped-daily endpoint; the read is a *backward-looking regime filter, not a timing signal*; thresholds are Stockbee's published method plus heuristic scoring priors. A built-in pipeline verifier independently recounts the 4%-movers straight from the raw cached bars so the on-screen numbers are traceable to source
+
 ## Tech Stack
 
 | Layer    | Technology                                           |
@@ -56,7 +64,7 @@ Upload your real trade data (Excel) or load a default file, then get:
 | Backend  | Python, FastAPI, pandas, NumPy, yfinance, ib_insync  |
 | Frontend | React 18, Vite, Tailwind CSS, Recharts               |
 | Broker   | Interactive Brokers (TWS / IB Gateway)               |
-| Data     | Yahoo Finance, Excel trade files, JSON storage       |
+| Data     | Massive (grouped-daily EOD), Yahoo Finance, Excel trade files, JSON storage |
 
 ## Quick Start
 
