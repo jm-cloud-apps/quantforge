@@ -1,9 +1,9 @@
-"""AI Trader — turns the Qullamaggie scan into the day's top-5 actionable LONG
+"""AI Trader — turns the Qullamaggie scan into the day's top-10 actionable LONG
 trade ideas via Claude, each sized for a fixed daily budget.
 
 Flow: run the existing Qullamaggie breakout scan (ADR-gated, liquidity-gated,
 today's movers merged) → compact each candidate to the few numbers that matter
-→ ask Claude to act as a disciplined Qullamaggie trader and pick the best 0-5
+→ ask Claude to act as a disciplined Qullamaggie trader and pick the best 0-10
 setups with entry/stop/target → size each idea in Python for the budget.
 
 The model never invents tickers or prices: it only ranks/annotates the scanned
@@ -33,10 +33,14 @@ logger = logging.getLogger(__name__)
 
 MODEL = "claude-sonnet-4-6"
 TEMPERATURE = 0.0  # deterministic ranking so the track record is auditable
-SCAN_LIMIT = 20  # candidates handed to the model
-MAX_IDEAS = 5  # most actionable ideas surfaced per day
+SCAN_LIMIT = 30  # candidates handed to the model (deep enough bench to find 10)
+MAX_IDEAS = 10  # most actionable ideas surfaced per day
 DEFAULT_ACCOUNT = 25_000.0  # account size for risk-based sizing
 DEFAULT_RISK_PCT = 1.0  # % of account risked per idea (fixed-fractional)
+
+# Scan gates — surfaced to the UI as the exact setup criteria.
+MIN_DOLLAR_VOL = 5_000_000  # min 20-day dollar volume (liquidity)
+MIN_RVOL = 1.5              # min relative volume (in play today)
 
 
 # ── small helpers ────────────────────────────────────────────────────────────
@@ -123,8 +127,8 @@ def scan(min_adr: float) -> list[dict]:
     symbols = get_universe(include_movers=True)
     frames = refresh_universe(symbols)
     candidates = rank_candidates(
-        frames, mode="breakout", min_dollar_vol=5_000_000,
-        min_adr=min_adr, min_rvol=1.5,
+        frames, mode="breakout", min_dollar_vol=MIN_DOLLAR_VOL,
+        min_adr=min_adr, min_rvol=MIN_RVOL,
     )
     top = candidates[:SCAN_LIMIT]
     for fn in (enrich_with_news, enrich_with_calendar):
@@ -133,6 +137,43 @@ def scan(min_adr: float) -> list[dict]:
         except Exception as e:  # enrichment is best-effort
             logger.warning("ai_trader enrich %s failed: %s", fn.__name__, e)
     return top
+
+
+def _criteria(min_adr: float) -> dict:
+    """The exact, current scan + setup rules — surfaced verbatim on the page so
+    there's no mystery about what produces these ideas."""
+    return {
+        "gates": [
+            {"label": "Liquidity", "value": f"≥ ${MIN_DOLLAR_VOL / 1e6:.0f}M dollar volume"},
+            {"label": "Volatility (ADR)", "value": f"≥ {min_adr * 100:.0f}%"},
+            {"label": "In play (RVOL)", "value": f"≥ {MIN_RVOL}× relative volume"},
+            {"label": "Direction", "value": "Long only"},
+            {"label": "Universe", "value": "Liquid US momentum names + today's movers"},
+            {"label": "Output", "value": f"Top {MAX_IDEAS}/day (fewer if none qualify)"},
+        ],
+        "setups": [
+            {"name": "Breakout (continuation)",
+             "desc": "A liquid, high-ADR leader that already made a big move, consolidated in a tight "
+                     "flag/range, and is breaking out on rising volume.",
+             "entry": "Break of the consolidation high",
+             "stop": "Just under the consolidation low / low of day"},
+            {"name": "Episodic Pivot (EP)",
+             "desc": "A stock gapping up on a fresh, surprising catalyst (earnings, guidance, FDA, big contract).",
+             "entry": "Break of the opening-range high",
+             "stop": "Below the opening range / low of day"},
+        ],
+        "levels": [
+            {"label": "Entry", "value": "The breakout pivot — the consolidation/flag high (opening-range high for an EP). "
+                                         "Rule-based: the pivot when price is within ~15% of it, otherwise the last close."},
+            {"label": "Stop", "value": "The tighter of the consolidation low or ~1 ADR below entry, so risk is bounded to "
+                                       "about one average day's range (≈ 1R)."},
+            {"label": "Target", "value": "First target at 2R = entry + 2 × (entry − stop) — then sell into strength and "
+                                         "trail the rest. So R:R is a fixed 2:1 on the rule-based engine; the AI sets its own "
+                                         "levels, so its R:R varies."},
+        ],
+        "sizing": "Fixed-fractional — risk a set % of the account per idea, capped by the per-idea budget.",
+        "management": "Sell ⅓ into strength, trail the rest under the 20-day MA; never without a hard stop.",
+    }
 
 
 SYSTEM = (
@@ -156,7 +197,7 @@ SYSTEM = (
 
 def build_ideas(budget: float, min_adr: float,
                 account: float = DEFAULT_ACCOUNT, risk_pct: float = DEFAULT_RISK_PCT) -> dict:
-    """Scan, read the regime, ask the model for the day's best 0-5 ideas, then
+    """Scan, read the regime, ask the model for the day's best 0-10 ideas, then
     size/rank/aggregate them deterministically."""
     as_of = datetime.now().isoformat(timespec="seconds")
     active = is_market_active_now()
@@ -179,6 +220,7 @@ def build_ideas(budget: float, min_adr: float,
         "scanned_candidates": compact,
         "model": MODEL,
         "temperature": TEMPERATURE,
+        "criteria": _criteria(min_adr),
     }
 
     if not compact:
@@ -199,7 +241,7 @@ def build_ideas(budget: float, min_adr: float,
             f"Daily budget per idea: ${int(budget)}. Minimum ADR: {min_adr * 100:.0f}%.\n\n"
             "Today's scanned Qullamaggie candidates (all percent fields are already in %):\n"
             f"{json.dumps(compact, default=str)}\n\n"
-            "Pick the TOP 5 actionable LONG setups for today, best first. Return FEWER than 5 — "
+            "Pick the TOP 10 actionable LONG setups for today, best first. Return FEWER than 10 — "
             "or an empty list — if there aren't that many clean setups. Do not pad the list.\n"
             "Reply with ONLY a JSON object of exactly this shape (no prose, no markdown):\n"
             '{"ideas":[{"ticker":"","setup":"Breakout|Episodic Pivot","conviction":"high|medium|low",'
@@ -219,7 +261,7 @@ def build_ideas(budget: float, min_adr: float,
         try:
             client = anthropic.Anthropic(api_key=api_key)
             msg = client.messages.create(
-                model=MODEL, max_tokens=2600, temperature=TEMPERATURE, system=SYSTEM,
+                model=MODEL, max_tokens=5000, temperature=TEMPERATURE, system=SYSTEM,
                 messages=[{"role": "user", "content": user}],
             )
             raw = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")

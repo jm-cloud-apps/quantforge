@@ -277,6 +277,61 @@ function IdeaCard({ idea, rank, budget, account }) {
   )
 }
 
+function SetupCriteria({ criteria }) {
+  if (!criteria) return null
+  return (
+    <details open className="rounded-xl bg-surface-900/60 border border-surface-700/40 px-4 py-3">
+      <summary className="cursor-pointer font-display font-semibold text-surface-100 select-none">
+        Setup criteria <span className="text-[11px] font-normal text-surface-500">— exactly what produces these ideas</span>
+      </summary>
+      <div className="mt-3 space-y-3">
+        {Array.isArray(criteria.gates) && (
+          <div className="flex flex-wrap gap-1.5">
+            {criteria.gates.map((g) => (
+              <span key={g.label} className="text-[11px] rounded-md bg-surface-800/60 px-2 py-1">
+                <span className="text-surface-500">{g.label}: </span>
+                <span className="text-surface-100 font-semibold">{g.value}</span>
+              </span>
+            ))}
+          </div>
+        )}
+        {Array.isArray(criteria.setups) && (
+          <div className="grid sm:grid-cols-2 gap-2">
+            {criteria.setups.map((s) => (
+              <div key={s.name} className="rounded-lg bg-surface-800/40 border border-surface-700/40 px-3 py-2">
+                <div className="text-[13px] font-semibold text-surface-100">{s.name}</div>
+                <p className="text-[12px] text-surface-400 leading-snug mt-0.5">{s.desc}</p>
+                <div className="mt-1.5 text-[11px] space-y-0.5">
+                  <div><span className="text-accent font-semibold">Entry</span> <span className="text-surface-300">{s.entry}</span></div>
+                  <div><span className="text-danger font-semibold">Stop</span> <span className="text-surface-300">{s.stop}</span></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {Array.isArray(criteria.levels) && (
+          <div className="border-t border-surface-800 pt-2.5">
+            <div className="text-[10px] uppercase tracking-wider text-surface-500 mb-1.5">How entry / stop / target are set</div>
+            <div className="space-y-1">
+              {criteria.levels.map((l) => (
+                <p key={l.label} className="text-[12px] text-surface-400 leading-snug">
+                  <span className={`font-semibold ${l.label === 'Entry' ? 'text-accent' : l.label === 'Stop' ? 'text-danger' : 'text-success'}`}>{l.label}:</span> {l.value}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+        {(criteria.sizing || criteria.management) && (
+          <div className="text-[12px] text-surface-400 space-y-1 border-t border-surface-800 pt-2">
+            {criteria.sizing && <p><span className="text-surface-300 font-semibold">Sizing:</span> {criteria.sizing}</p>}
+            {criteria.management && <p><span className="text-surface-300 font-semibold">Management:</span> {criteria.management}</p>}
+          </div>
+        )}
+      </div>
+    </details>
+  )
+}
+
 function StatTile({ label, value, tone = 'text-surface-100', sub }) {
   return (
     <div className="rounded-lg bg-surface-800/40 border border-surface-700/30 px-3 py-2.5">
@@ -888,6 +943,9 @@ export default function AITrader() {
             : <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-semibold">rule-based</span>}
         </div>
       )}
+
+      {/* setup criteria */}
+      {data?.criteria && !loading && <SetupCriteria criteria={data.criteria} />}
 
       {/* AI-unavailable banner */}
       {data && !data.ai_available && data.error && (

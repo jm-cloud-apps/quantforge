@@ -47,19 +47,26 @@ def _today() -> date:
     return datetime.now().date()
 
 
-def _load_watchlist_symbols(wl_id: str) -> list[str]:
+def _load_watchlist_symbols() -> list[str]:
+    """All symbols on the consolidated watchlist.
+
+    Reuses the watchlists module's accessor (which also migrates legacy
+    formats); falls back to reading the file directly if the import fails.
+    """
+    try:
+        from watchlists import load_symbols
+        return [s.upper() for s in load_symbols()]
+    except Exception:
+        pass
     if not os.path.exists(_WATCHLISTS_PATH):
         return []
     try:
         with open(_WATCHLISTS_PATH, "r") as f:
-            items = json.load(f) or []
+            raw = json.load(f)
     except Exception:
         return []
-    for item in items:
-        if item.get("id") == wl_id:
-            entries = item.get("entries") or []
-            return [e.get("symbol", "").upper() for e in entries if e.get("symbol")]
-    return []
+    entries = raw.get("entries", []) if isinstance(raw, dict) else []
+    return [e.get("symbol", "").upper() for e in entries if e.get("symbol")]
 
 
 # --- Provider fetchers ------------------------------------------------------
@@ -265,25 +272,14 @@ def get_earnings(
     rows = _dedupe_rows(rows)
 
     # --- Watchlist filtering ------------------------------------------------
+    # `wl_id` is now a simple boolean flag (any truthy value) — there's a
+    # single consolidated watchlist, so there's nothing to select between.
     watchlist_meta = None
     watchlist_symbols: set[str] = set()
     if wl_id:
-        symbols = _load_watchlist_symbols(wl_id)
-        if not symbols:
-            watchlist_meta = {"id": wl_id, "name": None, "symbols": []}
-        else:
-            watchlist_symbols = set(symbols)
-            try:
-                with open(_WATCHLISTS_PATH, "r") as f:
-                    items = json.load(f) or []
-                wl_obj = next((i for i in items if i.get("id") == wl_id), None)
-                watchlist_meta = {
-                    "id": wl_id,
-                    "name": (wl_obj or {}).get("name"),
-                    "symbols": sorted(symbols),
-                }
-            except Exception:
-                watchlist_meta = {"id": wl_id, "name": None, "symbols": sorted(symbols)}
+        symbols = _load_watchlist_symbols()
+        watchlist_symbols = set(symbols)
+        watchlist_meta = {"id": "watchlist", "name": "Watchlist", "symbols": sorted(symbols)}
 
     watchlist_hits = [r for r in rows if r["symbol"] in watchlist_symbols] if watchlist_symbols else []
 

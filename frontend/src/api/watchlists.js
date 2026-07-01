@@ -1,4 +1,6 @@
-const API_BASE = '/api/watchlists'
+// Single consolidated watchlist. Prices/returns are cached server-side and
+// returned as-is by getWatchlist(); refreshWatchlist() re-fetches them.
+const API_BASE = '/api/watchlist'
 
 async function handle(res) {
   if (!res.ok) {
@@ -8,44 +10,24 @@ async function handle(res) {
   return res.json()
 }
 
-export async function listWatchlists() {
+export async function getWatchlist() {
   return handle(await fetch(API_BASE))
 }
 
-export async function createWatchlist({ name, symbols = [] }) {
-  return handle(await fetch(API_BASE, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, symbols }),
-  }))
-}
-
-export async function updateWatchlist(id, patch) {
-  return handle(await fetch(`${API_BASE}/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch),
-  }))
-}
-
-export async function deleteWatchlist(id) {
-  return handle(await fetch(`${API_BASE}/${id}`, { method: 'DELETE' }))
-}
-
-export async function addSymbols(id, symbols) {
-  return handle(await fetch(`${API_BASE}/${id}/symbols`, {
+export async function addSymbols(symbols) {
+  return handle(await fetch(`${API_BASE}/symbols`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ symbols: Array.isArray(symbols) ? symbols : [symbols] }),
   }))
 }
 
-export async function removeSymbol(id, symbol) {
-  return handle(await fetch(`${API_BASE}/${id}/symbols/${encodeURIComponent(symbol)}`, {
+export async function removeSymbol(symbol) {
+  return handle(await fetch(`${API_BASE}/symbols/${encodeURIComponent(symbol)}`, {
     method: 'DELETE',
   }))
 }
 
-export async function benchmarkWatchlist(id) {
-  return handle(await fetch(`${API_BASE}/${id}/benchmark`))
+export async function refreshWatchlist() {
+  return handle(await fetch(`${API_BASE}/refresh`, { method: 'POST' }))
 }

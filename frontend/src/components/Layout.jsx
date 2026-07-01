@@ -75,6 +75,16 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 17l6-6 4 4 8-8m0 0v6m0-6h-6" />
     </svg>
   ),
+  reversal: (
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 15a5 5 0 00-10 0V8m0 0L6 11m3-3l3 3" />
+    </svg>
+  ),
+  stages: (
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 20h4v-5h4v-4h4V6h6" />
+    </svg>
+  ),
   signal: (
     <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.347.347a3.75 3.75 0 01-1.298.872l-.11.042a3.75 3.75 0 01-2.687 0l-.11-.042a3.75 3.75 0 01-1.298-.872L12 17z" />
@@ -140,6 +150,8 @@ const navGroups = [
       { path: '/theme-radar',     label: 'Theme Radar',      icon: icons.signal },
       { path: '/earnings',        label: 'Earnings',         icon: icons.calendar },
       { path: '/scanner-9m',      label: '$9M Scanner',      icon: icons.ninem },
+      { path: '/reversal-setup',  label: 'Reversal Setup',   icon: icons.reversal },
+      { path: '/stage-analysis',  label: 'Stage Analysis',   icon: icons.stages },
       { path: '/screener',        label: 'Sector Scan',      icon: icons.sector },
       { path: '/breakouts',       label: 'Breakouts',        icon: icons.breakouts },
       { path: '/flow',            label: 'Options Flow',     icon: icons.breakouts },
@@ -169,6 +181,22 @@ const navGroups = [
 const flatNavItems = navGroups.flatMap(g => g.items)
 
 const COLLAPSE_KEY = 'qf:sidebar:collapsed'
+const ORDER_KEY = 'qf:sidebar:order'
+
+// Apply a saved per-group path order over the default nav groups. Items not in
+// the saved order (e.g. a newly-added page) fall back to their default slot, so
+// custom orders survive future nav additions.
+function applyOrder(order) {
+  return navGroups.map(g => {
+    const saved = order[g.label]
+    if (!saved || !saved.length) return g
+    const byPath = new Map(g.items.map(it => [it.path, it]))
+    const items = []
+    for (const p of saved) if (byPath.has(p)) { items.push(byPath.get(p)); byPath.delete(p) }
+    for (const it of g.items) if (byPath.has(it.path)) items.push(it)  // leftovers keep default order
+    return { ...g, items }
+  })
+}
 
 export default function Layout() {
   const location = useLocation()
@@ -180,6 +208,33 @@ export default function Layout() {
   useEffect(() => {
     try { localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0') } catch {}
   }, [collapsed])
+
+  // --- Sidebar item ordering (drag to reorder within a group) --------------
+  const [order, setOrder] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(ORDER_KEY)) || {} } catch { return {} }
+  })
+  const [editOrder, setEditOrder] = useState(false)
+  const [dragItem, setDragItem] = useState(null)   // { group, path }
+
+  useEffect(() => {
+    try { localStorage.setItem(ORDER_KEY, JSON.stringify(order)) } catch {}
+  }, [order])
+
+  const orderedGroups = useMemo(() => applyOrder(order), [order])
+  const hasCustomOrder = Object.keys(order).length > 0
+
+  const dropOnItem = (groupLabel, targetPath) => {
+    if (!dragItem || dragItem.group !== groupLabel || dragItem.path === targetPath) { setDragItem(null); return }
+    const group = orderedGroups.find(g => g.label === groupLabel)
+    const paths = group.items.map(it => it.path)
+    const from = paths.indexOf(dragItem.path)
+    const to = paths.indexOf(targetPath)
+    if (from < 0 || to < 0) { setDragItem(null); return }
+    const next = [...paths]
+    next.splice(to, 0, next.splice(from, 1)[0])
+    setOrder(prev => ({ ...prev, [groupLabel]: next }))
+    setDragItem(null)
+  }
 
   useEffect(() => {
     const handleEsc = (e) => { if (e.key === 'Escape') setMobileOpen(false) }
@@ -249,7 +304,7 @@ export default function Layout() {
 
         {/* Nav groups */}
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
-          {navGroups.map(group => (
+          {orderedGroups.map(group => (
             <div key={group.label}>
               {!collapsed && (
                 <div className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-surface-500">
@@ -259,26 +314,84 @@ export default function Layout() {
               {collapsed && <div className="mx-2 mb-1.5 h-px bg-surface-700/40" />}
               <div className="space-y-0.5">
                 {group.items.map(({ path, label, icon, end }) => (
-                  <NavLink
-                    key={path}
-                    to={path}
-                    end={end}
-                    title={collapsed ? label : undefined}
-                    className={({ isActive }) =>
-                      `flex items-center ${collapsed ? 'justify-center' : 'gap-2.5'} px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors duration-150 ${
-                        isActive
-                          ? 'bg-accent/10 text-accent'
-                          : 'text-surface-400 hover:text-surface-100 hover:bg-surface-800/60'
-                      }`
-                    }
-                  >
-                    <span className="shrink-0">{icon}</span>
-                    {!collapsed && <span className="whitespace-nowrap">{label}</span>}
-                  </NavLink>
+                  editOrder && !collapsed ? (
+                    <div
+                      key={path}
+                      draggable
+                      onDragStart={() => setDragItem({ group: group.label, path })}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => dropOnItem(group.label, path)}
+                      onDragEnd={() => setDragItem(null)}
+                      className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-[13px] font-medium cursor-grab active:cursor-grabbing border border-dashed transition-colors ${
+                        dragItem?.path === path
+                          ? 'border-accent/50 bg-accent/5 opacity-60'
+                          : 'border-surface-700/50 text-surface-300 hover:bg-surface-800/60'
+                      }`}
+                    >
+                      <svg className="w-3.5 h-3.5 shrink-0 text-surface-500" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />
+                        <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
+                        <circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
+                      </svg>
+                      <span className="shrink-0">{icon}</span>
+                      <span className="whitespace-nowrap">{label}</span>
+                    </div>
+                  ) : (
+                    <NavLink
+                      key={path}
+                      to={path}
+                      end={end}
+                      title={collapsed ? label : undefined}
+                      className={({ isActive }) =>
+                        `flex items-center ${collapsed ? 'justify-center' : 'gap-2.5'} px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors duration-150 ${
+                          isActive
+                            ? 'bg-accent/10 text-accent'
+                            : 'text-surface-400 hover:text-surface-100 hover:bg-surface-800/60'
+                        }`
+                      }
+                    >
+                      <span className="shrink-0">{icon}</span>
+                      {!collapsed && <span className="whitespace-nowrap">{label}</span>}
+                    </NavLink>
+                  )
                 ))}
               </div>
             </div>
           ))}
+
+          {/* Reorder controls (expanded only) */}
+          {!collapsed && (
+            <div className="pt-1 border-t border-surface-700/30 mt-2">
+              <div className="flex items-center gap-2 px-1 pt-2">
+                <button
+                  onClick={() => setEditOrder(v => !v)}
+                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                    editOrder ? 'bg-accent/15 text-accent' : 'text-surface-500 hover:text-surface-200 hover:bg-surface-800/60'
+                  }`}
+                  title="Drag nav items to reorder them within each section"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 8h16M4 16h16M7 4v4M17 12v8" />
+                  </svg>
+                  {editOrder ? 'Done' : 'Edit order'}
+                </button>
+                {editOrder && hasCustomOrder && (
+                  <button
+                    onClick={() => setOrder({})}
+                    className="px-2 py-1 rounded-md text-[11px] font-medium text-surface-500 hover:text-surface-200 hover:bg-surface-800/60"
+                    title="Restore the default sidebar order"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+              {editOrder && (
+                <div className="px-1 pt-1 text-[10px] text-surface-500 leading-snug">
+                  Drag items to reorder within each section.
+                </div>
+              )}
+            </div>
+          )}
         </nav>
 
         {/* Footer: ambient "today's rule" (expanded only) + build stamp.
@@ -346,7 +459,7 @@ export default function Layout() {
         <div className="lg:hidden fixed bottom-0 left-0 right-0 z-[70] animate-drawer-in max-h-[85vh] overflow-y-auto">
           <div className="bg-surface-900 border-t border-surface-700/60 rounded-t-2xl pb-8 pt-3 px-6 shadow-2xl">
             <div className="w-10 h-1 rounded-full bg-surface-600 mx-auto mb-5" />
-            {navGroups.map(group => (
+            {orderedGroups.map(group => (
               <div key={group.label} className="mb-4 last:mb-0">
                 <div className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-surface-500">
                   {group.label}
