@@ -31,6 +31,8 @@ const AITrader        = lazy(() => import('./pages/AITrader'))
 const ThemeRadar      = lazy(() => import('./pages/ThemeRadar'))
 const ReversalSetup   = lazy(() => import('./pages/ReversalSetup'))
 const StageAnalysis   = lazy(() => import('./pages/StageAnalysis'))
+const FactorModel     = lazy(() => import('./pages/FactorModel'))
+const EdgeValidation  = lazy(() => import('./pages/EdgeValidation'))
 
 // Note: the Suspense boundary for lazy page chunks lives INSIDE Layout (around
 // the <Outlet>), so the sidebar/header stay mounted and only the content area
@@ -67,6 +69,8 @@ function AppRoutes() {
         <Route path="scanner-9m" element={<Scanner9M />} />
         <Route path="reversal-setup" element={<ReversalSetup />} />
         <Route path="stage-analysis" element={<StageAnalysis />} />
+        <Route path="factor-model" element={<FactorModel />} />
+        <Route path="edge-validation" element={<EdgeValidation />} />
       </Route>
     </Routes>
   )

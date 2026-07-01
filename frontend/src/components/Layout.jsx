@@ -85,6 +85,17 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 20h4v-5h4v-4h4V6h6" />
     </svg>
   ),
+  factor: (
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h10M4 18h6M18 12v6m3-3h-6" />
+    </svg>
+  ),
+  edge: (
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 19V5m0 14h16M8 15l3-4 3 2 5-7" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 8h.01" />
+    </svg>
+  ),
   signal: (
     <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.347.347a3.75 3.75 0 01-1.298.872l-.11.042a3.75 3.75 0 01-2.687 0l-.11-.042a3.75 3.75 0 01-1.298-.872L12 17z" />
@@ -152,6 +163,8 @@ const navGroups = [
       { path: '/scanner-9m',      label: '$9M Scanner',      icon: icons.ninem },
       { path: '/reversal-setup',  label: 'Reversal Setup',   icon: icons.reversal },
       { path: '/stage-analysis',  label: 'Stage Analysis',   icon: icons.stages },
+      { path: '/factor-model',    label: 'Factor Model',     icon: icons.factor },
+      { path: '/edge-validation', label: 'Edge Validation',  icon: icons.edge },
       { path: '/screener',        label: 'Sector Scan',      icon: icons.sector },
       { path: '/breakouts',       label: 'Breakouts',        icon: icons.breakouts },
       { path: '/flow',            label: 'Options Flow',     icon: icons.breakouts },
