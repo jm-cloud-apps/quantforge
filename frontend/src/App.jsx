@@ -28,6 +28,7 @@ const Rules           = lazy(() => import('./pages/Rules'))
 const Dashboard       = lazy(() => import('./pages/Dashboard'))
 const Review          = lazy(() => import('./pages/Review'))
 const AITrader        = lazy(() => import('./pages/AITrader'))
+const ThemeRadar      = lazy(() => import('./pages/ThemeRadar'))
 const ReversalSetup   = lazy(() => import('./pages/ReversalSetup'))
 const StageAnalysis   = lazy(() => import('./pages/StageAnalysis'))
 
@@ -48,6 +49,7 @@ function AppRoutes() {
         <Route path="flow" element={<OptionsFlow />} />
         <Route path="flow/:underlying" element={<OptionsFlow />} />
         <Route path="ai-trader" element={<AITrader />} />
+        <Route path="theme-radar" element={<ThemeRadar />} />
         <Route path="bot-trader" element={<BotTrader />} />
         <Route path="trading-analysis" element={<TradingAnalysis />} />
         <Route path="yearly-strongest" element={<YearlyStrongest />} />

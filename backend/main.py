@@ -121,6 +121,9 @@ app.include_router(qullamaggie_router)
 from ai_trader.router import router as ai_trader_router
 app.include_router(ai_trader_router)
 
+from theme_radar.router import router as theme_radar_router
+app.include_router(theme_radar_router)
+
 # Register Options Flow router (Tier-D — Unusual Whales-style)
 from options_flow.router import router as options_flow_router
 app.include_router(options_flow_router)
