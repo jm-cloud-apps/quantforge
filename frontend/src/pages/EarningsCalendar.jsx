@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getEarnings, getEarningsReactions } from '../api/calendar'
-import { listWatchlists } from '../api/watchlists'
 import TradingViewLink from '../components/TradingViewLink'
 import EarningsSessionIcon from '../components/EarningsSessionIcon'
 
@@ -200,29 +199,24 @@ function DayColumn({ slot, reactions }) {
 
 export default function EarningsCalendar() {
   const [days, setDays] = useState(5)
-  const [watchlistsList, setWatchlistsList] = useState([])
-  const [wlId, setWlId] = useState('')
+  const [myOnly, setMyOnly] = useState(false)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [reactions, setReactions] = useState({})
 
-  useEffect(() => {
-    listWatchlists().then(setWatchlistsList).catch(() => setWatchlistsList([]))
-  }, [])
-
   const load = useCallback(async (force = false) => {
     setLoading(true)
     setError(null)
     try {
-      const res = await getEarnings({ days, wlId: wlId || null, force })
+      const res = await getEarnings({ days, wlId: myOnly ? '1' : null, force })
       setData(res)
     } catch (e) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [days, wlId])
+  }, [days, myOnly])
 
   useEffect(() => { load(false) }, [load])
 
@@ -280,16 +274,24 @@ export default function EarningsCalendar() {
               </button>
             ))}
           </div>
-          <select
-            value={wlId}
-            onChange={(e) => setWlId(e.target.value)}
-            className="rounded-lg bg-surface-900/80 border border-surface-700/50 px-3 py-1.5 text-[12px] text-surface-200 focus:border-accent focus:outline-none"
-          >
-            <option value="">All earnings</option>
-            {watchlistsList.map(wl => (
-              <option key={wl.id} value={wl.id}>★ {wl.name}</option>
-            ))}
-          </select>
+          <div className="inline-flex rounded-lg bg-surface-900/80 border border-surface-700/50 p-0.5">
+            <button
+              onClick={() => setMyOnly(false)}
+              className={`px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
+                !myOnly ? 'bg-accent/15 text-accent' : 'text-surface-400 hover:text-surface-200'
+              }`}
+            >
+              All earnings
+            </button>
+            <button
+              onClick={() => setMyOnly(true)}
+              className={`px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
+                myOnly ? 'bg-accent/15 text-accent' : 'text-surface-400 hover:text-surface-200'
+              }`}
+            >
+              ★ My watchlist
+            </button>
+          </div>
           <button
             onClick={() => load(true)}
             disabled={loading}

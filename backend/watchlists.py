@@ -1,11 +1,13 @@
-"""Watchlists — per-user lists of tickers with entry timestamp + price.
+"""Watchlist — a single consolidated list of tickers, each stamped with the
+date + price at which it was added.
 
-Each entry captures the date and price at which the symbol was added, so the
-UI can benchmark current price against the original entry and surface a
-running return for every name on the list.
+There is exactly one list (no named sub-lists). Every entry caches the last
+fetched price and the return-since-add so the UI can render instantly on load
+without hitting a data provider; prices only refresh when the user explicitly
+asks for it via `POST /api/watchlist/refresh`.
 
 Storage: backend/data/watchlists.json. The whole file is rewritten on every
-mutation (state is tiny — a handful of lists with ≤100 entries each).
+mutation (state is tiny — well under a few hundred entries).
 """
 
 from __future__ import annotations
@@ -18,42 +20,14 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/watchlists", tags=["watchlists"])
+router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
 
 STORE_PATH = os.path.join(os.path.dirname(__file__), "data", "watchlists.json")
 _lock = threading.Lock()
-
-
-class Entry(BaseModel):
-    symbol: str
-    added_at: str
-    added_price: Optional[float] = None
-
-
-class Watchlist(BaseModel):
-    id: str
-    name: str
-    entries: list[Entry] = Field(default_factory=list)
-    created_at: str
-    updated_at: str
-
-    @property
-    def symbols(self) -> list[str]:  # convenience for callers that only need ticks
-        return [e.symbol for e in self.entries]
-
-
-class WatchlistCreate(BaseModel):
-    name: str
-    symbols: list[str] = Field(default_factory=list)
-
-
-class WatchlistUpdate(BaseModel):
-    name: Optional[str] = None
-    symbols: Optional[list[str]] = None  # full replace; loses entry metadata
 
 
 class AddSymbolsBody(BaseModel):
@@ -65,53 +39,91 @@ class AddSymbolsBody(BaseModel):
 
 # --- Persistence + migration helpers ----------------------------------------
 
-def _load() -> list[dict]:
+def _empty() -> dict:
+    return {"entries": [], "updated_at": _now(), "priced_at": None}
+
+
+def _load() -> dict:
+    """Return the single watchlist object, migrating older formats on read.
+
+    Legacy formats handled:
+      * a list of named watchlists (each with its own `entries`) — all entries
+        are merged into one list, deduped by symbol keeping the earliest add.
+      * the pre-`entries` flat-`symbols` schema nested inside those lists.
+    """
     if not os.path.exists(STORE_PATH):
-        return []
+        return _empty()
     try:
         with open(STORE_PATH, "r") as f:
-            raw = json.load(f) or []
+            raw = json.load(f)
     except Exception:
-        return []
+        return _empty()
 
-    # Migrate any pre-entries records on read (older schema stored a flat
-    # `symbols` list; entry timestamps + prices weren't tracked).
-    migrated = False
-    for item in raw:
-        if "entries" not in item:
-            now = item.get("updated_at") or item.get("created_at") or datetime.now().isoformat(timespec="seconds")
-            item["entries"] = [{"symbol": s, "added_at": now, "added_price": None}
-                               for s in (item.get("symbols") or [])]
-            migrated = True
-        item.pop("symbols", None)  # source of truth is `entries`
-    if migrated:
+    # Already the single-object format.
+    if isinstance(raw, dict) and "entries" in raw:
+        raw.setdefault("updated_at", _now())
+        raw.setdefault("priced_at", None)
+        return raw
+
+    # Legacy: list of named watchlists -> merge into one.
+    if isinstance(raw, list):
+        merged: dict[str, dict] = {}
+        for item in raw:
+            entries = item.get("entries")
+            if entries is None:
+                # pre-entries flat schema
+                ts = item.get("updated_at") or item.get("created_at") or _now()
+                entries = [{"symbol": s, "added_at": ts, "added_price": None}
+                           for s in (item.get("symbols") or [])]
+            for e in entries:
+                sym = _normalize_symbol(e.get("symbol", ""))
+                if not sym:
+                    continue
+                kept = merged.get(sym)
+                # Keep the earliest add for a symbol seen in multiple lists.
+                if kept is None or (e.get("added_at") or "") < (kept.get("added_at") or ""):
+                    merged[sym] = {
+                        "symbol": sym,
+                        "added_at": e.get("added_at") or _now(),
+                        "added_price": e.get("added_price"),
+                        "current_price": e.get("current_price"),
+                        "return_pct": e.get("return_pct"),
+                        "priced_at": e.get("priced_at"),
+                    }
+        obj = {
+            "entries": sorted(merged.values(), key=lambda e: e.get("added_at") or ""),
+            "updated_at": _now(),
+            "priced_at": None,
+        }
         try:
-            _save_raw(raw)
+            _save_raw(obj)
         except Exception:
             pass  # non-fatal — we'll re-migrate on next read
-    return raw
+        return obj
+
+    return _empty()
 
 
-def _save_raw(items: list[dict]) -> None:
+def _save_raw(obj: dict) -> None:
     os.makedirs(os.path.dirname(STORE_PATH), exist_ok=True)
     with open(STORE_PATH, "w") as f:
-        json.dump(items, f, indent=2)
+        json.dump(obj, f, indent=2)
 
 
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def _next_id(items: list[dict]) -> str:
-    existing = {item.get("id") for item in items}
-    n = 1
-    while f"wl_{n}" in existing:
-        n += 1
-    return f"wl_{n}"
-
-
 def _normalize_symbol(s: str) -> str:
     return (s or "").strip().upper()
+
+
+# --- Shared accessor (used by other routers) --------------------------------
+
+def load_symbols() -> list[str]:
+    """Return all symbols on the watchlist. Safe for other modules to import."""
+    with _lock:
+        return [e["symbol"] for e in _load().get("entries", []) if e.get("symbol")]
 
 
 # --- Price lookup ------------------------------------------------------------
@@ -155,101 +167,50 @@ def _latest_price(symbol: str) -> Optional[float]:
     return None
 
 
+def _summary(entries: list[dict]) -> dict:
+    valid = [e for e in entries if e.get("return_pct") is not None]
+    avg = round(sum(e["return_pct"] for e in valid) / len(valid), 2) if valid else None
+    winners = sum(1 for e in valid if e["return_pct"] > 0)
+    return {
+        "count": len(entries),
+        "scored": len(valid),
+        "winners": winners,
+        "losers": len(valid) - winners,
+        "avg_return_pct": avg,
+    }
+
+
+def _with_meta(obj: dict) -> dict:
+    """Attach derived fields (days_held, summary) onto the response."""
+    entries = []
+    for e in obj.get("entries", []):
+        days_held = None
+        try:
+            days_held = max(0, (datetime.now() - datetime.fromisoformat(e["added_at"])).days)
+        except Exception:
+            pass
+        entries.append({**e, "days_held": days_held})
+    return {
+        "entries": entries,
+        "updated_at": obj.get("updated_at"),
+        "priced_at": obj.get("priced_at"),
+        "summary": _summary(entries),
+    }
+
+
 # --- Endpoints ---------------------------------------------------------------
 
 @router.get("")
-def list_watchlists() -> list[dict]:
+def get_watchlist() -> dict:
+    """Return the watchlist with its *cached* prices — no provider calls."""
     with _lock:
-        return _load()
+        return _with_meta(_load())
 
 
-@router.post("")
-def create_watchlist(body: WatchlistCreate) -> dict:
-    name = (body.name or "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="name is required")
-    now = _now()
-    with _lock:
-        items = _load()
-        if any((item.get("name") or "").lower() == name.lower() for item in items):
-            raise HTTPException(status_code=409, detail=f"Watchlist '{name}' already exists")
-
-        # Snapshot entry prices for any seeded symbols.
-        seeded = []
-        seen = set()
-        for raw in body.symbols:
-            sym = _normalize_symbol(raw)
-            if not sym or sym in seen:
-                continue
-            seen.add(sym)
-            seeded.append({"symbol": sym, "added_at": now, "added_price": _latest_price(sym)})
-
-        wl = {
-            "id": _next_id(items),
-            "name": name,
-            "entries": seeded,
-            "created_at": now,
-            "updated_at": now,
-        }
-        items.append(wl)
-        _save_raw(items)
-        return wl
-
-
-@router.patch("/{wl_id}")
-def update_watchlist(wl_id: str, body: WatchlistUpdate) -> dict:
-    """Rename, or replace the full symbol set.
-
-    Replacement is destructive — existing entry metadata for tickers no longer
-    in the new list is lost. Use the symbols endpoints below for incremental
-    edits that preserve add timestamps + prices.
-    """
-    with _lock:
-        items = _load()
-        for item in items:
-            if item.get("id") != wl_id:
-                continue
-            if body.name is not None:
-                item["name"] = body.name.strip()
-            if body.symbols is not None:
-                # Preserve metadata for tickers that remain.
-                existing = {e["symbol"]: e for e in item.get("entries", [])}
-                new_entries: list[dict] = []
-                now = _now()
-                seen = set()
-                for raw in body.symbols:
-                    sym = _normalize_symbol(raw)
-                    if not sym or sym in seen:
-                        continue
-                    seen.add(sym)
-                    if sym in existing:
-                        new_entries.append(existing[sym])
-                    else:
-                        new_entries.append({"symbol": sym, "added_at": now, "added_price": _latest_price(sym)})
-                item["entries"] = new_entries
-            item["updated_at"] = _now()
-            _save_raw(items)
-            return item
-        raise HTTPException(status_code=404, detail="Watchlist not found")
-
-
-@router.delete("/{wl_id}")
-def delete_watchlist(wl_id: str) -> dict:
-    with _lock:
-        items = _load()
-        new_items = [i for i in items if i.get("id") != wl_id]
-        if len(new_items) == len(items):
-            raise HTTPException(status_code=404, detail="Watchlist not found")
-        _save_raw(new_items)
-        return {"deleted": wl_id}
-
-
-@router.post("/{wl_id}/symbols")
-def add_symbols(wl_id: str, body: AddSymbolsBody) -> dict:
-    """Append symbols to a watchlist, snapshotting each at add time."""
+@router.post("/symbols")
+def add_symbols(body: AddSymbolsBody) -> dict:
+    """Append symbols, snapshotting the add price for each new ticker."""
     raw_symbols = body.symbols or ([] if body.symbol is None else [body.symbol])
-    if not raw_symbols:
-        raise HTTPException(status_code=400, detail="symbol(s) required")
     additions: list[str] = []
     seen: set[str] = set()
     for s in raw_symbols:
@@ -257,91 +218,72 @@ def add_symbols(wl_id: str, body: AddSymbolsBody) -> dict:
         if sym and sym not in seen:
             seen.add(sym)
             additions.append(sym)
+    if not additions:
+        raise HTTPException(status_code=400, detail="symbol(s) required")
 
     now = _now()
     with _lock:
-        items = _load()
-        for item in items:
-            if item.get("id") != wl_id:
+        obj = _load()
+        existing = {e["symbol"] for e in obj.get("entries", [])}
+        for sym in additions:
+            if sym in existing:
                 continue
-            existing = {e["symbol"] for e in item.get("entries", [])}
-            for sym in additions:
-                if sym in existing:
-                    continue
-                price = body.price if body.price is not None else _latest_price(sym)
-                item.setdefault("entries", []).append({
-                    "symbol": sym, "added_at": now, "added_price": price,
-                })
-                existing.add(sym)
-            item["updated_at"] = now
-            _save_raw(items)
-            return item
-        raise HTTPException(status_code=404, detail="Watchlist not found")
+            price = body.price if body.price is not None else _latest_price(sym)
+            obj.setdefault("entries", []).append({
+                "symbol": sym,
+                "added_at": now,
+                "added_price": price,
+                # Seed "now" with the add price so the row reads 0% until the
+                # first explicit refresh, rather than showing a blank.
+                "current_price": price,
+                "return_pct": 0.0 if price else None,
+                "priced_at": now if price else None,
+            })
+            existing.add(sym)
+        obj["updated_at"] = now
+        _save_raw(obj)
+        return _with_meta(obj)
 
 
-@router.delete("/{wl_id}/symbols/{symbol}")
-def remove_symbol(wl_id: str, symbol: str) -> dict:
+@router.delete("/symbols/{symbol}")
+def remove_symbol(symbol: str) -> dict:
     sym = _normalize_symbol(symbol)
     with _lock:
-        items = _load()
-        for item in items:
-            if item.get("id") != wl_id:
-                continue
-            item["entries"] = [e for e in (item.get("entries") or []) if e.get("symbol", "").upper() != sym]
-            item["updated_at"] = _now()
-            _save_raw(items)
-            return item
-        raise HTTPException(status_code=404, detail="Watchlist not found")
+        obj = _load()
+        obj["entries"] = [e for e in obj.get("entries", []) if e.get("symbol", "").upper() != sym]
+        obj["updated_at"] = _now()
+        _save_raw(obj)
+        return _with_meta(obj)
 
 
-@router.get("/{wl_id}/benchmark")
-def benchmark_watchlist(wl_id: str) -> dict:
-    """Return current price + return-since-add for every entry."""
+@router.post("/refresh")
+def refresh_prices() -> dict:
+    """Fetch the latest price for every ticker, recompute return-since-add,
+    and persist the results so subsequent loads are instant."""
     with _lock:
-        items = _load()
-        target = next((i for i in items if i.get("id") == wl_id), None)
-        if not target:
-            raise HTTPException(status_code=404, detail="Watchlist not found")
-        entries = list(target.get("entries") or [])
+        obj = _load()
+        entries = [dict(e) for e in obj.get("entries", [])]
 
-    benched: list[dict] = []
+    now = _now()
     for e in entries:
-        sym = e["symbol"]
-        added = e.get("added_price")
-        current = _latest_price(sym)
-        ret_pct = None
-        if added and current and added > 0:
-            ret_pct = (current / added - 1) * 100
-        # Days held
-        days_held = None
-        try:
-            days_held = max(0, (datetime.now() - datetime.fromisoformat(e["added_at"])).days)
-        except Exception:
-            pass
-        benched.append({
-            "symbol": sym,
-            "added_at": e.get("added_at"),
-            "added_price": added,
-            "current_price": current,
-            "return_pct": round(ret_pct, 2) if ret_pct is not None else None,
-            "days_held": days_held,
-        })
+        current = _latest_price(e["symbol"])
+        if current is not None:
+            e["current_price"] = current
+            added = e.get("added_price")
+            e["return_pct"] = round((current / added - 1) * 100, 2) if added and added > 0 else None
+            e["priced_at"] = now
 
-    # Roll-up — only count entries with both prices.
-    valid = [b for b in benched if b["return_pct"] is not None]
-    avg_return = round(sum(b["return_pct"] for b in valid) / len(valid), 2) if valid else None
-    winners = sum(1 for b in valid if b["return_pct"] > 0)
-
-    return {
-        "watchlist_id": wl_id,
-        "name": target.get("name"),
-        "as_of": _now(),
-        "entries": benched,
-        "summary": {
-            "count": len(benched),
-            "scored": len(valid),
-            "winners": winners,
-            "losers": len(valid) - winners,
-            "avg_return_pct": avg_return,
-        },
-    }
+    with _lock:
+        # Re-load + patch in case the list changed under us, then persist.
+        obj = _load()
+        by_sym = {e["symbol"]: e for e in entries}
+        for e in obj.get("entries", []):
+            fresh = by_sym.get(e["symbol"])
+            if fresh:
+                e["current_price"] = fresh.get("current_price")
+                e["return_pct"] = fresh.get("return_pct")
+                e["priced_at"] = fresh.get("priced_at")
+        obj["priced_at"] = now
+        obj["updated_at"] = now
+        _save_raw(obj)
+        return _with_meta(obj)

@@ -144,18 +144,42 @@ def wide_universe(min_dollar_vol: float = 5_000_000, max_symbols: int = 3000) ->
     return symbols
 
 
-def get_universe(include_movers: bool = False, movers_limit: int = 30) -> list[str]:
+def get_universe(include_movers: bool = False, movers_limit: int = 30,
+                 wide: bool | None = None, wide_cap: int | None = None) -> list[str]:
     """Return the deduplicated active universe, sorted.
 
-    If `include_movers=True` and the configured provider supports it, also
-    pull today's top gainers and merge them in. This catches names that
-    aren't in the static list (the IRDM/LUNR/QBTS-of-tomorrow problem).
+    Base is the curated CORE+EXTRA list. With `wide=True` (or env
+    QF_WIDE_UNIVERSE=1) the base becomes *every* liquid US stock — the top
+    `wide_cap` names by dollar volume from the whole tape — so the scan isn't
+    blind to in-play names that simply aren't on the curated list (the KEEL
+    problem). The curated names are always unioned in so nothing is lost, and it
+    degrades to the curated list if the grouped endpoint isn't available.
+
+    NOTE: the wide list is *today's* liquidity — only use it for live scans, not
+    point-in-time backtests (it would be look-ahead/survivorship bias).
+
+    `include_movers=True` also merges today's top gainers (redundant under wide,
+    harmless otherwise).
     """
     env = os.getenv("QF_SCREENER_UNIVERSE")
     if env:
         return sorted({t.strip().upper() for t in env.split(",") if t.strip()})
 
+    if wide is None:
+        wide = os.getenv("QF_WIDE_UNIVERSE", "").strip().lower() in ("1", "true", "yes", "on")
+
     combined = set(CORE_TICKERS) | set(EXTRA_TICKERS)
+
+    if wide:
+        cap = wide_cap if wide_cap is not None else int(os.getenv("QF_WIDE_UNIVERSE_CAP", "750"))
+        try:
+            wide_syms = wide_universe(min_dollar_vol=5_000_000, max_symbols=cap)
+            if wide_syms:
+                combined |= set(wide_syms)
+            else:
+                logger.info("wide universe empty (endpoint unavailable?) — using curated list")
+        except Exception as e:
+            logger.warning("wide universe failed (%s) — using curated list", e)
 
     if include_movers:
         try:

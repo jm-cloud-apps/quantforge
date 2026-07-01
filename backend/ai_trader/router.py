@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 from market_clock import effective_cache_ttl, is_market_active_now, last_market_close
 from .backtest import run_single, run_walkforward
 from .backtest_history import load_backtest_history, record_backtest
-from .engine import build_ideas
+from .engine import MAX_IDEAS, build_ideas
 from .history import load_history_priced, record_today
 from .safe import json_safe
 
@@ -28,6 +28,7 @@ router = APIRouter(prefix="/api/ai-trader", tags=["ai-trader"])
 #     (fresh=1) always forces a new scan.
 _CACHE: dict[str, tuple[float, dict]] = {}
 _TTL_ACTIVE = 1800  # 30 minutes
+_IDEAS_SCHEMA = 2  # bump when the response shape changes so stale caches are ignored
 _IDEAS_DISK_CACHE = os.path.join(os.path.dirname(__file__), "..", "data", "ai_trader_ideas_cache.json")
 _IDEAS_DISK_MAX = 20  # cap distinct param combos kept on disk
 _HISTORY_CACHE: dict[str, tuple[float, dict]] = {}
@@ -90,12 +91,13 @@ def get_ideas(
     risk_pct: float = Query(1.0, ge=0.05, le=10.0, description="% of account risked per idea (fixed-fractional)"),
     fresh: bool = Query(False, description="Bypass the cache and re-scan"),
 ):
-    """Scan the market for Qullamaggie setups and return the top 0-5 ideas.
+    """Scan the market for Qullamaggie setups and return the top 0-10 ideas.
 
     Served from cache while the market is closed (weekends, holidays, overnight)
     so the scan isn't re-run on frozen data; `fresh=1` forces a re-scan."""
-    # float() so a defaulted param (int 25000) keys the same as a provided one ("25000.0")
-    key = f"{float(budget)}|{float(min_adr)}|{float(account)}|{float(risk_pct)}"
+    # float() so a defaulted param (int 25000) keys the same as a provided one ("25000.0");
+    # MAX_IDEAS + schema in the key so a config/shape change doesn't serve a stale cache.
+    key = f"{float(budget)}|{float(min_adr)}|{float(account)}|{float(risk_pct)}|n{MAX_IDEAS}|s{_IDEAS_SCHEMA}"
     if not fresh:
         hit = _ideas_cache_get(key)
         if hit and _ideas_cache_valid(hit[0]):
