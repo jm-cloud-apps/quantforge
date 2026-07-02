@@ -41,7 +41,7 @@ _CACHE_TTL_SEC_ACTIVE = 600  # 10 minutes during regular session
 
 
 @router.get("")
-async def get_breakouts(
+def get_breakouts(
     mode: str = Query("breakout", pattern="^(breakout|leaders|emerging|volume|unusual_volume)$"),
     limit: int = Query(20, ge=1, le=100),
     min_dollar_vol: float = Query(5_000_000, ge=0),
@@ -190,28 +190,28 @@ async def get_breakouts(
 
 
 @router.get("/universe")
-async def get_universe_endpoint(include_movers: bool = False):
+def get_universe_endpoint(include_movers: bool = False):
     symbols = get_universe(include_movers=include_movers)
     return {"size": len(symbols), "symbols": symbols, "include_movers": include_movers}
 
 
 @router.get("/history/recent-developing")
-async def history_recent_developing(days: int = Query(30, ge=1, le=180)):
+def history_recent_developing(days: int = Query(30, ge=1, le=180)):
     return {"days": days, "results": recent_developing(days)}
 
 
 @router.get("/history/{symbol}")
-async def history_for_symbol(symbol: str, days: int = Query(60, ge=1, le=365)):
+def history_for_symbol(symbol: str, days: int = Query(60, ge=1, le=365)):
     return {"symbol": symbol.upper(), "days": days, "history": symbol_history(symbol, days)}
 
 
 @router.get("/snapshot/stats")
-async def get_snapshot_stats():
+def get_snapshot_stats():
     return snapshot_stats()
 
 
 @router.get("/intraday/{symbol}")
-async def get_intraday(symbol: str, days_back: int = Query(2, ge=1, le=5)):
+def get_intraday(symbol: str, days_back: int = Query(2, ge=1, le=5)):
     """Pull 5-minute bars for entry-timing on READY candidates."""
     provider = get_provider()
     if not hasattr(provider, "fetch_intraday"):

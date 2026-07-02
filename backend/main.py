@@ -15,6 +15,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Body
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 import io
@@ -92,6 +93,15 @@ _trades_cache = {
     "data": None,
 }
 
+# Shared, thread-safe HTTP client for the ad-hoc provider calls in this module
+# (per-symbol Finnhub earnings/news/quote/profile/metric enrichment). Several
+# of these fire back-to-back against the same host, so reusing pooled TCP+TLS
+# connections avoids a fresh handshake on every call.
+_http_client = httpx.Client(
+    timeout=15,
+    limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
+)
+
 
 app = FastAPI(
     title="QuantForge API",
@@ -153,6 +163,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class _SelectiveGZipMiddleware(GZipMiddleware):
+    """GZipMiddleware that leaves Server-Sent Events uncompressed.
+
+    Most endpoints return JSON that compresses well (breadth, screener,
+    movers, news payloads are the fat ones), and over a remote/tunnelled
+    connection gzip is the cheapest latency win available. The catch:
+    Starlette's gzip buffers streaming bodies, which would stall the
+    real-time progress events the formatter emits over text/event-stream.
+    The formatter routes are the only SSE endpoints, so we bypass gzip for
+    that prefix and compress everything else.
+    """
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope.get("path", "").startswith("/api/formatter/"):
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+
+# Compress API responses (skips SSE — see class docstring). minimum_size avoids
+# spending CPU on tiny payloads where the gzip header would outweigh the win.
+app.add_middleware(_SelectiveGZipMiddleware, minimum_size=1024)
 
 
 # Request timing — logs each API call as it arrives and again when it finishes,
@@ -3436,7 +3470,7 @@ def _has_earnings_keywords(articles):
 def _fetch_earnings_data(symbol: str, api_key: str):
     """Fetch last 8 quarters of earnings from Finnhub and compute growth."""
     try:
-        resp = httpx.get(
+        resp = _http_client.get(
             f"{FINNHUB_BASE_URL}/stock/earnings",
             params={"symbol": symbol, "limit": 8, "token": api_key},
             timeout=10.0,
@@ -3839,7 +3873,7 @@ For each criterion, state PASS ✓, PARTIAL ~, or FAIL ✗ with a brief explanat
 
 
 @app.post("/api/analysis/criteria-check")
-async def criteria_check(body: dict):
+def criteria_check(body: dict):
     """Evaluate a stock against Pradeep Bonde and Qullamaggie criteria using Claude."""
     ticker = body.get("ticker", "").strip().upper()
     if not ticker:
@@ -3859,7 +3893,7 @@ async def criteria_check(body: dict):
         try:
             to_date = datetime.now().strftime("%Y-%m-%d")
             from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-            resp = httpx.get(
+            resp = _http_client.get(
                 f"{FINNHUB_BASE_URL}/company-news",
                 params={"symbol": ticker, "from": from_date, "to": to_date, "token": finnhub_key},
                 timeout=10,
@@ -4070,7 +4104,7 @@ def _build_ep_metrics(ticker: str, finnhub_key: str) -> dict:
     # Quote — best-effort gap %; OHLCV below is the real source of truth.
     if finnhub_key:
         try:
-            qresp = httpx.get(
+            qresp = _http_client.get(
                 f"{FINNHUB_BASE_URL}/quote",
                 params={"symbol": ticker, "token": finnhub_key},
                 timeout=10.0,
@@ -4086,7 +4120,7 @@ def _build_ep_metrics(ticker: str, finnhub_key: str) -> dict:
 
     # Profile — name + market cap + share-outstanding
     try:
-        presp = httpx.get(
+        presp = _http_client.get(
             f"{FINNHUB_BASE_URL}/stock/profile2",
             params={"symbol": ticker, "token": finnhub_key},
             timeout=10.0,
@@ -4103,7 +4137,7 @@ def _build_ep_metrics(ticker: str, finnhub_key: str) -> dict:
 
     # Basic financials — use 10DayAverageTradingVolume + share float fallback
     try:
-        mresp = httpx.get(
+        mresp = _http_client.get(
             f"{FINNHUB_BASE_URL}/stock/metric",
             params={"symbol": ticker, "metric": "all", "token": finnhub_key},
             timeout=10.0,

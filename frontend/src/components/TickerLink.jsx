@@ -1,23 +1,13 @@
-import { Link } from 'react-router-dom'
-
 /**
- * Renders a ticker symbol as a clickable link that opens Stock Analysis
- * (`/news?tickers=SYM`) with the ticker pre-filled and auto-searched.
+ * Renders a ticker symbol as a link that opens the symbol's chart on
+ * TradingView in a new tab.
  *
  * Use this anywhere a ticker appears (Sector Scan tiles, Breakout cards,
- * snapshot tables) so the whole app feels cross-linked.
+ * snapshot tables) so clicking any ticker jumps straight to its TradingView
+ * chart. It delegates to `TradingViewLink` — kept as its own named component
+ * because many pages import `TickerLink` directly.
+ *
+ * (Previously this opened the in-app Stock Analysis view at
+ * `/news?tickers=SYM`; tickers now go to TradingView everywhere.)
  */
-export default function TickerLink({ symbol, className = '', children, ...rest }) {
-  if (!symbol) return null
-  const sym = String(symbol).toUpperCase()
-  return (
-    <Link
-      to={`/news?tickers=${encodeURIComponent(sym)}`}
-      className={`hover:text-accent transition-colors ${className}`}
-      title={`Analyze ${sym} on Stock Analysis`}
-      {...rest}
-    >
-      {children ?? sym}
-    </Link>
-  )
-}
+export { default } from './TradingViewLink'
