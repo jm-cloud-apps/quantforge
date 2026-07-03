@@ -38,6 +38,13 @@ _cache_lock = threading.Lock()
 _cache: dict = {"key": None, "data": None, "ts": 0.0, "provider": None}
 _CACHE_TTL_SECONDS = 30 * 60
 
+# Shared, thread-safe HTTP client so the Massive/Finnhub calendar probes reuse
+# pooled connections instead of a fresh TLS handshake per call.
+_client = httpx.Client(
+    timeout=20,
+    limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
+)
+
 # How far back to also fetch, so already-reported earnings (yesterday's AMC,
 # today's BMO once market opens) appear with their actuals.
 _LOOKBACK_DAYS = 2
@@ -90,7 +97,7 @@ def _fetch_via_massive(start: str, end: str) -> tuple[list[dict], Optional[str]]
         if rows:
             return rows, None
         # Direct probe to surface the real failure reason for the UI.
-        probe = httpx.get(
+        probe = _client.get(
             "https://api.massive.com/benzinga/v1/earnings",
             params={"date.gte": start, "date.lte": end, "limit": 1, "apiKey": api_key},
             timeout=15,
@@ -119,7 +126,7 @@ def _fetch_via_finnhub(start: str, end: str) -> tuple[list[dict], Optional[str]]
         return [], "FINNHUB_API_KEY not configured"
 
     try:
-        r = httpx.get(
+        r = _client.get(
             "https://finnhub.io/api/v1/calendar/earnings",
             params={"from": start, "to": end, "token": api_key},
             timeout=20,

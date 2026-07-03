@@ -149,7 +149,7 @@ def _classify_lean(pc_premium: float | None, bullish_pct: float | None) -> str:
 
 
 @router.get("/{underlying}")
-async def get_flow(
+def get_flow(
     underlying: str,
     min_volume: int = Query(10, ge=0, description="Skip contracts with day volume below this"),
     include_sweeps: bool = Query(False, description="Pull tick-level trades on top contracts + detect multi-exchange sweeps. Expensive."),

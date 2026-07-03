@@ -34,6 +34,18 @@ router = APIRouter(prefix="/api/movers", tags=["movers"])
 
 _BASE = "https://api.massive.com"
 
+# Shared HTTP client so repeated provider calls reuse pooled TCP+TLS
+# connections instead of paying a fresh handshake (~100-300ms) every call.
+# The dashboard hits /extended, /gap and /movers together, and each of those
+# fans out to marketstatus + snapshot(s), so the handshake tax adds up fast.
+# httpx.Client is thread-safe and pools connections per-host, so the Massive
+# and Finnhub calls below can share one client. FastAPI runs these sync
+# endpoints in a threadpool, so concurrent access is expected and safe.
+_client = httpx.Client(
+    timeout=15,
+    limits=httpx.Limits(max_keepalive_connections=20, max_connections=40),
+)
+
 # In-memory caches. Each has its own short TTL to balance freshness vs API hits.
 _cache_lock = threading.Lock()
 _movers_cache: dict = {"data": None, "ts": 0.0}
@@ -60,7 +72,7 @@ def _get_market_status(api_key: str) -> dict:
         if _status_cache["data"] is not None and (time.time() - _status_cache["ts"]) < effective_cache_ttl(_STATUS_TTL_SECONDS):
             return _status_cache["data"]
     try:
-        r = httpx.get(f"{_BASE}/v1/marketstatus/now", params={"apiKey": api_key}, timeout=8)
+        r = _client.get(f"{_BASE}/v1/marketstatus/now", params={"apiKey": api_key}, timeout=8)
         if r.status_code != 200:
             data = {"session": "unknown", "raw": None}
         else:
@@ -143,7 +155,7 @@ def get_extended_movers(limit: int = Query(5, ge=1, le=20)) -> dict:
 
     def fetch(direction: str) -> list[dict]:
         try:
-            r = httpx.get(
+            r = _client.get(
                 f"{_BASE}/v2/snapshot/locale/us/markets/stocks/{direction}",
                 params={"apiKey": api_key},
                 timeout=12,
@@ -196,7 +208,7 @@ def _todays_bmo_symbols() -> set[str]:
         return set()
     today = datetime.now().date().isoformat()
     try:
-        r = httpx.get(
+        r = _client.get(
             "https://finnhub.io/api/v1/calendar/earnings",
             params={"from": today, "to": today, "token": api_key},
             timeout=8,
@@ -247,7 +259,7 @@ def get_gap_movers(
     bmo_set = _todays_bmo_symbols()
 
     try:
-        r = httpx.get(
+        r = _client.get(
             f"{_BASE}/v2/snapshot/locale/us/markets/stocks/tickers",
             params={"apiKey": api_key},
             timeout=25,
