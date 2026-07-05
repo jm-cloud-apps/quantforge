@@ -680,6 +680,44 @@ function deriveThemes(data) {
   }
 }
 
+// Most recent stance change — the actionable moment. Maps each day's score in the
+// trend to its stance band, walks back from today to the last level change, and
+// reports the direction (toward aggressive = upgrade). Null if the stance held for
+// the whole trend window. Duration is carried separately by `days_in_regime`.
+function deriveFlip(sa) {
+  const trend = sa?.trend || []
+  const bands = sa?.criteria?.stance_bands || []
+  if (trend.length < 2 || !bands.length) return null
+  const rank = new Map(bands.map((b, i) => [b.level, i])) // 0 = most aggressive
+  const levelFor = (score) => (bands.find((b) => score >= b.min && score <= b.max) || {}).level
+  const seq = trend.map((t) => levelFor(t.score)).filter(Boolean)
+  if (seq.length < 2) return null
+  const cur = seq[seq.length - 1]
+  let prior = null
+  for (let i = seq.length - 2; i >= 0; i--) {
+    if (seq[i] !== cur) { prior = seq[i]; break }
+  }
+  if (!prior || !rank.has(cur) || !rank.has(prior)) return null
+  const priorBand = bands.find((b) => b.level === prior)
+  return { dir: rank.get(cur) < rank.get(prior) ? 'up' : 'down', priorLabel: priorBand?.label || prior }
+}
+
+function FlipPill({ flip }) {
+  if (!flip) return null
+  const up = flip.dir === 'up'
+  const cls = up
+    ? 'text-emerald-300 bg-emerald-500/10 border-emerald-400/30'
+    : 'text-orange-300 bg-orange-500/10 border-orange-400/30'
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full border ${cls}`}
+      title={`Stance ${up ? 'upgraded' : 'downgraded'} from ${flip.priorLabel} within the trend window — transitions are the actionable moments.`}
+    >
+      {up ? '▲' : '▼'} {up ? 'upgraded' : 'downgraded'} from {flip.priorLabel}
+    </span>
+  )
+}
+
 function GateCard({ n, title, children }) {
   return (
     <div className="rounded-xl bg-surface-950/50 border border-surface-700/50 p-3.5 flex flex-col">
@@ -769,7 +807,7 @@ function ExtendedGuard({ score, metrics, stanceLabel }) {
   )
 }
 
-function DecisionHeader({ stance, theme, score, breakoutSetup, breakoutTakeaway, delta, stats, metrics, themes, themesLoading, themesError, backtest }) {
+function DecisionHeader({ stance, theme, score, breakoutSetup, breakoutTakeaway, delta, flip, stats, metrics, themes, themesLoading, themesError, backtest }) {
   const gate = GATE_BREAKOUT[breakoutSetup?.light] || GATE_BREAKOUT.amber
   const gl = gate.light
   const hasThemes = themes && (themes.inSeason.length || themes.avoid.length)
@@ -781,6 +819,7 @@ function DecisionHeader({ stance, theme, score, breakoutSetup, breakoutTakeaway,
         <span className="text-[11px] text-surface-500 hidden sm:inline">— should I trade, how big, and where</span>
         <div className="ml-auto flex items-center gap-2 flex-wrap">
           <DeltaPill delta={delta} />
+          <FlipPill flip={flip} />
           {stats?.percentile != null && (
             <StatBadge
               label="vs 1Y"
@@ -1013,6 +1052,7 @@ export default function SituationalAwareness() {
             breakoutSetup={breakoutSetup}
             breakoutTakeaway={sa.breakout_takeaway}
             delta={sa.score_delta_5d}
+            flip={deriveFlip(sa)}
             stats={stats}
             metrics={sa.metrics}
             themes={themes}
