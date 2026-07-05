@@ -4286,17 +4286,68 @@ def qulla_ep(ticker: str):
 # Market Breadth (Stockbee-style scanner)
 #
 # Reads from the local grouped-daily cache built by `backend/breadth/cache.py`.
-# Snapshot + history are cheap (pure pandas over cached pickles); refresh is
-# the only call that hits the upstream API and pulls any missing trading days.
+# Refresh is the only call that hits the upstream API and pulls any missing
+# trading days; the read endpoints are pure pandas over cached pickles.
+#
+# Response cache (Trade Today / Market Monitor). The reads make no upstream
+# calls, but the compute is heavy — `situational` pivots ~400 sessions × ~5k
+# tickers and `regime-backtest` builds that panel twice. The underlying data
+# only changes when a new session lands in the grouped cache or the universe is
+# refreshed, i.e. at most once per trading day via /api/breadth/refresh. So we
+# memoize each read against a cheap *freshness fingerprint* of the cache
+# directory: identical fingerprint ⇒ the answer can't have changed, so we serve
+# the stored payload and skip the pandas work. After the close the fingerprint
+# is frozen until the next session, so overnight / weekend / holiday reloads
+# never recompute. While the market is active a short TTL caps staleness as a
+# backstop. Invalidated explicitly on refresh.
 # ---------------------------------------------------------------------------
+
+_BREADTH_RESP_CACHE: dict[str, tuple] = {}   # key -> (fingerprint, ts, payload)
+_BREADTH_ACTIVE_TTL = 300                     # 5-min backstop while trading
+
+
+def _breadth_fingerprint() -> str:
+    """Cheap signature of the upstream data: (#cached days, latest day, universe
+    mtime). Changes exactly when a new session is cached or the universe is
+    refreshed — i.e. exactly when any breadth read could change. Pure filesystem
+    metadata (a filename glob + one stat), no pickle loads."""
+    from breadth.cache import list_cached_days, DATA_DIR
+    days = list_cached_days()
+    latest = days[-1].isoformat() if days else "none"
+    try:
+        uni_mtime = int((DATA_DIR / "universe.json").stat().st_mtime)
+    except OSError:
+        uni_mtime = 0
+    return f"{len(days)}:{latest}:{uni_mtime}"
+
+
+def _breadth_cached(key: str, compute):
+    """Return a memoized breadth read, recomputing only when the upstream data
+    fingerprint changes (or, while trading, the short backstop TTL lapses).
+    Annotates the payload with a small `_cache` block so callers can see whether
+    the read was served from cache."""
+    from market_clock import is_market_active_now
+    fp = _breadth_fingerprint()
+    now = time.time()
+    hit = _BREADTH_RESP_CACHE.get(key)
+    if hit:
+        h_fp, h_ts, payload = hit
+        if h_fp == fp and (not is_market_active_now() or (now - h_ts) < _BREADTH_ACTIVE_TTL):
+            return {**payload, "_cache": {"hit": True, "age_seconds": int(now - h_ts), "fingerprint": fp}}
+    payload = compute()
+    _BREADTH_RESP_CACHE[key] = (fp, now, payload)
+    return {**payload, "_cache": {"hit": False, "fingerprint": fp}}
+
 
 @app.get("/api/breadth/snapshot")
 def get_breadth_snapshot():
     """Latest single-day breadth read from the local cache. No API calls."""
-    from breadth import compute_snapshot, classify
-    snap = compute_snapshot()
-    snap["regime"] = classify(snap.get("metrics"))
-    return snap
+    def _compute():
+        from breadth import compute_snapshot, classify
+        snap = compute_snapshot()
+        snap["regime"] = classify(snap.get("metrics"))
+        return snap
+    return _breadth_cached("snapshot", _compute)
 
 
 @app.get("/api/breadth/history")
@@ -4304,7 +4355,7 @@ def get_breadth_history(days: int = Query(15, ge=1, le=120)):
     """Last `days` rows of breadth metrics, oldest→newest. Drives the table
     + sparkline charts on the Market Monitor page."""
     from breadth import compute_history
-    return compute_history(days=days)
+    return _breadth_cached(f"history:{days}", lambda: compute_history(days=days))
 
 
 # Roughly a year of trading days — how far back we seed the SA ledger from the
@@ -4356,9 +4407,9 @@ def get_breadth_situational(trend_days: int = Query(30, ge=5, le=120)):
     """Situational-awareness read: translate the local breadth history into an
     exposure stance + per-setup lights + decision criteria + score trend, and
     record today's read into the persistent daily ledger. Pure compute over the
-    cached pickles — no upstream calls. Drives the Situational Awareness page
-    and the dashboard snippet."""
-    return _sa_compute(trend_days)
+    cached pickles — no upstream calls. Drives the Trade Today page and the
+    dashboard snippet. Memoized against the cache fingerprint (see above)."""
+    return _breadth_cached(f"situational:{trend_days}", lambda: _sa_compute(trend_days))
 
 
 @app.get("/api/breadth/regime-backtest")
@@ -4366,10 +4417,13 @@ def get_breadth_regime_backtest():
     """Regime-conditioned backtest: join the SA ledger to equal-weight universe
     forward returns and report forward return by stance level + green-vs-red
     edge per setup family. Pure compute over the cached pickles + ledger.
-    Seeds the ledger first so the join has rows to work with."""
-    _sa_compute(30)  # ensure the ledger is seeded/current before joining
-    from breadth import run_regime_backtest
-    return run_regime_backtest()
+    Seeds the ledger first so the join has rows to work with. Memoized against
+    the cache fingerprint (see above)."""
+    def _compute():
+        _sa_compute(30)  # ensure the ledger is seeded/current before joining
+        from breadth import run_regime_backtest
+        return run_regime_backtest()
+    return _breadth_cached("regime-backtest", _compute)
 
 
 @app.get("/api/breadth/verify")
@@ -4440,6 +4494,12 @@ def refresh_breadth(body: dict = Body(default={})):
         cache_summary = refresh_grouped_cache(lookback_days=lookback)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Grouped cache refresh failed: {e}")
+
+    # New sessions may have landed in the grouped cache — drop the memoized
+    # reads so the next Trade Today / Market Monitor load recomputes fresh. (The
+    # fingerprint would catch a new day anyway, but a universe-only refresh with
+    # the same day set is also invalidated here.)
+    _BREADTH_RESP_CACHE.clear()
 
     snap = compute_snapshot()
     snap["regime"] = classify(snap.get("metrics"))

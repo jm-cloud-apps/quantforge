@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import TickerLink from '../components/TickerLink'
 import {
   AreaChart,
   Area,
@@ -11,6 +12,7 @@ import {
 } from 'recharts'
 import { Link } from 'react-router-dom'
 import { getSituationalAwareness, getSituationalHistory, getRegimeBacktest, getBreadthVerify, refreshBreadth } from '../api/breadth'
+import { getThemeRadarAnalysis } from '../api/themeRadar'
 
 // ---------------------------------------------------------------------------
 // Situational Awareness — the actionable layer on top of market breadth.
@@ -562,7 +564,7 @@ function VerifyPanel() {
               <div className="flex flex-wrap gap-1.5">
                 {data.sample_up.map((s) => (
                   <span key={s.ticker} className="text-[11px] font-mono px-2 py-0.5 rounded border border-surface-700 bg-surface-900/60 text-surface-300">
-                    {s.ticker} {s.prev_close}→{s.close} <span className="text-emerald-300">+{s.pct}%</span>
+                    <TickerLink symbol={s.ticker} /> {s.prev_close}→{s.close} <span className="text-emerald-300">+{s.pct}%</span>
                   </span>
                 ))}
               </div>
@@ -651,6 +653,204 @@ function DataMethodology({ sa, stats }) {
   )
 }
 
+// ─── Trade-today decision header — the 3-gate command answer ────────────────
+// Consolidates the whole "should I trade, how big, and where" call into one band
+// at the top: Gate 1 (breakout light) · Gate 2 (exposure score → % long) · Gate 3
+// (in-season themes, pulled from Theme Radar). Everything below is the supporting
+// detail behind these three calls.
+
+const POSTURE_LABEL = {
+  sweet_spot: 'sweet spot', expanding: 'expanding', trap: 'trap',
+  distribution: 'distribution', neutral: 'neutral',
+}
+
+const GATE_BREAKOUT = {
+  green: { verb: 'Trade — press', light: LIGHT.green },
+  amber: { verb: 'Selective — A+ only', light: LIGHT.amber },
+  red: { verb: 'Stand down', light: LIGHT.red },
+}
+
+// Top in-season families and the ones to sidestep, off the Theme Radar payload.
+function deriveThemes(data) {
+  const rows = data?.themes || []
+  const byRank = (a, b) => (a.rank_ret_3m || 99) - (b.rank_ret_3m || 99)
+  return {
+    inSeason: rows.filter((r) => r.posture === 'sweet_spot' || r.posture === 'expanding').sort(byRank).slice(0, 3),
+    avoid: rows.filter((r) => r.posture === 'trap' || r.posture === 'distribution').sort(byRank).slice(0, 2),
+  }
+}
+
+function GateCard({ n, title, children }) {
+  return (
+    <div className="rounded-xl bg-surface-950/50 border border-surface-700/50 p-3.5 flex flex-col">
+      <div className="text-[10px] uppercase tracking-wider text-surface-500 font-semibold mb-2">{n} · {title}</div>
+      {children}
+    </div>
+  )
+}
+
+function ThemePill({ t, tone }) {
+  const cls = tone === 'go'
+    ? 'border-emerald-400/30 text-emerald-200 bg-emerald-500/[0.07]'
+    : 'border-surface-600 text-surface-400 bg-surface-800/40'
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 text-[11.5px] px-2 py-0.5 rounded-md border ${cls}`}
+      title={POSTURE_LABEL[t.posture] || ''}
+    >
+      {t.name}
+      {t.lead_etf && <span className="font-mono text-[9.5px] opacity-60">{t.lead_etf}</span>}
+    </span>
+  )
+}
+
+// Empirical honesty layer — what the tape actually did next, conditioned on this
+// stance / breakout light. Pulled from the regime backtest (forward returns of the
+// equal-weight universe index joined to the SA ledger). Shows the sample size and
+// flags thin samples so the read is never over-trusted.
+function TrackRecord({ backtest, stance }) {
+  if (!backtest) return null
+  const H = '10' // primary horizon: 10-session forward return
+  const lvl = backtest.by_level?.[H]?.[stance.level]
+  const bo = backtest.setups?.breakout?.by_horizon?.[H]
+  const n = backtest.sample_days ?? 0
+  const thin = n < 60
+  return (
+    <div className="mt-3 text-[11px] text-surface-500 leading-snug">
+      <span className="uppercase tracking-wide font-semibold text-surface-600">Track record</span>
+      {` · ${n}-session ledger · 10-day forward return of the average stock — `}
+      {lvl?.avg != null ? (
+        <>
+          this <span className="text-surface-300">{stance.label}</span> stance has averaged{' '}
+          <span className={retTone(lvl.avg)}>{fmtPctSigned(lvl.avg)}</span>
+          <span className="text-surface-600"> (n={lvl.n})</span>
+        </>
+      ) : (
+        <>no forward sample for this stance yet</>
+      )}
+      {bo?.edge != null && (
+        <>; breakout green-vs-red edge <span className={retTone(bo.edge)}>{fmtPctSigned(bo.edge)}</span></>
+      )}
+      {'. '}
+      {thin ? (
+        <span className="text-amber-300/80">Thin sample — directional only; it firms up as the ledger deepens.</span>
+      ) : (
+        <span className="text-surface-600">Full breakdown in “Regime edge” below.</span>
+      )}
+    </div>
+  )
+}
+
+// Extended / froth guard — momentum systems press *into* strength, so the score
+// can read constructive/aggressive while the tape is stretched. This surfaces the
+// "…but protect gains" half the score alone doesn't shout: it fires only when the
+// stance says lean-long (score ≥ 60) AND positioning is extended (T2108 ≥ 75) or
+// frothy (50+ names up 50% in a month, the same threshold the score penalizes).
+function ExtendedGuard({ score, metrics, stanceLabel }) {
+  if (!metrics || score == null || score < 60) return null
+  const t = metrics.t2108
+  const froth = metrics.mo_up_50
+  const overbought = t != null && t >= 75
+  const frothy = froth != null && froth > 50
+  if (!overbought && !frothy) return null
+
+  const bits = []
+  if (overbought) bits.push(`T2108 ${Math.round(t)}% (${t >= 80 ? 'overbought' : 'stretched'})`)
+  if (frothy) bits.push(`${froth} names up 50%+ in a month (frothy)`)
+
+  return (
+    <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-500/[0.07] px-3 py-2">
+      <span className="shrink-0 mt-px text-amber-300" aria-hidden="true">⚠</span>
+      <p className="text-[12.5px] text-amber-200/90 leading-snug">
+        <span className="font-semibold text-amber-200">{stanceLabel}, but extended</span> — {bits.join(' · ')}.
+        Trail stops, take partials into strength, and don’t chase new entries at the highs.
+      </p>
+    </div>
+  )
+}
+
+function DecisionHeader({ stance, theme, score, breakoutSetup, breakoutTakeaway, delta, stats, metrics, themes, themesLoading, themesError, backtest }) {
+  const gate = GATE_BREAKOUT[breakoutSetup?.light] || GATE_BREAKOUT.amber
+  const gl = gate.light
+  const hasThemes = themes && (themes.inSeason.length || themes.avoid.length)
+  return (
+    <div className={`rounded-2xl border ${theme.ring} ${theme.bg} p-5`}>
+      {/* Eyebrow + rolling context stats */}
+      <div className="flex items-center gap-2 flex-wrap mb-3">
+        <span className="text-[11px] uppercase tracking-wide text-surface-400 font-semibold">Trade today</span>
+        <span className="text-[11px] text-surface-500 hidden sm:inline">— should I trade, how big, and where</span>
+        <div className="ml-auto flex items-center gap-2 flex-wrap">
+          <DeltaPill delta={delta} />
+          {stats?.percentile != null && (
+            <StatBadge
+              label="vs 1Y"
+              value={`${ORDINAL(stats.percentile)} pct`}
+              hint={`Today's exposure score ranks in the ${ORDINAL(stats.percentile)} percentile of the last ${stats.window} sessions (median ${stats.median}, range ${stats.min}–${stats.max}).`}
+            />
+          )}
+          {stats?.days_in_regime != null && (
+            <StatBadge
+              label="regime"
+              value={`day ${stats.days_in_regime}`}
+              hint={`${stats.days_in_regime} consecutive session(s) in the ${stance.label} stance.`}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* The three gates */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <GateCard n="1" title="Should I trade?">
+          <div className="flex items-center gap-2">
+            <span className={`shrink-0 w-2.5 h-2.5 rounded-full ${gl.dot}`} aria-hidden="true" />
+            <span className={`text-[17px] font-bold leading-tight ${gl.text}`}>{gate.verb}</span>
+          </div>
+          <p className="text-[12px] text-surface-400 mt-1.5 leading-snug">{breakoutTakeaway}</p>
+        </GateCard>
+
+        <GateCard n="2" title="How big?">
+          <div className={`text-[17px] font-bold leading-tight ${theme.text}`}>{stance.label}</div>
+          <p className="text-[12px] text-surface-300 mt-1.5 leading-snug font-medium">{stance.exposure}</p>
+        </GateCard>
+
+        <GateCard n="3" title="Where?">
+          {themesLoading && !themes ? (
+            <div className="text-[12px] text-surface-500">Reading theme rotation…</div>
+          ) : hasThemes ? (
+            <div className="space-y-1.5">
+              {themes.inSeason.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {themes.inSeason.map((t) => <ThemePill key={t.name} t={t} tone="go" />)}
+                </div>
+              )}
+              {themes.avoid.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="text-[9.5px] uppercase tracking-wide text-surface-600 font-semibold">avoid</span>
+                  {themes.avoid.map((t) => <ThemePill key={t.name} t={t} tone="avoid" />)}
+                </div>
+              )}
+              <Link to="/theme-radar" className="inline-block text-[11px] text-accent hover:text-accent/80 pt-0.5">Full theme grid →</Link>
+            </div>
+          ) : (
+            <div className="text-[12px] text-surface-500">
+              {themesError ? 'Theme data unavailable' : 'No standout themes right now'}.{' '}
+              <Link to="/theme-radar" className="text-accent hover:text-accent/80">Open Theme Radar →</Link>
+            </div>
+          )}
+        </GateCard>
+      </div>
+
+      {/* Action line + extended guard + empirical track record + exposure ladder */}
+      <p className={`mt-3.5 text-[13.5px] ${theme.text} leading-snug`}>{stance.action}</p>
+      <ExtendedGuard score={score} metrics={metrics} stanceLabel={stance.label} />
+      <TrackRecord backtest={backtest} stance={stance} />
+      <div className="mt-3 pt-3 border-t border-surface-700/30">
+        <ScoreDial score={score} theme={theme} />
+      </div>
+    </div>
+  )
+}
+
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function SituationalAwareness() {
@@ -668,6 +868,12 @@ export default function SituationalAwareness() {
   const [backtestLoading, setBacktestLoading] = useState(true)
   const [backtestError, setBacktestError] = useState(null)
   const [horizon, setHorizon] = useState(10)
+
+  // Theme rotation for the "Where?" gate — loaded non-blocking off the cached
+  // Theme Radar endpoint so it never holds up the primary breadth read.
+  const [themes, setThemes] = useState(null)
+  const [themesLoading, setThemesLoading] = useState(true)
+  const [themesError, setThemesError] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -705,9 +911,23 @@ export default function SituationalAwareness() {
     }
   }, [])
 
+  const loadThemes = useCallback(async () => {
+    setThemesLoading(true)
+    setThemesError(null)
+    try {
+      setThemes(deriveThemes(await getThemeRadarAnalysis({ fresh: false })))
+    } catch (e) {
+      setThemesError(e.message)
+      setThemes(null)
+    } finally {
+      setThemesLoading(false)
+    }
+  }, [])
+
   useEffect(() => { load() }, [load])
   useEffect(() => { loadHistory(lookback) }, [loadHistory, lookback])
   useEffect(() => { loadBacktest() }, [loadBacktest])
+  useEffect(() => { loadThemes() }, [loadThemes])
 
   // Pull any missing trading days into the breadth cache (same as Market
   // Monitor's "Refresh MM"), then recompute the read + history.
@@ -717,18 +937,17 @@ export default function SituationalAwareness() {
     try {
       await refreshBreadth({ lookbackDays: 130 })
       setSa(await getSituationalAwareness(30))
-      await Promise.all([loadHistory(lookback), loadBacktest()])
+      await Promise.all([loadHistory(lookback), loadBacktest(), loadThemes()])
     } catch (e) {
       setError(e.message)
     } finally {
       setRefreshing(false)
     }
-  }, [loadHistory, lookback, loadBacktest])
+  }, [loadHistory, lookback, loadBacktest, loadThemes])
 
   const stance = sa?.stance
   const theme = STANCE_THEME[stance?.level] || STANCE_THEME.neutral
   const breakoutSetup = sa?.setups?.find((s) => s.key === 'breakout')
-  const breakoutLight = LIGHT[breakoutSetup?.light] || LIGHT.amber
   const stats = sa?.stats
   const empty = !loading && (sa?.score == null)
 
@@ -737,11 +956,11 @@ export default function SituationalAwareness() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold text-surface-50">Situational Awareness</h1>
+          <h1 className="text-2xl font-semibold text-surface-50">Trade Today</h1>
           <p className="text-sm text-surface-500 mt-1 max-w-2xl">
-            How aggressive to be right now — and which setups are in season. Breadth-based regime
-            filter built on the Stockbee Market Monitor. <span className="text-surface-400">SA is setup-specific:</span> a
-            breakout filter and a mean-reversion filter read the same tape oppositely.
+            Your one-glance command read — <span className="text-surface-400">should I trade, how big, and where.</span> A
+            breadth-based regime filter (Stockbee Market Monitor) crossed with theme rotation. Setup-specific:
+            a breakout filter and a mean-reversion filter read the same tape oppositely.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -785,53 +1004,22 @@ export default function SituationalAwareness() {
 
       {sa && stance && sa.score != null && (
         <>
-          {/* Stance banner */}
-          <div className={`rounded-2xl border ${theme.ring} ${theme.bg} p-5`}>
-            <div className="flex items-start gap-6 flex-wrap">
-              <div className="flex-1 min-w-[280px]">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[11px] uppercase tracking-wide text-surface-400 font-semibold">Current stance</span>
-                  <DeltaPill delta={sa.score_delta_5d} />
-                  {stats?.percentile != null && (
-                    <StatBadge
-                      label="vs 1Y"
-                      value={`${ORDINAL(stats.percentile)} pct`}
-                      hint={`Today's exposure score ranks in the ${ORDINAL(stats.percentile)} percentile of the last ${stats.window} sessions (median ${stats.median}, range ${stats.min}–${stats.max}).`}
-                    />
-                  )}
-                  {stats?.days_in_regime != null && (
-                    <StatBadge
-                      label="regime"
-                      value={`day ${stats.days_in_regime}`}
-                      hint={`${stats.days_in_regime} consecutive session(s) in the ${stance.label} stance.`}
-                    />
-                  )}
-                </div>
-                <div className={`mt-1 text-2xl font-bold ${theme.text}`}>
-                  {stance.label} — {stance.headline}
-                </div>
-                <div className="mt-1 text-sm text-surface-300 font-medium">{stance.exposure}</div>
-                <p className="mt-2.5 text-sm text-surface-300 leading-snug max-w-xl">{stance.action}</p>
-              </div>
-              <div className="w-full sm:w-72 shrink-0">
-                <ScoreDial score={sa.score} theme={theme} />
-              </div>
-            </div>
-          </div>
-
-          {/* Breakout call-out — the trader's core decision */}
-          {breakoutSetup && (
-            <div className={`rounded-2xl border ${breakoutLight.ring} ${breakoutLight.bg} px-5 py-4`}>
-              <div className="flex items-start gap-3">
-                <span className={`mt-1 shrink-0 w-3 h-3 rounded-full ${breakoutLight.dot}`} aria-hidden="true" />
-                <div className="min-w-0">
-                  <div className="text-[11px] uppercase tracking-wide text-surface-400 font-semibold">Breakout posture</div>
-                  <div className={`text-lg font-bold ${breakoutLight.text} leading-tight`}>{sa.breakout_takeaway}</div>
-                  <p className="text-[13px] text-surface-300 mt-1 leading-snug">{breakoutSetup.why}</p>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Trade-today command header — the 3-gate answer (supersedes the old
+              stance banner + breakout call-out). Detail lives in the sections below. */}
+          <DecisionHeader
+            stance={stance}
+            theme={theme}
+            score={sa.score}
+            breakoutSetup={breakoutSetup}
+            breakoutTakeaway={sa.breakout_takeaway}
+            delta={sa.score_delta_5d}
+            stats={stats}
+            metrics={sa.metrics}
+            themes={themes}
+            themesLoading={themesLoading}
+            themesError={themesError}
+            backtest={backtest}
+          />
 
           {/* How & why + exposure history */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
