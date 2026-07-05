@@ -4426,6 +4426,27 @@ def get_breadth_regime_backtest():
     return _breadth_cached("regime-backtest", _compute)
 
 
+@app.get("/api/breadth/index-trend")
+def get_breadth_index_trend():
+    """Headline index ETFs (SPY/QQQ/IWM) trend posture from the grouped cache —
+    lets the Trade Today page flag breadth-vs-price divergence. Memoized against
+    the cache fingerprint."""
+    from breadth import index_trend
+    return _breadth_cached("index-trend", lambda: index_trend())
+
+
+@app.get("/api/breadth/system-backtest")
+def get_breadth_system_backtest():
+    """Whole-system equity curve: sizing by the exposure stance vs. always-
+    invested buy-and-hold of the equal-weight universe index. Seeds the ledger
+    first so the join has rows. Memoized against the cache fingerprint."""
+    def _compute():
+        _sa_compute(30)  # ensure the ledger is seeded/current before the join
+        from breadth import run_system_backtest
+        return run_system_backtest()
+    return _breadth_cached("system-backtest", _compute)
+
+
 @app.get("/api/breadth/verify")
 def verify_breadth():
     """Independently recount today's 4%-up/down from the raw cached EOD bars

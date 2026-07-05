@@ -3,6 +3,8 @@ import TickerLink from '../components/TickerLink'
 import {
   AreaChart,
   Area,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -11,7 +13,7 @@ import {
   ReferenceLine,
 } from 'recharts'
 import { Link } from 'react-router-dom'
-import { getSituationalAwareness, getSituationalHistory, getRegimeBacktest, getBreadthVerify, refreshBreadth } from '../api/breadth'
+import { getSituationalAwareness, getSituationalHistory, getRegimeBacktest, getBreadthIndexTrend, getBreadthSystemBacktest, getBreadthVerify, refreshBreadth } from '../api/breadth'
 import { getThemeRadarAnalysis } from '../api/themeRadar'
 
 // ---------------------------------------------------------------------------
@@ -890,6 +892,183 @@ function DecisionHeader({ stance, theme, score, breakoutSetup, breakoutTakeaway,
   )
 }
 
+// ─── Index check — is price confirming breadth? ─────────────────────────────
+
+const INDEX_TREND = {
+  up:    { cls: 'text-emerald-300 bg-emerald-500/10 border-emerald-400/30', label: 'Uptrend' },
+  down:  { cls: 'text-danger bg-danger/10 border-danger/30', label: 'Downtrend' },
+  mixed: { cls: 'text-amber-300 bg-amber-500/10 border-amber-400/30', label: 'Mixed' },
+}
+
+function IndexRow({ ix }) {
+  if (!ix.available) {
+    return (
+      <div className="flex items-center gap-2 py-1.5 text-[12px]">
+        <span className="font-mono font-semibold text-surface-300 w-12">{ix.symbol}</span>
+        <span className="text-surface-500">no data in cache</span>
+      </div>
+    )
+  }
+  const t = INDEX_TREND[ix.trend] || INDEX_TREND.mixed
+  return (
+    <div className="flex items-center gap-2 py-1.5 flex-wrap">
+      <span className="font-mono font-semibold text-surface-100 w-12 shrink-0"><TickerLink symbol={ix.symbol} /></span>
+      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${t.cls}`}>{t.label}</span>
+      <span className="text-[11px] text-surface-500">
+        {ix.above_sma20 ? '›' : '‹'}20d · {ix.above_sma50 ? '›' : '‹'}50d
+        {ix.sma50_rising != null && (
+          <span className={ix.sma50_rising ? 'text-emerald-400/70' : 'text-orange-400/70'}> · 50d {ix.sma50_rising ? 'rising' : 'falling'}</span>
+        )}
+      </span>
+      <span className="ml-auto flex items-center gap-3 font-mono text-[11px] shrink-0">
+        <span className={retTone(ix.ret_5d)} title="5-session return">5d {fmtPctSigned(ix.ret_5d)}</span>
+        <span className={retTone(ix.ret_20d)} title="20-session return">20d {fmtPctSigned(ix.ret_20d)}</span>
+        <span className="text-surface-500" title="distance from the window high">{fmtPctSigned(ix.pct_from_high)} off hi</span>
+      </span>
+    </div>
+  )
+}
+
+function IndexCheck({ data, loading, error, score }) {
+  if ((loading && !data) || error || !data?.available) return null
+  const indices = data.indices || []
+  const spy = indices.find((i) => i.symbol === 'SPY')
+  let divergence = null
+  if (spy?.available && score != null) {
+    if (score >= 60 && spy.trend === 'down') {
+      divergence = { tone: 'warn', text: `breadth reads risk-on (${score}) but SPY is below its 20- and 50-day — price isn't confirming. Treat longs as guilty until proven and keep stops tight.` }
+    } else if (score < 45 && spy.trend === 'up') {
+      divergence = { tone: 'info', text: `breadth is cautious (${score}) while SPY holds its trend — likely a narrow, megacap-led tape. Wait for breadth to confirm, or trade only the leaders.` }
+    }
+  }
+  return (
+    <div className="rounded-2xl bg-surface-900/80 border border-surface-700/50 p-4">
+      <div className="text-[11px] uppercase tracking-wide text-surface-500 font-semibold mb-1">
+        Index check — is price confirming breadth?
+      </div>
+      <div className="text-[11px] text-surface-600 mb-2 max-w-2xl">
+        Cap-weighted benchmarks off the same cache ({data.window_sessions}-session window). Breadth is the average stock; these are what you're measured against — watch for them to disagree.
+      </div>
+      <div className="divide-y divide-surface-800/60">
+        {indices.map((ix) => <IndexRow key={ix.symbol} ix={ix} />)}
+      </div>
+      {divergence ? (
+        <div className={`mt-3 flex items-start gap-2 rounded-lg border px-3 py-2 ${divergence.tone === 'warn' ? 'border-amber-400/30 bg-amber-500/[0.07]' : 'border-accent/30 bg-accent/[0.06]'}`}>
+          <span className={`shrink-0 mt-px ${divergence.tone === 'warn' ? 'text-amber-300' : 'text-accent'}`} aria-hidden="true">{divergence.tone === 'warn' ? '⚠' : 'ℹ'}</span>
+          <p className={`text-[12px] leading-snug ${divergence.tone === 'warn' ? 'text-amber-200/90' : 'text-surface-300'}`}>
+            <span className="font-semibold">Divergence — </span>{divergence.text}
+          </p>
+        </div>
+      ) : (
+        spy?.available && (
+          <div className="mt-2.5 text-[11px] text-surface-500">
+            {spy.trend === 'up'
+              ? 'Price is confirming — SPY holds its 20/50-day uptrend, in line with the breadth read.'
+              : 'No breadth-vs-price divergence flagged.'}
+          </div>
+        )
+      )}
+    </div>
+  )
+}
+
+// ─── Whole-system backtest — does the exposure dial beat buy-and-hold? ───────
+
+function BtStat({ label, strat, bench, fmt, betterWhenLower = false }) {
+  const better = (strat == null || bench == null)
+    ? null
+    : (betterWhenLower ? (strat > bench ? 'bench' : 'strat') : (strat < bench ? 'bench' : 'strat'))
+  return (
+    <div className="rounded-lg bg-surface-950/40 border border-surface-800/60 px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-surface-600 font-semibold">{label}</div>
+      <div className="flex items-baseline gap-1.5 mt-0.5">
+        <span className={`font-mono text-[13px] font-bold ${better === 'strat' ? 'text-emerald-300' : 'text-surface-200'}`}>{fmt(strat)}</span>
+        <span className="text-[10px] text-surface-600">dial</span>
+      </div>
+      <div className="flex items-baseline gap-1.5">
+        <span className={`font-mono text-[12px] ${better === 'bench' ? 'text-emerald-300' : 'text-surface-400'}`}>{fmt(bench)}</span>
+        <span className="text-[10px] text-surface-600">hold</span>
+      </div>
+    </div>
+  )
+}
+
+function SystemBacktest({ data, loading, error }) {
+  if (loading && !data) {
+    return <div className="rounded-2xl bg-surface-900/80 border border-surface-700/50 p-4 text-[12px] text-surface-500">Running system backtest…</div>
+  }
+  if (error) return null
+  if (data && data.available === false) {
+    return <div className="rounded-2xl bg-surface-900/80 border border-surface-700/50 p-4 text-[12px] text-surface-500">System backtest unavailable — {data.reason}.</div>
+  }
+  if (!data) return null
+
+  const { strategy: s, benchmark: b, curve, sample_days, invested_pct } = data
+  const thin = sample_days < 60
+  const chartData = (curve || []).map((p) => ({ date: p.date.slice(5), dial: p.strategy, hold: p.benchmark }))
+  const pct = (v) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`)
+  const num = (v) => (v == null ? '—' : v.toFixed(2))
+
+  const betterSharpe = s.sharpe != null && b.sharpe != null && s.sharpe >= b.sharpe
+  const shallowerDD = s.max_drawdown != null && b.max_drawdown != null && s.max_drawdown > b.max_drawdown
+  const verdict = betterSharpe
+    ? 'On this sample the dial improved risk-adjusted return — a better Sharpe than staying fully invested, which is exactly what a regime filter should buy you.'
+    : shallowerDD
+      ? 'On this sample the dial trailed buy-and-hold on raw return but cushioned drawdowns — its edge shows up in corrections, of which this window had few.'
+      : 'On this sample the dial trailed buy-and-hold — it sat out upside during a rising tape without a drawdown payoff yet. Expect it to earn its keep in a real correction, not a steady melt-up.'
+
+  return (
+    <div className="rounded-2xl bg-surface-900/80 border border-surface-700/50 p-4">
+      <div className="text-[11px] uppercase tracking-wide text-surface-500 font-semibold">
+        System backtest — does the exposure dial beat buy-and-hold?
+      </div>
+      <div className="text-[11px] text-surface-600 mt-0.5 mb-3 max-w-2xl">
+        Equity of <span className="text-surface-400">sizing by the stance</span> each day vs. always-invested buy-and-hold of the {data.benchmark_name}. A regime filter earns its keep through risk-adjusted return, usually at some cost to raw upside.
+      </div>
+
+      <div className="h-48 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(30,41,59,0.5)" />
+            <XAxis dataKey="date" tick={{ fill: '#64748B', fontSize: 10 }} tickLine={false} axisLine={{ stroke: 'rgba(51,65,85,0.5)' }} minTickGap={28} />
+            <YAxis tick={{ fill: '#64748B', fontSize: 10 }} tickLine={false} axisLine={{ stroke: 'rgba(51,65,85,0.5)' }} width={40} tickFormatter={(v) => v.toFixed(2)} domain={['auto', 'auto']} />
+            <Tooltip
+              contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(51,65,85,0.6)', borderRadius: 8, fontSize: 12 }}
+              labelStyle={{ color: '#94A3B8' }}
+              formatter={(v, n) => [Number(v).toFixed(3), n === 'dial' ? 'Sized by dial' : 'Buy & hold']}
+            />
+            <ReferenceLine y={1} stroke="rgba(148,163,184,0.4)" strokeDasharray="4 4" />
+            <Line type="monotone" dataKey="hold" stroke="#64748B" strokeWidth={1.6} dot={false} isAnimationActive={false} />
+            <Line type="monotone" dataKey="dial" stroke="#22d3ee" strokeWidth={2} dot={false} isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="flex items-center gap-4 text-[10px] text-surface-500 mt-1">
+        <span className="inline-flex items-center gap-1"><span className="w-3 h-0.5 inline-block" style={{ background: '#22d3ee' }} /> Sized by dial</span>
+        <span className="inline-flex items-center gap-1"><span className="w-3 h-0.5 inline-block" style={{ background: '#64748B' }} /> Buy &amp; hold</span>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+        <BtStat label={`Return · ${sample_days}d`} strat={s.total_return} bench={b.total_return} fmt={pct} />
+        <BtStat label="Max drawdown" strat={s.max_drawdown} bench={b.max_drawdown} fmt={pct} />
+        <BtStat label="Sharpe (ann.)" strat={s.sharpe} bench={b.sharpe} fmt={num} />
+        <div className="rounded-lg bg-surface-950/40 border border-surface-800/60 px-3 py-2">
+          <div className="text-[10px] uppercase tracking-wide text-surface-600 font-semibold">Invested</div>
+          <div className="font-mono text-[13px] font-bold text-surface-200 mt-0.5">{Math.round((invested_pct ?? 0) * 100)}%</div>
+          <div className="text-[10px] text-surface-600">of {sample_days} sessions</div>
+        </div>
+      </div>
+
+      <p className="text-[12px] text-surface-400 leading-snug mt-3">{verdict}</p>
+      {thin && (
+        <p className="text-[11px] text-amber-200/80 mt-1.5">
+          Thin sample ({sample_days} sessions) over a mostly-rising window — read as directional; the comparison sharpens across a full cycle that includes real corrections.
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function SituationalAwareness() {
@@ -913,6 +1092,15 @@ export default function SituationalAwareness() {
   const [themes, setThemes] = useState(null)
   const [themesLoading, setThemesLoading] = useState(true)
   const [themesError, setThemesError] = useState(null)
+
+  // Index/price cross-check + whole-system backtest — both non-blocking.
+  const [indexTrend, setIndexTrend] = useState(null)
+  const [indexLoading, setIndexLoading] = useState(true)
+  const [indexError, setIndexError] = useState(null)
+
+  const [sysBacktest, setSysBacktest] = useState(null)
+  const [sysLoading, setSysLoading] = useState(true)
+  const [sysError, setSysError] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -963,10 +1151,36 @@ export default function SituationalAwareness() {
     }
   }, [])
 
+  const loadIndex = useCallback(async () => {
+    setIndexLoading(true)
+    setIndexError(null)
+    try {
+      setIndexTrend(await getBreadthIndexTrend())
+    } catch (e) {
+      setIndexError(e.message)
+    } finally {
+      setIndexLoading(false)
+    }
+  }, [])
+
+  const loadSysBacktest = useCallback(async () => {
+    setSysLoading(true)
+    setSysError(null)
+    try {
+      setSysBacktest(await getBreadthSystemBacktest())
+    } catch (e) {
+      setSysError(e.message)
+    } finally {
+      setSysLoading(false)
+    }
+  }, [])
+
   useEffect(() => { load() }, [load])
   useEffect(() => { loadHistory(lookback) }, [loadHistory, lookback])
   useEffect(() => { loadBacktest() }, [loadBacktest])
   useEffect(() => { loadThemes() }, [loadThemes])
+  useEffect(() => { loadIndex() }, [loadIndex])
+  useEffect(() => { loadSysBacktest() }, [loadSysBacktest])
 
   // Pull any missing trading days into the breadth cache (same as Market
   // Monitor's "Refresh MM"), then recompute the read + history.
@@ -976,13 +1190,13 @@ export default function SituationalAwareness() {
     try {
       await refreshBreadth({ lookbackDays: 130 })
       setSa(await getSituationalAwareness(30))
-      await Promise.all([loadHistory(lookback), loadBacktest(), loadThemes()])
+      await Promise.all([loadHistory(lookback), loadBacktest(), loadThemes(), loadIndex(), loadSysBacktest()])
     } catch (e) {
       setError(e.message)
     } finally {
       setRefreshing(false)
     }
-  }, [loadHistory, lookback, loadBacktest, loadThemes])
+  }, [loadHistory, lookback, loadBacktest, loadThemes, loadIndex, loadSysBacktest])
 
   const stance = sa?.stance
   const theme = STANCE_THEME[stance?.level] || STANCE_THEME.neutral
@@ -1061,6 +1275,9 @@ export default function SituationalAwareness() {
             backtest={backtest}
           />
 
+          {/* Index check — is cap-weighted price confirming the breadth read? */}
+          <IndexCheck data={indexTrend} loading={indexLoading} error={indexError} score={sa.score} />
+
           {/* How & why + exposure history */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <HowAndWhy explanation={sa.explanation} bands={sa.criteria?.stance_bands || []} score={sa.score} />
@@ -1123,6 +1340,9 @@ export default function SituationalAwareness() {
             horizon={horizon}
             setHorizon={setHorizon}
           />
+
+          {/* Whole-system backtest — does sizing by the dial beat buy-and-hold? */}
+          <SystemBacktest data={sysBacktest} loading={sysLoading} error={sysError} />
 
           {/* Data & methodology — provenance, lag caveat, live verifier */}
           <DataMethodology sa={sa} stats={stats} />
