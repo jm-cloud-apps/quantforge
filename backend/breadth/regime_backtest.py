@@ -23,6 +23,7 @@ samples. The framework strengthens automatically as history accumulates.
 from __future__ import annotations
 
 import logging
+import math
 
 from .calculator import _build_close_panel
 from .universe import load_universe
@@ -150,4 +151,118 @@ def run() -> dict:
         "benchmark": "Equal-weight universe index (the average stock)",
         "by_level": by_level,
         "setups": setups,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Whole-system backtest — does the exposure dial beat buy-and-hold?
+#
+# The regime edge above validates each bucket in isolation. This asks the
+# end-to-end question: if you had *sized* by the exposure stance every day and
+# held the equal-weight universe index, would your equity curve have beaten
+# simply staying 100% invested? A regime filter earns its keep by improving
+# risk-adjusted return (higher Sharpe, shallower drawdown) — usually at some
+# cost to raw return, since it sits out part of the upside.
+# ---------------------------------------------------------------------------
+
+# Stance level → target exposure weight. Midpoints of each band's published
+# invested-% range, so the simulation matches what the page actually tells you.
+_EXPOSURE_WEIGHT = {
+    "aggressive": 1.0,
+    "constructive": 0.65,
+    "selective": 0.375,
+    "defensive": 0.125,
+    "cash": 0.0,
+}
+
+
+def _annualized(growth: float, n_days: int) -> float | None:
+    if n_days <= 0 or growth <= 0:
+        return None
+    years = n_days / 252.0
+    return growth ** (1.0 / years) - 1.0 if years > 0 else None
+
+
+def _sharpe(daily: list[float]) -> float | None:
+    if len(daily) < 5:
+        return None
+    m = sum(daily) / len(daily)
+    sd = (sum((x - m) ** 2 for x in daily) / len(daily)) ** 0.5
+    return (m / sd) * (252 ** 0.5) if sd else None
+
+
+def _max_drawdown(curve: list[float]) -> float:
+    peak, mdd = (curve[0] if curve else 1.0), 0.0
+    for v in curve:
+        peak = max(peak, v)
+        mdd = min(mdd, v / peak - 1.0)
+    return mdd
+
+
+def run_system_backtest() -> dict:
+    """Equity curve of sizing by the exposure stance vs. always-invested
+    buy-and-hold of the same equal-weight universe index."""
+    universe = load_universe().get("symbols", [])
+    if not universe:
+        return {"available": False, "reason": "no universe cached"}
+    panel, _dates = _build_close_panel(universe, days_needed=800)
+    if panel.empty or len(panel.index) < 30:
+        return {"available": False, "reason": "insufficient price history"}
+
+    rets = panel.pct_change(periods=1, fill_method=None)
+    ew = list(rets.mean(axis=1, skipna=True).values)  # equal-weight daily return
+    ledger = {r["date"]: r.get("level") for r in sa_history.load(days=800)}
+
+    idx = list(panel.index)
+    iso = lambda d: d.isoformat() if hasattr(d, "isoformat") else str(d)
+
+    s_eq = b_eq = 1.0
+    s_curve, b_curve, daily_s, daily_b, points = [], [], [], [], []
+    invested = 0
+    by_weight = {k: 0 for k in _EXPOSURE_WEIGHT}
+
+    # Apply stance(t) to the return earned over the NEXT session — no lookahead.
+    for i in range(len(idx) - 1):
+        lvl = ledger.get(iso(idx[i]))
+        if lvl is None:
+            continue
+        r_next = ew[i + 1]
+        if r_next is None or (isinstance(r_next, float) and math.isnan(r_next)):
+            continue
+        w = _EXPOSURE_WEIGHT.get(lvl, 0.0)
+        s_ret = w * r_next
+        s_eq *= 1.0 + s_ret
+        b_eq *= 1.0 + r_next
+        daily_s.append(s_ret)
+        daily_b.append(r_next)
+        s_curve.append(s_eq)
+        b_curve.append(b_eq)
+        by_weight[lvl] = by_weight.get(lvl, 0) + 1
+        invested += 1 if w > 0 else 0
+        points.append({"date": iso(idx[i + 1]), "strategy": round(s_eq, 4), "benchmark": round(b_eq, 4)})
+
+    n = len(points)
+    if n < 20:
+        return {"available": False, "reason": "ledger too thin for an equity curve", "sample_days": n}
+
+    def _pack(eq, curve, daily):
+        ann = _annualized(eq, n)
+        shp = _sharpe(daily)
+        return {
+            "total_return": round(eq - 1.0, 4),
+            "cagr": round(ann, 4) if ann is not None else None,
+            "max_drawdown": round(_max_drawdown(curve), 4),
+            "sharpe": round(shp, 2) if shp is not None else None,
+        }
+
+    return {
+        "available": True,
+        "sample_days": n,
+        "invested_pct": round(invested / n, 4),
+        "weights": _EXPOSURE_WEIGHT,
+        "days_by_stance": by_weight,
+        "benchmark_name": "Equal-weight universe index (the average stock)",
+        "strategy": _pack(s_eq, s_curve, daily_s),
+        "benchmark": _pack(b_eq, b_curve, daily_b),
+        "curve": points,
     }
