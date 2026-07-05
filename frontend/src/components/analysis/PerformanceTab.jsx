@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import TickerLink from '../TickerLink';
 import {
   PieChart, Pie, Cell, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -194,7 +195,7 @@ export default function PerformanceTab({
                   <tbody>
                     {sortedSymbolStats.slice(0, 20).map((symbol, index) => (
                       <tr key={index} className="border-b border-surface-800 hover:bg-surface-900/30 transition-colors">
-                        <td className="py-3 px-4 text-surface-100 font-mono text-sm font-semibold">{symbol.symbol}</td>
+                        <td className="py-3 px-4 text-surface-100 font-mono text-sm font-semibold"><TickerLink symbol={symbol.symbol} /></td>
                         <td className="py-3 px-4 text-surface-100 font-mono text-sm text-center">{symbol.total_trades} <span className="text-surface-500">({symbol.winning_trades}W / {symbol.losing_trades}L)</span></td>
                         <td className="py-3 px-4 text-center"><span className={`font-mono text-sm font-semibold ${symbol.win_rate >= 50 ? 'text-success' : 'text-danger'}`}>{symbol.win_rate}%</span></td>
                         <td className={`py-3 px-4 font-mono text-sm font-semibold text-right ${symbol.total_pnl >= 0 ? 'text-success' : 'text-danger'}`}>${symbol.total_pnl.toFixed(2)}</td>

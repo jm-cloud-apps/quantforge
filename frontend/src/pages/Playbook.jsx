@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import TickerLink from '../components/TickerLink'
 import { getPlaybookEntries, createPlaybookEntry, updatePlaybookEntry, deletePlaybookEntry, getScreenshotUrl } from '../api/playbook'
 import { useToast } from '../components/Toast'
 
@@ -583,7 +584,7 @@ export default function Playbook() {
 
               <div className="p-4 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="font-mono font-semibold text-surface-100">{entry.symbol}</span>
+                  <TickerLink symbol={entry.symbol} className="font-mono font-semibold text-surface-100" />
                   <span className={`text-sm font-mono font-semibold ${entry.pnl >= 0 ? 'text-success' : 'text-danger'}`}>
                     {entry.pnl >= 0 ? '+' : ''}${Math.abs(entry.pnl).toFixed(2)}
                   </span>
@@ -767,7 +768,7 @@ export default function Playbook() {
             <div className="p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <span className="font-mono font-bold text-xl text-surface-50">{detailEntry.symbol}</span>
+                  <TickerLink symbol={detailEntry.symbol} className="font-mono font-bold text-xl text-surface-50" />
                   {detailEntry.setup && (
                     <span className="px-3 py-1 rounded-full bg-accent/15 text-accent text-xs font-medium">{detailEntry.setup}</span>
                   )}

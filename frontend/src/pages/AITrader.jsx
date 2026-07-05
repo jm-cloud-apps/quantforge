@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import TickerLink from '../components/TickerLink'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts'
 import { getAITraderIdeas, getAITraderHistory, getAITraderBacktest, getAITraderBacktestHistory, getAITraderWalkforward } from '../api/aiTrader'
 
@@ -426,7 +427,7 @@ function HistoryLedger({
                   const ret = closed ? i.realized_return_pct : i.change_pct
                   return (
                     <tr key={idx} className="border-t border-surface-800/40">
-                      <td className="py-1.5 px-3 font-semibold text-surface-100">{i.ticker}</td>
+                      <td className="py-1.5 px-3 font-semibold text-surface-100"><TickerLink symbol={i.ticker} /></td>
                       <td className="py-1.5 px-2">
                         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${oc.cls}`}>{oc.label}</span>
                       </td>
@@ -744,7 +745,7 @@ function WalkForwardPanel({ budget, account, riskPct }) {
                           const oc = OUTCOME_STYLE[i.outcome] || OUTCOME_STYLE.untracked
                           return (
                             <tr key={idx} className="border-t border-surface-800/30">
-                              <td className="py-1 px-3 font-semibold text-surface-100">{i.ticker}</td>
+                              <td className="py-1 px-3 font-semibold text-surface-100"><TickerLink symbol={i.ticker} /></td>
                               <td className="py-1 px-2"><span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${oc.cls}`}>{oc.label}</span></td>
                               <td className="py-1 px-2 text-right font-mono text-surface-600 hidden sm:table-cell" title="peak (MFE)">{i.mfe_r != null ? `↑${i.mfe_r}R` : ''}</td>
                               <td className={`py-1 px-2 text-right font-mono ${tone(i.exit_price != null ? i.realized_return_pct : i.change_pct)}`}>{signPct(i.exit_price != null ? i.realized_return_pct : i.change_pct)}</td>

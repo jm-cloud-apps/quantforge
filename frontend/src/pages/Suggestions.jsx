@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import TickerLink from '../components/TickerLink'
 import { startScreening, getProgress, getResult, getHistory, clearAdvisorCache } from '../api/advisor'
 
 const PERSONAS = {
@@ -80,7 +81,7 @@ function StockPickCard({ pick, rank, persona }) {
           </span>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-mono text-base font-bold text-slate-100">{pick.ticker}</span>
+              <TickerLink symbol={pick.ticker} className="font-mono text-base font-bold text-slate-100" />
               {pick.sector && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700/50 text-slate-400 font-medium whitespace-nowrap">
                   {pick.sector}
@@ -314,7 +315,7 @@ function HistoryPanel({ history, persona }) {
                       <td key={j} className="px-3 py-2.5 whitespace-nowrap">
                         {pick ? (
                           <div className="flex items-center gap-1.5">
-                            <span className="font-mono font-semibold text-slate-200">{pick.ticker}</span>
+                            <TickerLink symbol={pick.ticker} className="font-mono font-semibold text-slate-200" />
                             {isRecurring && (
                               <span
                                 className="text-[9px] px-1 py-0.5 rounded font-medium"

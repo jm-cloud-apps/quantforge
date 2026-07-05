@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import TickerLink from '../TickerLink'
 
 // Match the calendar's keying: trades roll up to their exit date (fallback entry).
 function toDateKey(val) {
@@ -104,7 +105,7 @@ export default function DayTradesModal({ dates, trades, onClose }) {
                 {dayTrades.map((t, i) => (
                   <tr key={i} className="border-b border-surface-800/40 last:border-0">
                     <td className="py-2 px-3 font-mono font-semibold text-surface-100">
-                      {t.symbol}
+                      <TickerLink symbol={t.symbol} />
                       {typeof t.setup === 'string' && t.setup && (
                         <span className="block text-[10px] text-surface-500 font-normal">{t.setup.split(' - ')[0]}</span>
                       )}

@@ -1,4 +1,5 @@
 import { useState, useMemo, Fragment } from 'react';
+import TickerLink from '../TickerLink';
 
 // Columns the user can sort by. `value` extractors return something
 // sortable (number, ISO string, or '') so a single comparator handles all.
@@ -201,7 +202,7 @@ export default function RecentTradesTable({ trades }) {
                     <td className="py-3 px-4 text-surface-100 font-mono text-sm">{trade.entry_date ? new Date(trade.entry_date).toLocaleDateString() : 'N/A'}</td>
                     <td className="py-3 px-4 text-surface-100 font-mono text-sm">{trade.exit_date ? new Date(trade.exit_date).toLocaleDateString() : 'N/A'}</td>
                     <td className="py-3 px-4 font-mono text-sm font-semibold">
-                      <span className="text-surface-100">{trade.symbol}</span>
+                      <TickerLink symbol={trade.symbol} className="text-surface-100" />
                       {setupLabel && (
                         <span className="ml-2 text-[10px] text-surface-500 font-normal hidden lg:inline">{setupLabel.split(' - ')[0]}</span>
                       )}

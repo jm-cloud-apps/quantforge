@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import TickerLink from '../components/TickerLink'
 import { get9MScan } from '../api/scanner9m'
 
 // ---------------------------------------------------------------------------
@@ -465,7 +466,7 @@ export default function Scanner9M() {
               <tbody className="font-mono">
                 {filtered.map(c => (
                   <tr key={c.symbol} className="border-t border-surface-800/60 hover:bg-surface-800/30">
-                    <td className="px-3 py-2 font-semibold text-surface-100">{c.symbol}</td>
+                    <td className="px-3 py-2 font-semibold text-surface-100"><TickerLink symbol={c.symbol} /></td>
                     <td className="px-3 py-2">
                       <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider border ${BUCKET_TONE[c.bucket] || ''}`}>
                         {BUCKET_LABEL[c.bucket] || c.bucket}
