@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import TickerLink from '../components/TickerLink'
 import {
   connectBroker,
   disconnectBroker,
@@ -240,7 +241,7 @@ export default function BotTrader() {
                     <tbody>
                       {positions.map((p, i) => (
                         <tr key={i} className="border-t border-surface-700/20 hover:bg-surface-800/40">
-                          <td className="px-4 py-2.5 font-mono font-medium text-surface-100">{p.symbol}</td>
+                          <td className="px-4 py-2.5 font-mono font-medium text-surface-100"><TickerLink symbol={p.symbol} /></td>
                           <td className={`px-4 py-2.5 text-right font-mono ${p.quantity > 0 ? 'text-accent' : 'text-danger'}`}>{p.quantity}</td>
                           <td className="px-4 py-2.5 text-right font-mono text-surface-300">${p.avg_cost?.toLocaleString()}</td>
                           <td className="px-4 py-2.5 text-right font-mono text-surface-300">${p.market_value?.toLocaleString()}</td>
@@ -277,7 +278,7 @@ export default function BotTrader() {
                       {orders.map((o, i) => (
                         <tr key={i} className="border-t border-surface-700/20 hover:bg-surface-800/40">
                           <td className="px-4 py-2.5 font-mono text-surface-400">{o.order_id}</td>
-                          <td className="px-4 py-2.5 font-mono font-medium text-surface-100">{o.symbol}</td>
+                          <td className="px-4 py-2.5 font-mono font-medium text-surface-100"><TickerLink symbol={o.symbol} /></td>
                           <td className={`px-4 py-2.5 font-semibold ${o.action === 'BUY' ? 'text-accent' : 'text-danger'}`}>{o.action}</td>
                           <td className="px-4 py-2.5 text-right font-mono text-surface-300">{o.quantity}</td>
                           <td className="px-4 py-2.5 text-surface-400">{o.order_type}{o.limit_price ? ` @ $${o.limit_price}` : ''}</td>

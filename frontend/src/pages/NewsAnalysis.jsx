@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { fetchNews, getNewsCache, saveNewsCache, deleteNewsCacheEntry, clearNewsCache, getEpScore, fetchCriteriaCheck, getPremarket, refreshNewsCachePrices } from '../api/news'
+import TickerLink from '../components/TickerLink'
 
 function formatTimestamp(iso) {
   const d = new Date(iso)
@@ -664,15 +665,20 @@ function TickerSection({ sym, articles, earningsData, epScore, epLoading, epErro
 
   return (
     <div className="rounded-2xl bg-surface-900/80 backdrop-blur-sm border border-surface-700/50 overflow-hidden transition-all duration-300">
-      {/* Ticker header — always visible, clickable */}
-      <button
+      {/* Ticker header — always visible, clickable. It's a div (not a button)
+          so the ticker inside can be its own <a> to TradingView without
+          invalid <a>-in-<button> nesting. */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen(!open)}
-        className="w-full px-5 py-4 flex items-center justify-between hover:bg-surface-800/40 transition-colors"
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(!open) } }}
+        className="w-full px-5 py-4 flex items-center justify-between hover:bg-surface-800/40 transition-colors cursor-pointer"
       >
         <div className="flex items-center gap-3">
           <GradeBadge epScore={epScore} loading={epLoading} error={epError} />
           <div className="flex flex-col items-start">
-            <span className="font-mono font-bold text-surface-50 text-lg tracking-wide leading-tight">{sym}</span>
+            <TickerLink symbol={sym} className="font-mono font-bold text-surface-50 text-lg tracking-wide leading-tight" />
             <span className="text-[11px] text-surface-500 font-medium tabular-nums">
               {articles.length} article{articles.length !== 1 ? 's' : ''}
               {epScore && <span className="ml-2 text-surface-400">· {epScore.verdict}</span>}
@@ -695,7 +701,7 @@ function TickerSection({ sym, articles, earningsData, epScore, epLoading, epErro
           )}
           <ChevronIcon open={open} />
         </div>
-      </button>
+      </div>
 
       {/* Collapsible body */}
       <div

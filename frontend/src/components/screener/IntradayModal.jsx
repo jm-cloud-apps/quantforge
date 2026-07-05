@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createChart, CandlestickSeries, HistogramSeries, LineSeries } from 'lightweight-charts'
 import { getIntraday } from '../../api/breakoutScreener'
+import TickerLink from '../TickerLink'
 
 function vwap(bars) {
   let cumPV = 0
@@ -89,7 +90,7 @@ const IntradayModal = ({ symbol, pivot, onClose }) => {
       >
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-surface-100">{symbol} · Intraday (5m)</h3>
+            <h3 className="text-lg font-semibold text-surface-100"><TickerLink symbol={symbol} /> · Intraday (5m)</h3>
             <p className="text-xs text-surface-400">
               VWAP (purple) · Pivot (green dashed) · last 2 trading days
             </p>

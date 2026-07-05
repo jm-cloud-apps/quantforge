@@ -1,3 +1,5 @@
+import TickerLink from './TickerLink'
+
 export default function TradeList({ trades }) {
   if (!trades?.length) return null
 
@@ -28,7 +30,7 @@ export default function TradeList({ trades }) {
                 key={i}
                 className="border-t border-surface-700/20 hover:bg-surface-800/50 transition-colors"
               >
-                <td className="px-4 py-2 font-medium text-surface-200">{t.symbol || '-'}</td>
+                <td className="px-4 py-2 font-medium text-surface-200">{t.symbol ? <TickerLink symbol={t.symbol} /> : '-'}</td>
                 <td className="px-4 py-2 font-mono text-surface-300">{t.entry_date}</td>
                 <td className="px-4 py-2 font-mono text-surface-300">{t.exit_date}</td>
                 <td className="px-4 py-2 font-mono text-surface-300">${t.entry_price.toFixed(2)}</td>

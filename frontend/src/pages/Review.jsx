@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import TickerLink from '../components/TickerLink'
 import { loadDefaultTrades } from '../api/tradingAnalysis'
 import { getReviewNotes, saveReviewNote, buildTradeKey } from '../api/reviewNotes'
 import LightweightTradeChart from '../components/review/LightweightTradeChart'
@@ -547,7 +548,7 @@ export default function Review() {
               <div className="rounded-xl bg-surface-900/60 border border-surface-700/50 px-4 py-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-3 flex-wrap">
-                    <span className="font-display font-bold text-[20px] text-surface-50">{activeTrade.symbol}</span>
+                    <TickerLink symbol={activeTrade.symbol} className="font-display font-bold text-[20px] text-surface-50" />
                     <span className={`text-[10px] px-2 py-0.5 rounded ${activeTrade.side === 'LONG' ? 'bg-accent/15 text-accent' : 'bg-danger/10 text-danger'}`}>
                       {activeTrade.side || 'N/A'}
                     </span>

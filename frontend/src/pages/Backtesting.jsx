@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { fetchStrategies, runBacktest, runMultiBacktest, runBreakoutBacktest } from '../api/backtest'
+import TickerLink from '../components/TickerLink'
 import EquityChart from '../components/EquityChart'
 import PerformanceMetrics from '../components/PerformanceMetrics'
 import TradeStats from '../components/TradeStats'
@@ -393,7 +394,7 @@ export default function Backtesting() {
                 key={r.symbol}
                 className="px-4 py-2.5 rounded-lg bg-surface-900/60 border border-surface-700/30 text-sm"
               >
-                <span className="font-medium text-surface-200">{r.symbol}</span>
+                <TickerLink symbol={r.symbol} className="font-medium text-surface-200" />
                 <span className="text-surface-500 ml-2">({r.allocation_pct}%)</span>
                 <span className={`ml-2 font-semibold ${r.total_return_pct >= 0 ? 'text-success' : 'text-danger'}`}>
                   {r.total_return_pct >= 0 ? '+' : ''}{r.total_return_pct}%

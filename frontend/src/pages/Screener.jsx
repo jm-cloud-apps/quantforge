@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
+import TickerLink from '../components/TickerLink'
 import { getSectorPerformance, getFetchProgress, saveSnapshot, getSnapshots } from '../api/screener'
 
 export default function Screener() {
@@ -421,7 +422,7 @@ export default function Screener() {
                       <span className="text-xs font-bold text-surface-500 w-4 text-right">{i + 1}</span>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-sm font-semibold text-surface-100">{s.ticker}</span>
+                          <TickerLink symbol={s.ticker} className="font-mono text-sm font-semibold text-surface-100" />
                           <span className="font-mono text-[11px] text-surface-500">{fmtPrice(s.price)}</span>
                           {rotationData.badges[s.ticker] === 'fresh' && (
                             <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-accent/15 text-accent">FRESH</span>
@@ -462,7 +463,7 @@ export default function Screener() {
                       <span className="text-xs font-bold text-surface-500 w-4 text-right">{i + 1}</span>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-sm font-semibold text-surface-100">{s.ticker}</span>
+                          <TickerLink symbol={s.ticker} className="font-mono text-sm font-semibold text-surface-100" />
                           <span className="font-mono text-[11px] text-surface-500">{fmtPrice(s.price)}</span>
                         </div>
                         <p className="text-[11px] text-surface-500 truncate">{s.sector}</p>
@@ -510,7 +511,7 @@ export default function Screener() {
                         </span>
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <span className="font-mono text-xs font-semibold text-surface-100">{s.ticker}</span>
+                            <TickerLink symbol={s.ticker} className="font-mono text-xs font-semibold text-surface-100" />
                             <span className="font-mono text-[10px] text-surface-500">{fmtPrice(s.price)}</span>
                             {rotationData.badges[s.ticker] === 'strong' && (
                               <span className="px-1 py-px rounded text-[8px] font-bold bg-success/15 text-success leading-tight">TREND</span>
@@ -584,7 +585,7 @@ export default function Screener() {
                     >
                       <td className="py-2.5 px-4">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-sm font-semibold text-surface-100">{s.ticker}</span>
+                          <TickerLink symbol={s.ticker} className="font-mono text-sm font-semibold text-surface-100" />
                           {rotationData.badges[s.ticker] === 'strong' && (
                             <span className="px-1 py-px rounded text-[8px] font-bold bg-success/15 text-success">TREND</span>
                           )}
@@ -661,7 +662,7 @@ export default function Screener() {
                     >
                       <div className="flex flex-col justify-between h-full gap-2">
                         <div>
-                          <p className="text-surface-50 text-sm font-semibold leading-tight">{sector.ticker}</p>
+                          <p className="text-surface-50 text-sm font-semibold leading-tight"><TickerLink symbol={sector.ticker} /></p>
                           <p className="text-surface-400 text-xs leading-tight mt-0.5 truncate">{sector.sector}</p>
                         </div>
                         <div>
@@ -762,7 +763,7 @@ export default function Screener() {
                 <div key={s.ticker} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-surface-800/40 transition-colors">
                   <div className="flex items-center gap-3">
                     <span className="text-xs font-bold text-surface-300 w-4 text-right">#{s.rank}</span>
-                    <span className="font-mono text-sm font-semibold text-surface-100">{s.ticker}</span>
+                    <TickerLink symbol={s.ticker} className="font-mono text-sm font-semibold text-surface-100" />
                     {s.isNew ? (
                       <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-accent/15 text-accent">NEW</span>
                     ) : s.prevRank ? (
@@ -788,7 +789,7 @@ export default function Screener() {
                   {snapshotComparison.droppedOut.map(s => (
                     <div key={s.ticker} className="flex items-center gap-3 py-1.5 px-3 text-surface-500">
                       <span className="text-xs font-mono">was #{s.prevRank}</span>
-                      <span className="font-mono text-sm text-surface-400">{s.ticker}</span>
+                      <TickerLink symbol={s.ticker} className="font-mono text-sm text-surface-400" />
                       <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-danger/10 text-danger">OUT</span>
                     </div>
                   ))}
@@ -813,7 +814,7 @@ export default function Screener() {
                           {top3.map((s, i) => (
                             <span key={s.ticker} className="text-xs">
                               <span className="text-surface-500">#{i + 1}</span>{' '}
-                              <span className="font-mono text-surface-200">{s.ticker}</span>{' '}
+                              <TickerLink symbol={s.ticker} className="font-mono text-surface-200" />{' '}
                               <span className={`font-mono ${getReturnColor(s['5D'])}`}>{fmtPct(s['5D'])}</span>
                             </span>
                           ))}

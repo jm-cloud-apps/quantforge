@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, Fragment } from 'react'
+import TickerLink from '../components/TickerLink'
 import {
   ComposedChart, Bar, Line, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
 } from 'recharts'
@@ -240,7 +241,7 @@ export default function Wealthsimple() {
                     <Fragment key={h.ticker}>
                       <tr onClick={() => toggle(key)} className="border-b border-surface-800/40 last:border-0 cursor-pointer hover:bg-surface-800/30">
                         <td className="py-2">
-                          <span className="font-mono font-semibold text-surface-100"><Chevron open={isOpen} />{h.ticker}</span>
+                          <span className="font-mono font-semibold text-surface-100"><Chevron open={isOpen} /><TickerLink symbol={h.ticker} /></span>
                           <span className="block text-[10px] text-surface-500 truncate max-w-[280px] pl-[18px]">{h.name}</span>
                         </td>
                         <td className="py-2 text-right font-mono tabular-nums text-surface-200">{fmtNum(h.shares, 2)}</td>
@@ -321,7 +322,7 @@ export default function Wealthsimple() {
                     <Fragment key={t.ticker}>
                       <tr onClick={() => toggle(key)} className="border-b border-surface-800/40 last:border-0 cursor-pointer hover:bg-surface-800/30">
                         <td className="py-2">
-                          <span className="font-mono font-semibold text-surface-100"><Chevron open={isOpen} />{t.ticker}</span>
+                          <span className="font-mono font-semibold text-surface-100"><Chevron open={isOpen} /><TickerLink symbol={t.ticker} /></span>
                           {t.still_open && (
                             <span className="ml-2 text-[9px] uppercase tracking-wider text-cyan-300/90 border border-cyan-500/30 rounded px-1 py-0.5 align-middle">open</span>
                           )}
