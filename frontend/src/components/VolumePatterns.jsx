@@ -1,4 +1,4 @@
-import { VOLUME_PATTERNS } from '../utils/tradingRules'
+import { VOLUME_PATTERNS, VOLUME_METRICS } from '../utils/tradingRules'
 import { VolumeHero, VolumeGlyph } from './VolumeVisuals'
 
 // Volume Patterns — the "second opinion" framework panel on the Rules page,
@@ -107,6 +107,35 @@ export default function VolumePatterns() {
           {VOLUME_PATTERNS.map(p => (
             <PatternCard key={p.key} p={p} />
           ))}
+        </div>
+
+        {/* Put numbers on it — working thresholds, all relative to the
+            stock's own 50-day average */}
+        <div className="mt-4">
+          <div className="flex items-baseline gap-2 flex-wrap mb-2">
+            <span className="text-[9.5px] font-bold tracking-widest text-surface-500 uppercase">
+              Put numbers on it
+            </span>
+            <span className="text-[10px] text-surface-500">
+              — conventions to check against your own trade log, not constants. All relative to the stock’s own 50-day average.
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {VOLUME_METRICS.map(m => {
+              const tone = TONE[m.tone]
+              return (
+                <div key={m.key} className="rounded-xl border border-surface-700/40 bg-surface-900/40 px-3.5 py-3">
+                  <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase">{m.label}</div>
+                  <div className={`mt-0.5 text-[17px] font-mono font-bold tabular-nums ${tone.text}`}>{m.value}</div>
+                  <p className="mt-1.5 text-[11px] text-surface-400 leading-snug">{m.note}</p>
+                </div>
+              )
+            })}
+          </div>
+          <p className="mt-2 text-[11.5px] text-surface-500 leading-snug italic">
+            Sequence matters: volume confirms price, it never predicts it. Read the price / rail signal
+            first, then ask volume to agree — a loud tape with no price signal is just noise with sponsors.
+          </p>
         </div>
 
         {/* Pairs with the rails */}

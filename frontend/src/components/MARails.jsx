@@ -251,23 +251,65 @@ export default function MARails() {
           <div className="rounded-xl border border-surface-700/40 bg-surface-900/40 px-4 py-3.5">
             <div className="flex items-center gap-2 mb-1.5">
               <span className="text-[10px] font-bold tracking-widest text-surface-200 uppercase">Daily</span>
-              <span className="text-[10px] font-mono text-surface-500">= execution</span>
+              <span className="text-[10px] font-mono text-surface-500">= execution · read after 4:00 PM</span>
             </div>
             <p className="text-[12px] text-surface-400 leading-snug">
               Entries, stops, rails, exits — every acted-on signal lives here. All three
               rails are judged on daily closes; an intraday touch of an MA is not a signal.
+              The daily is also the only bar that finishes printing every session — when the
+              daily and the half-formed weekly disagree mid-week, the daily is the one that’s real.
             </p>
           </div>
           <div className="rounded-xl border border-surface-700/40 bg-surface-900/40 px-4 py-3.5">
             <div className="flex items-center gap-2 mb-1.5">
               <span className="text-[10px] font-bold tracking-widest text-surface-200 uppercase">Weekly</span>
-              <span className="text-[10px] font-mono text-surface-500">= context</span>
+              <span className="text-[10px] font-mono text-surface-500">= context · read on the weekend</span>
             </div>
             <p className="text-[12px] text-surface-400 leading-snug">
               Stage, structure, base quality — the chart that decides whether the daily is
-              worth trading at all. Mid-week the weekly bar isn’t done printing; never exit off it.
+              worth trading at all. Scan weekly first (stage-2 structure, tightening base,
+              rising 10-week), then drop to the daily for the trigger. Mid-week the weekly
+              bar isn’t done printing; never exit off it.
             </p>
           </div>
+        </div>
+
+        {/* Two zooms — the same lines translated across timeframes */}
+        <div className="mt-3 rounded-xl border border-surface-700/40 bg-surface-900/40 px-4 py-3">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <span className="text-[10px] font-bold tracking-widest text-surface-200 uppercase shrink-0">Same lines, two zooms</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-mono font-semibold border bg-purple/10 text-purple border-purple/30">10W ≈ 50D</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-mono font-semibold border bg-surface-800/60 text-surface-300 border-surface-700">30W ≈ 150D</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-mono font-semibold border bg-surface-800/60 text-surface-300 border-surface-700">40W ≈ 200D</span>
+          </div>
+          <p className="mt-1.5 text-[12px] text-surface-400 leading-snug">
+            The weekly MAs aren’t new lines — they’re the daily ones zoomed out (≈5 sessions per
+            weekly bar). The weekend verdict is made against the 10-week; the exit that enforces it
+            is a <span className="text-surface-200">daily close</span> below the 50. Same line, two jobs.
+          </p>
+        </div>
+
+        {/* EMA vs SMA — why each rail wears the flavor it does */}
+        <div className="mt-3 rounded-xl border border-surface-700/40 bg-surface-900/40 px-4 py-3">
+          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+            <span className="text-[10px] font-bold tracking-widest text-surface-200 uppercase">EMA vs SMA</span>
+            <span className="text-[10px] font-mono text-surface-500">— does the flavor matter?</span>
+          </div>
+          <p className="text-[12px] text-surface-400 leading-snug">
+            An EMA front-weights recent closes (a 10-EMA gives today ~18% of the line), so it hugs a
+            fast move tighter; an SMA weighs every bar equally and turns slower. That’s why the trail
+            rails are EMAs — <span className="text-accent font-semibold">10</span>/<span className="text-cyan font-semibold">20</span> need
+            speed to ride a vertical leg — while the <span className="text-purple font-semibold">50</span> stays
+            an SMA because it’s the convention funds and screeners watch: that line works partly
+            <span className="text-surface-200"> because everyone is looking at the same one</span>.
+          </p>
+          <p className="mt-1.5 text-[12px] text-surface-400 leading-snug">
+            Flexible? Yes. On a 10- or 20-day window the two flavors usually differ by less than a
+            normal day’s range, so if you prefer SMAs, use SMAs — the edge is acting on the
+            <span className="text-surface-200"> same line, same timeframe, every time</span>, not the
+            averaging math. The only real mistake is switching flavors mid-trade because one of them
+            lets you avoid a signal. Keep the 50 as SMA; pick one flavor for 10/20 and write it in the plan.
+          </p>
         </div>
 
         {/* Iron law */}
