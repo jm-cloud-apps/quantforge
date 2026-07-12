@@ -431,3 +431,53 @@ export const VOLUME_METRICS = [
     note: 'Dollar volume, not share count — same floor as the entry rules. Below it, spreads and slippage make every volume signal on this panel unreliable.',
   },
 ]
+
+// Candle tells — how the momentum lineage actually reads candles: not named
+// Japanese patterns, but supply/demand math — how wide the bar is, where it
+// closed, on how much volume. Rendered as the Candle Tells panel
+// (components/CandleTells.jsx); `glyph` keys reference the scene specs there.
+// signal: confirm = act-with, caution = act-against, context = a lens.
+export const CANDLE_TELLS = [
+  {
+    key: 'demand', glyph: 'demand', tone: 'good', signal: 'confirm',
+    title: 'Demand bar', tagline: 'The bar a breakout must be',
+    what: 'A wide-range up day that closes in its top quarter on ≥1.5× average volume.',
+    why: 'Buyers kept paying up into the close — that’s institutions reaching for stock, not a morning pop that faded.',
+    rule: 'The breakout day must be one of these. Wide bar + strong close + volume, or don’t trust the pivot.',
+  },
+  {
+    key: 'inside', glyph: 'inside', tone: 'info', signal: 'confirm',
+    title: 'Tight / inside days', tagline: 'The coil after the thrust',
+    what: 'After a strong move, small bars inside the prior range — closes stacked within a few percent, volume fading.',
+    why: 'Digestion, not distribution. Holders are sitting and sellers are done; this is what the next pivot is made of.',
+    rule: 'Tight closes + dry volume near highs = a setup forming. Wide-and-loose bars in the same spot = walk away.',
+  },
+  {
+    key: 'wick', glyph: 'wick', tone: 'warn', signal: 'caution',
+    title: 'Upper-wick rejection', tagline: 'Supply overhead',
+    what: 'A long topping tail after extension — price reached well above, closed far off the high, volume heavy.',
+    why: 'Someone sold hard into the reach. The wick is where demand met a wall of supply and lost.',
+    rule: 'One wick after extension = warning shot. Wick on the run’s heaviest volume = sell into the next strength.',
+  },
+  {
+    key: 'reclaim', glyph: 'reclaim', tone: 'good', signal: 'confirm',
+    title: 'Undercut & reclaim', tagline: 'The shakeout',
+    what: 'A flush through an obvious level or rail that closes back above it the same day.',
+    why: 'Stops cleared, weak hands gone — the bear trap that often launches the next leg with less supply overhead.',
+    rule: 'The reclaim close is the signal, never the flush. Same iron law: nothing is true until 4:00 PM prints.',
+  },
+  {
+    key: 'churn', glyph: 'churn', tone: 'bad', signal: 'caution',
+    title: 'Churn', tagline: 'Effort without result',
+    what: 'Huge volume, tiny range, no progress — usually late in a long run.',
+    why: 'All that buying got absorbed. Size is selling into strength — distribution dressed up as a strong tape.',
+    rule: 'Heaviest volume of the run + smallest gain of the run = someone big is leaving. Tighten the trail.',
+  },
+  {
+    key: 'weekly', glyph: 'weekly', tone: 'info', signal: 'context',
+    title: 'The weekly wrap', tagline: 'Five dailies, one verdict',
+    what: 'Every weekly candle is five dailies compressed — Friday’s close decides where the week actually settled.',
+    why: 'A strong Mon–Wed means nothing if Friday closes the week low: the weekly prints a topping tail. Weekly wicks are late-week selling.',
+    rule: 'Judge weekly candles on Friday only. An outside / reversal week after a long advance is a daily-timeframe exit cue.',
+  },
+]

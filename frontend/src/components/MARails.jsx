@@ -269,7 +269,8 @@ export default function MARails() {
               Stage, structure, base quality — the chart that decides whether the daily is
               worth trading at all. Scan weekly first (stage-2 structure, tightening base,
               rising 10-week), then drop to the daily for the trigger. Mid-week the weekly
-              bar isn’t done printing; never exit off it.
+              bar isn’t done printing; never exit off it — the only weekly close is Friday’s,
+              so weekly candles are judged on the weekend, full stop.
             </p>
           </div>
         </div>
@@ -286,6 +287,12 @@ export default function MARails() {
             The weekly MAs aren’t new lines — they’re the daily ones zoomed out (≈5 sessions per
             weekly bar). The weekend verdict is made against the 10-week; the exit that enforces it
             is a <span className="text-surface-200">daily close</span> below the 50. Same line, two jobs.
+          </p>
+          <p className="mt-1.5 text-[12px] text-surface-400 leading-snug">
+            The <span className="text-purple font-semibold">10-week</span> is also the only weekly rail worth
+            riding: true leaders surf it for months, and the <span className="text-surface-200">first weekly
+            close below it after a long advance</span> is a character change — lighten the core hold. Swings are
+            never trailed on weekly rails; a weekly line gives back a month of gains before it speaks.
           </p>
         </div>
 
@@ -312,6 +319,26 @@ export default function MARails() {
           </p>
         </div>
 
+        {/* The longer lines — stage filters, not trade rails */}
+        <div className="mt-3 rounded-xl border border-surface-700/40 bg-surface-900/40 px-4 py-3">
+          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+            <span className="text-[10px] font-bold tracking-widest text-surface-200 uppercase">The 100 / 150 / 200</span>
+            <span className="text-[10px] font-mono text-surface-500">— stage lines, not rails</span>
+          </div>
+          <p className="text-[12px] text-surface-400 leading-snug">
+            The <span className="text-surface-200">150- and 200-day</span> (≈ the 30- and 40-week) are stage
+            lines, not trade rails — Minervini’s trend template wants price above both, the 50 above the 150
+            above the 200, and the 200 rising for at least a month. They decide whether a chart is even
+            <span className="text-surface-200"> scannable</span>; they never manage a swing.
+          </p>
+          <p className="mt-1.5 text-[12px] text-surface-400 leading-snug">
+            The <span className="text-surface-200">100-day</span> is deliberately absent from this system: it’s
+            a hope line sitting between the real ones. If the 50 is lost and you’re waiting to “defend the 100,”
+            the swing thesis already ended — whatever happens down there belongs to stage analysis, not trade
+            management. Fewer lines, consistently obeyed, beat more lines rationalized.
+          </p>
+        </div>
+
         {/* Iron law */}
         <div className="mt-4 rounded-xl border border-warning/25 bg-warning/[0.06] px-4 py-3">
           <div className="flex items-start gap-2.5">
@@ -332,6 +359,22 @@ export default function MARails() {
             panel ends by making you use it. */}
         <div className="mt-4">
           <MARailsDrill />
+        </div>
+
+        {/* Lineage — where these rules come from, and their standing */}
+        <div className="mt-4 pt-3 border-t border-surface-700/40">
+          <p className="text-[11px] text-surface-500 leading-snug">
+            <span className="font-bold tracking-widest uppercase text-surface-400">Lineage</span>
+            <span className="mx-1.5">·</span>
+            <span className="text-surface-300">Qullamaggie</span> — 10/20 EMA trail, breakout &amp; EP playbook
+            <span className="mx-1.5">·</span>
+            <span className="text-surface-300">O’Neil / CANSLIM</span> — the 50-day, volume dry-up &amp; climax
+            <span className="mx-1.5">·</span>
+            <span className="text-surface-300">Minervini</span> — trend template (50 &gt; 150 &gt; 200)
+            <span className="mx-1.5">·</span>
+            <span className="text-surface-300">Weinstein</span> — weekly stage analysis, 10/30-week.
+            {' '}Conventions from their published playbooks — validate the numbers against your own trade log.
+          </p>
         </div>
       </div>
     </section>
