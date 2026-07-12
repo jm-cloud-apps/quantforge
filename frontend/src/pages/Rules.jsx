@@ -9,6 +9,7 @@ import {
 } from '../utils/tradingRules'
 import MARails from '../components/MARails'
 import VolumePatterns from '../components/VolumePatterns'
+import CandleTells from '../components/CandleTells'
 
 // Category metadata — single source of truth for icons, tones, and labels.
 
@@ -638,6 +639,9 @@ export default function Rules() {
 
       {/* VOLUME PATTERNS — the second opinion on every rail signal. */}
       <VolumePatterns />
+
+      {/* CANDLE TELLS — range × close × volume, the lineage's candle reading. */}
+      <CandleTells />
 
       {/* CATALYST HIERARCHY — Stockbee framework for EP catalyst ranking. */}
       <CatalystHierarchy />
