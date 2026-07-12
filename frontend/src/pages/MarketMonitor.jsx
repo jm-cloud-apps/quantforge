@@ -41,7 +41,20 @@ function fmtRatio(n) {
 // Metric tiles. The hints below each value mirror Stockbee's published
 // thresholds so the trader doesn't have to remember them.
 // ---------------------------------------------------------------------------
-function MetricTile({ label, value, hint, accent }) {
+// Change vs. the prior session — direction of the metric at a glance. Neutral
+// (surface) colour on purpose: up isn't uniformly "good" across metrics (4%-down
+// rising is bearish), so we show magnitude/direction without asserting sentiment.
+function deltaVsPrev(curr, prev, digits = 0) {
+  if (curr == null || prev == null) return null
+  const d = curr - prev
+  // Flat when the change rounds to zero at the tile's displayed precision, so we
+  // never render an arrow next to a "0.0" magnitude.
+  if (Math.abs(d) < 0.5 * Math.pow(10, -digits)) return '→ flat vs prev'
+  const mag = digits ? Math.abs(d).toFixed(digits) : Math.abs(Math.round(d)).toLocaleString()
+  return `${d > 0 ? '▲' : '▼'} ${mag} vs prev`
+}
+
+function MetricTile({ label, value, hint, accent, delta }) {
   return (
     <div className="rounded-2xl bg-surface-900/80 border border-surface-700/50 p-4">
       <div className="text-[11px] uppercase tracking-wide text-surface-500 font-semibold">
@@ -50,6 +63,9 @@ function MetricTile({ label, value, hint, accent }) {
       <div className={`mt-1.5 text-2xl font-mono font-semibold ${accent || 'text-surface-100'}`}>
         {value}
       </div>
+      {delta && (
+        <div className="mt-1 text-[10px] font-mono text-surface-600">{delta}</div>
+      )}
       {hint && (
         <div className="mt-1 text-[11px] text-surface-500 leading-snug">{hint}</div>
       )}
@@ -319,6 +335,8 @@ export default function MarketMonitor() {
   const theme = REGIME_THEME[regime?.level || 'neutral'] || REGIME_THEME.neutral
   const coverage = snapshot?.coverage
   const empty = !loading && (!metrics || coverage?.universe_size === 0)
+  // Prior session (history is oldest→newest) for the per-tile change readouts.
+  const prev = history.length >= 2 ? history[history.length - 2] : null
 
   return (
     <div className="space-y-6">
@@ -446,46 +464,54 @@ export default function MarketMonitor() {
               value={fmtInt(metrics.up_4)}
               hint="300+ is notable buying"
               accent={metrics.up_4 >= 300 ? 'text-emerald-300' : ''}
+              delta={deltaVsPrev(metrics.up_4, prev?.up_4)}
             />
             <MetricTile
               label="4% down today"
               value={fmtInt(metrics.down_4)}
               hint="500+ is selling pressure"
               accent={metrics.down_4 >= 300 ? 'text-red-300' : ''}
+              delta={deltaVsPrev(metrics.down_4, prev?.down_4)}
             />
             <MetricTile
               label="5-day ratio"
               value={fmtRatio(metrics.ratio_5d)}
               hint="short thrust"
               accent={metrics.ratio_5d >= 1.5 ? 'text-emerald-300' : metrics.ratio_5d <= 0.7 ? 'text-red-300' : ''}
+              delta={deltaVsPrev(metrics.ratio_5d, prev?.ratio_5d, 2)}
             />
             <MetricTile
               label="10-day ratio"
               value={fmtRatio(metrics.ratio_10d)}
               hint="2+ bullish, <0.5 bearish"
               accent={metrics.ratio_10d >= 2 ? 'text-emerald-300' : metrics.ratio_10d <= 0.5 ? 'text-red-300' : ''}
+              delta={deltaVsPrev(metrics.ratio_10d, prev?.ratio_10d, 2)}
             />
             <MetricTile
               label="25% quarter up"
               value={fmtInt(metrics.qtr_up_25)}
               hint={`vs ${fmtInt(metrics.qtr_down_25)} down`}
+              delta={deltaVsPrev(metrics.qtr_up_25, prev?.qtr_up_25)}
             />
             <MetricTile
               label="25% month up"
               value={fmtInt(metrics.mo_up_25)}
               hint={`vs ${fmtInt(metrics.mo_down_25)} down`}
+              delta={deltaVsPrev(metrics.mo_up_25, prev?.mo_up_25)}
             />
             <MetricTile
               label="50% month up"
               value={fmtInt(metrics.mo_up_50)}
               hint=">20 can be overheated"
               accent={metrics.mo_up_50 > 50 ? 'text-amber-300' : metrics.mo_up_50 > 20 ? 'text-amber-200' : ''}
+              delta={deltaVsPrev(metrics.mo_up_50, prev?.mo_up_50)}
             />
             <MetricTile
               label="T2108 local"
               value={fmtPct(metrics.t2108)}
               hint="% above SMA40"
               accent={metrics.t2108 >= 80 ? 'text-amber-300' : metrics.t2108 <= 20 ? 'text-cyan-300' : ''}
+              delta={deltaVsPrev(metrics.t2108, prev?.t2108, 1)}
             />
           </div>
 

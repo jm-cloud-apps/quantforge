@@ -366,7 +366,7 @@ function SituationalSnippet({ sa }) {
         <div className="flex items-center gap-3 min-w-0">
           <span className={`shrink-0 w-3 h-3 rounded-full ${tone.bar} ${loading ? 'animate-pulse' : ''}`} aria-hidden="true" />
           <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-wider text-surface-500 font-semibold">Situational Awareness · Posture</div>
+            <div className="text-[10px] uppercase tracking-wider text-surface-500 font-semibold">Trade Today · Posture</div>
             <div className={`font-display font-bold text-lg ${tone.text} leading-tight`}>
               {error ? 'Unavailable' : stance ? `${stance.label} — ${stance.headline}` : loading ? 'Reading the tape…' : 'No data'}
             </div>
@@ -405,7 +405,7 @@ function SituationalSnippet({ sa }) {
             </div>
 
             <Link to="/situational-awareness" className="text-[11px] font-medium text-accent hover:text-accent/80 whitespace-nowrap">
-              Situational Awareness →
+              Trade Today →
             </Link>
           </div>
         )}

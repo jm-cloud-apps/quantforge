@@ -45,6 +45,24 @@ export async function getRegimeBacktest() {
   return res.json()
 }
 
+export async function getBreadthIndexTrend() {
+  const res = await fetch(`${API_BASE}/breadth/index-trend`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to load index trend')
+  }
+  return res.json()
+}
+
+export async function getBreadthSystemBacktest() {
+  const res = await fetch(`${API_BASE}/breadth/system-backtest`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to load system backtest')
+  }
+  return res.json()
+}
+
 export async function getBreadthVerify() {
   const res = await fetch(`${API_BASE}/breadth/verify`)
   if (!res.ok) {

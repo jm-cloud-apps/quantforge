@@ -7,6 +7,8 @@ import {
   seedRules,
   getRuleOfDay,
 } from '../utils/tradingRules'
+import MARails from '../components/MARails'
+import VolumePatterns from '../components/VolumePatterns'
 
 // Category metadata — single source of truth for icons, tones, and labels.
 
@@ -633,6 +635,12 @@ export default function Rules() {
 
       {/* CATALYST HIERARCHY — Stockbee framework for EP catalyst ranking. */}
       <CatalystHierarchy />
+
+      {/* MA RAILS — 10/20/50 framework: which rail, which timeframe, when. */}
+      <MARails />
+
+      {/* VOLUME PATTERNS — the second opinion on every rail signal. */}
+      <VolumePatterns />
 
       {/* CATEGORY CARDS — also serve as filters */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

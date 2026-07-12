@@ -134,8 +134,9 @@ const icons = {
   ),
 }
 
-// Grouped navigation — mirrors macOS sidebar conventions (Mail/Notes/Music).
-// Order within each group is by likely frequency-of-use.
+// Grouped navigation — ordered as the daily trading workflow: read the tape,
+// find setups for the watchlist, plan/execute from the playbook, then review.
+// Research/validation tools sit last — they're offline work, not daily flow.
 const navGroups = [
   {
     label: 'Overview',
@@ -144,49 +145,54 @@ const navGroups = [
     ],
   },
   {
-    label: 'Discipline',
+    label: '1 · Market Context',
     items: [
-      { path: '/rules', label: 'Rules',     icon: icons.rules },
+      { path: '/situational-awareness', label: 'Trade Today', icon: icons.awareness },
+      { path: '/market-monitor',  label: 'Market Monitor',   icon: icons.monitor },
+      { path: '/theme-radar',     label: 'Theme Radar',      icon: icons.signal },
     ],
   },
   {
-    label: 'Analyze',
+    label: '2 · Find Setups',
     items: [
-      { path: '/trading-analysis', label: 'Trading Analysis', icon: icons.trading },
-      { path: '/yearly-strongest', label: 'Yearly Strongest', icon: icons.trophy },
-      { path: '/wealthsimple',    label: 'Wealthsimple',     icon: icons.journal },
-      { path: '/news',            label: 'Stock Analysis',   icon: icons.stock },
-      { path: '/market-monitor',  label: 'Market Monitor',   icon: icons.monitor },
-      { path: '/situational-awareness', label: 'Situational Awareness', icon: icons.awareness },
-      { path: '/theme-radar',     label: 'Theme Radar',      icon: icons.signal },
-      { path: '/earnings',        label: 'Earnings',         icon: icons.calendar },
+      { path: '/stage-analysis',  label: 'Stage Analysis',   icon: icons.stages },
+      { path: '/breakouts',       label: 'Breakouts',        icon: icons.breakouts },
       { path: '/scanner-9m',      label: '$9M Scanner',      icon: icons.ninem },
       { path: '/reversal-setup',  label: 'Reversal Setup',   icon: icons.reversal },
-      { path: '/stage-analysis',  label: 'Stage Analysis',   icon: icons.stages },
-      { path: '/factor-model',    label: 'Factor Model',     icon: icons.factor },
-      { path: '/edge-validation', label: 'Edge Validation',  icon: icons.edge },
       { path: '/screener',        label: 'Sector Scan',      icon: icons.sector },
-      { path: '/breakouts',       label: 'Breakouts',        icon: icons.breakouts },
+      { path: '/earnings',        label: 'Earnings',         icon: icons.calendar },
+      { path: '/news',            label: 'Stock Analysis',   icon: icons.stock },
       { path: '/flow',            label: 'Options Flow',     icon: icons.breakouts },
     ],
   },
   {
-    label: 'Trade',
+    label: '3 · Plan & Execute',
     items: [
-      { path: '/ai-trader',   label: 'AI Trader',   icon: icons.signal },
+      { path: '/rules',       label: 'Rules',       icon: icons.rules },
+      { path: '/playbook',    label: 'Playbook',    icon: icons.database },
+      { path: '/tools',       label: 'Tools',       icon: icons.tools },
       { path: '/watchlist',   label: 'Watchlist',   icon: icons.watchlist },
-      { path: '/review',      label: 'Review',      icon: icons.journal },
-      { path: '/journal',     label: 'Journal',     icon: icons.journal },
-      { path: '/signal-lab',  label: 'Signal Lab',  icon: icons.signal },
-      { path: '/bot-trader',  label: 'Bot Trader',  icon: icons.bot },
-      { path: '/backtesting', label: 'Backtesting', icon: icons.backtest },
+      { path: '/ai-trader',   label: 'AI Trader',   icon: icons.signal },
     ],
   },
   {
-    label: 'Data',
+    label: '4 · Review & Learn',
     items: [
-      { path: '/playbook', label: 'Database', icon: icons.database },
-      { path: '/tools',    label: 'Tools',    icon: icons.tools },
+      { path: '/review',           label: 'Review',           icon: icons.journal },
+      { path: '/journal',          label: 'Journal',          icon: icons.journal },
+      { path: '/trading-analysis', label: 'Trading Analysis', icon: icons.trading },
+      { path: '/wealthsimple',     label: 'Wealthsimple',     icon: icons.journal },
+      { path: '/yearly-strongest', label: 'Yearly Strongest', icon: icons.trophy },
+    ],
+  },
+  {
+    label: 'Research & Validation',
+    items: [
+      { path: '/edge-validation', label: 'Edge Validation', icon: icons.edge },
+      { path: '/factor-model',    label: 'Factor Model',    icon: icons.factor },
+      { path: '/backtesting',     label: 'Backtesting',     icon: icons.backtest },
+      { path: '/signal-lab',      label: 'Signal Lab',      icon: icons.signal },
+      { path: '/bot-trader',      label: 'Bot Trader',      icon: icons.bot },
     ],
   },
 ]
