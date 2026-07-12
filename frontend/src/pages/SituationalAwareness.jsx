@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import TickerLink from '../components/TickerLink'
+import TradePlanGate from '../components/TradePlanGate'
 import {
   AreaChart,
   Area,
@@ -1231,6 +1232,10 @@ export default function SituationalAwareness() {
       {error && (
         <div className="rounded-xl bg-red-500/10 border border-red-400/30 px-4 py-3 text-sm text-red-200">{error}</div>
       )}
+
+      {/* Pre-trade discipline gate — plan (setup + stop + target) before the fill;
+          size is derived off the stop. Always available, independent of breadth. */}
+      <TradePlanGate regime={stance?.label ?? null} />
 
       {loading && !sa && (
         <div className="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-12 text-center">

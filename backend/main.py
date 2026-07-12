@@ -156,6 +156,9 @@ app.include_router(review_notes_router)
 from wealthsimple_router import router as wealthsimple_router
 app.include_router(wealthsimple_router)
 
+from trade_plans_router import router as trade_plans_router
+app.include_router(trade_plans_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
