@@ -633,14 +633,14 @@ export default function Rules() {
         </div>
       </div>
 
-      {/* CATALYST HIERARCHY — Stockbee framework for EP catalyst ranking. */}
-      <CatalystHierarchy />
-
       {/* MA RAILS — 10/20/50 framework: which rail, which timeframe, when. */}
       <MARails />
 
       {/* VOLUME PATTERNS — the second opinion on every rail signal. */}
       <VolumePatterns />
+
+      {/* CATALYST HIERARCHY — Stockbee framework for EP catalyst ranking. */}
+      <CatalystHierarchy />
 
       {/* CATEGORY CARDS — also serve as filters */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

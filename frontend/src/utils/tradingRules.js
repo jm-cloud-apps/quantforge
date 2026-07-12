@@ -407,3 +407,27 @@ export const VOLUME_PATTERNS = [
     rule: 'A close below the 50 on heavy volume = broken stock. Off the list, and never average down into it.',
   },
 ]
+
+// Quantified volume thresholds — the "put numbers on it" strip under the
+// pattern cards. Values are working conventions from the momentum playbook
+// (O'Neil / Qullamaggie lineage), meant to be checked against your own trade
+// log, not physical constants. Everything is measured against the stock's own
+// 50-day average volume — volume is only meaningful relative to itself.
+export const VOLUME_METRICS = [
+  {
+    key: 'rvol', label: 'Breakout day', value: '≥ 1.5–3× avg', tone: 'good',
+    note: 'RVOL vs the 50-day average volume. Intraday, judge the pace — volume by 10:30 vs a normal day by 10:30 — not the running total against the full-day bar.',
+  },
+  {
+    key: 'dryup', label: 'Base apex', value: '≤ ½ × avg', tone: 'info',
+    note: 'The quietest bars of the whole base should print where the range is tightest. Quiet + tight = coiled; loud + tight = crowded and contested.',
+  },
+  {
+    key: 'breakdown', label: 'Breakdown bar', value: '> any up-bar', tone: 'bad',
+    note: 'A rail break counts as distribution when its volume beats every up-day in the pattern. Heavier than the buyers ever were = supply, not noise.',
+  },
+  {
+    key: 'floor', label: 'Tradability floor', value: '≥ $5M / day', tone: 'warn',
+    note: 'Dollar volume, not share count — same floor as the entry rules. Below it, spreads and slippage make every volume signal on this panel unreliable.',
+  },
+]
