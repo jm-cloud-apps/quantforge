@@ -221,6 +221,42 @@ async def log_requests(request, call_next):
     return response
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Upload / file-serving safety helpers
+#
+# QuantForge binds to localhost and serves a single user, so the threat
+# model is narrow — but uploaded files and path parameters are the two
+# places untrusted bytes reach the filesystem. We cap upload size (so a
+# stray multi-GB body can't OOM the process) and contain any served path
+# to its intended directory (defense-in-depth against path traversal).
+# See SECURITY.md for the full threat model.
+# ──────────────────────────────────────────────────────────────────────
+
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB — trade workbooks / screenshots are far smaller
+
+
+def _enforce_upload_limit(contents: bytes, kind: str = "File") -> None:
+    """Reject an upload larger than MAX_UPLOAD_BYTES with a clean 413."""
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"{kind} too large ({len(contents) // (1024 * 1024)} MB). "
+                   f"Max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
+        )
+
+
+def _safe_within(base_dir: str, filename: str) -> str:
+    """Resolve `filename` inside `base_dir`, rejecting anything that escapes it
+    (absolute paths, `..`, symlinks). Starlette's {filename} path param already
+    excludes slashes, but validating the resolved path is cheap and keeps this
+    correct if the route or server ever changes."""
+    base = os.path.realpath(base_dir)
+    target = os.path.realpath(os.path.join(base, filename))
+    if target != base and not target.startswith(base + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    return target
+
+
 class BacktestRequest(BaseModel):
     symbol: str
     strategy_id: str
@@ -658,8 +694,11 @@ async def upload_trade_data(file: UploadFile = File(...)):
     """
     try:
         contents = await file.read()
+        _enforce_upload_limit(contents, "Trade file")
 
         # Determine file type and read accordingly
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="No filename provided.")
         if file.filename.endswith('.csv'):
             df = pd.read_csv(io.BytesIO(contents))
         elif file.filename.endswith(('.xlsx', '.xls')):
@@ -682,6 +721,8 @@ async def upload_trade_data(file: UploadFile = File(...)):
             "total_records": len(trades)
         }
 
+    except HTTPException:
+        raise  # preserve intended 4xx status (bad format, too large) — don't mask as 500
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
@@ -3349,6 +3390,7 @@ async def create_playbook_entry(
         screenshot_filename = f"{entry_id}{ext}"
         filepath = os.path.join(PLAYBOOK_SCREENSHOTS_DIR, screenshot_filename)
         contents = await screenshot.read()
+        _enforce_upload_limit(contents, "Screenshot")
         with open(filepath, "wb") as f:
             f.write(contents)
 
@@ -3407,6 +3449,7 @@ async def update_playbook_entry(
         screenshot_filename = f"{entry_id}{ext}"
         filepath = os.path.join(PLAYBOOK_SCREENSHOTS_DIR, screenshot_filename)
         contents = await screenshot.read()
+        _enforce_upload_limit(contents, "Screenshot")
         with open(filepath, "wb") as f:
             f.write(contents)
         entry["screenshot"] = screenshot_filename
@@ -3444,7 +3487,7 @@ def delete_playbook_entry(entry_id: str):
 
 @app.get("/api/playbook/screenshots/{filename}")
 def get_playbook_screenshot(filename: str):
-    filepath = os.path.join(PLAYBOOK_SCREENSHOTS_DIR, filename)
+    filepath = _safe_within(PLAYBOOK_SCREENSHOTS_DIR, filename)
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Screenshot not found")
     return FileResponse(filepath)

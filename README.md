@@ -1,70 +1,112 @@
 # QuantForge
 
-A full-stack trading platform for backtesting strategies, analyzing real trade history, journaling, and executing orders via Interactive Brokers — all in a dark fintech-style dashboard.
+A full-stack, **local-first** trading platform: it reads market breadth, surfaces
+setups, enforces pre-trade discipline, and turns your real Interactive Brokers
+fill history into edge analytics — all in one dark fintech dashboard.
 
-## Features
+The app is organized around a trading **workflow**, not a pile of tools:
+**read the market → find setups → plan & execute → review & learn.**
 
-### Backtesting
-- **Previous Day Breakout** — Buy when price closes above previous day high, sell when it breaks below
-- **Indicator Strategies** — SMA Crossover, RSI, Mean Reversion, Buy & Hold
-- **Multi-symbol support** — Backtest across multiple tickers with aggregate summaries
-- Equity curves, performance metrics, and full trade history
+![QuantForge — Market Overview dashboard](docs/screenshots/dashboard.png)
 
-### Trading Analysis
-Upload your real trade data (Excel) or load a default file, then get:
-- **Performance Metrics** — Win rate, profit factor, Sharpe ratio, max drawdown, expectancy
-- **Key Insights Summary** — Data-driven strengths, weaknesses, and opportunities
-- **P&L Distribution** — Histogram of trade outcomes
-- **Daily P&L Heatmap** — GitHub-style calendar view (weekdays only)
-- **Hold Time vs P&L** — Scatter plot of trade duration vs outcome
-- **Streak & Tilt Detection** — Consecutive wins/losses, revenge trade patterns
-- **Entry/Exit Timing** — Win rate by hour of day, filterable by month
-- **Setup & Symbol Stats** — Performance breakdown by trade setup and ticker
-- **Market Cap Performance** — Win rate by Mega/Large/Mid/Small/Micro cap
-- **Portfolio vs SPY Benchmark** — Cumulative return comparison with alpha
-- **R-Multiple Analysis** — Risk-normalized returns using 1% portfolio risk rule
-- **Rolling Performance** — 10/20/50-trade rolling win rate and P&L
-- **Drawdown Analysis** — Drawdown periods and recovery tracking
+---
 
-### Trade Journal
-- Log pre-trade plan, emotions (entry & exit), lessons learned, and execution rating (1-5 stars)
-- Tag trades with custom labels (earnings, gap-up, thesis-failed, etc.)
-- Search and filter by emotion, rating, or keyword
-- Stats dashboard: average rating, most common emotions, top tags
+## What it does
 
-### Trading Tools
-- **Position Sizer** — Calculate shares to buy using Fixed % risk, Kelly Criterion, or ATR-based sizing
-- **Pre-Trade Checklist** — Customizable 8-item discipline checklist with progress tracking
+### Overview
+- **Dashboard / Market Overview** — a live read across indices, breadth regime,
+  Trade Today posture, sector rotation, and synthesized market themes. Your
+  one-glance starting point for the session.
 
-### Bot Trader (Interactive Brokers)
-- Connect to TWS or IB Gateway (paper or live account)
-- Account summary: net liquidation, cash, buying power, available funds
-- View positions and open orders in real-time (3s polling)
-- Place Market, Limit, and Stop orders with confirmation modal
-- Paper/Live toggle with safety warnings for live mode
-- US stocks only (IBKR Canada IIROC 3200A compliance)
+### 1 · Market Context
+- **Trade Today** — the command page: *should I trade, how big, and where.* A
+  breadth-based regime filter (Stockbee Market Monitor) crossed with theme
+  rotation, plus a **pre-trade gate** (define setup, stop, and target → size is
+  computed off the stop) and a persistent daily ledger with 1-year percentile
+  context and forward-return backtest.
+- **Market Monitor** — Stockbee-style breadth across the active US common-stock
+  universe (~5,000 names): 4% up/down movers, 5/10-day thrust ratios,
+  quarterly/monthly ±25% leadership, and a local T2108 (% above 40-day SMA).
+- **Theme Radar** — structural theme strength × real-time tape velocity → a
+  near-term velocity matrix that flags sweet spots vs distribution traps.
 
-### Sector Screener
-- Live sector performance via SPDR ETFs (fetched from Yahoo Finance)
-- File-based caching with in-memory 5-minute cache
-- Automatic fallback to demo data when rate-limited
+### 2 · Find Setups
+- **Stage Analysis** — Weinstein's four-stage cycle off the 30-week MA; surfaces
+  Stage 1 bases about to break into Stage 2 and the Stage 2 advancers running.
+- **Breakouts (Ranked Chart Wall)** — Day 1/2/3+ of sustained ≥2× volume with a
+  directional accumulation score, short-volume %, and optional institutional
+  (Form 4 + 13-F) enrichment.
+- **$9M Scanner** — episodic-pivot / gap scanner with a deterministic scorer.
+- **Reversal Setup** — mean-reversion / reversal candidates.
+- **Sector Scan** — live sector performance via SPDR ETFs.
+- **Earnings** — beat/miss + reaction calendar.
+- **Stock Analysis** — per-symbol news + AI criteria analysis.
+- **Options Flow** — Unusual-Whales-style unusual options activity.
 
-### Market Breadth & Situational Awareness
-- **Market Monitor** — Stockbee-style breadth across the active US common-stock universe (~5,000 names): 4% up/down movers, 5/10-day thrust ratios, quarterly/monthly ±25% leadership, and a local T2108 (% of the universe above its 40-day SMA)
-- **Situational Awareness** — turns that breadth into an *actionable, setup-specific* read: an exposure score (0–100) and stance (aggressive → cash), plus a green/amber/red light per setup family (momentum breakouts, episodic pivots, pullbacks, mean-reversion, shorts), each with a live ✓/✗ decision checklist
-- **How & why** — every read is fully auditable: score build-up off a neutral 50 baseline, a stance-band ladder, per-factor scoring criteria, and the drivers behind the number (rules-as-data, so what's shown can't drift from what's computed)
-- **Persistent daily ledger** with 1-year statistical context (percentile vs the trailing year, days-in-regime) and a 1M/3M/6M/1Y exposure history chart
-- **Regime-conditioned backtest** — joins the ledger to equal-weight universe forward returns to measure forward return by stance and the green-vs-red edge per setup (the empirical check on whether the filter actually works)
-- **Provenance & honesty** — real end-of-day prices from the Massive grouped-daily endpoint; the read is a *backward-looking regime filter, not a timing signal*; thresholds are Stockbee's published method plus heuristic scoring priors. A built-in pipeline verifier independently recounts the 4%-movers straight from the raw cached bars so the on-screen numbers are traceable to source
+### 3 · Plan & Execute
+- **Rules** — your codified playbook: MA rails, volume metrics, candle tells,
+  weekly-rail guidance.
+- **Playbook** — annotated setup library with chart screenshots.
+- **Tools** — Position Sizer (Fixed %, Kelly, ATR) and a customizable pre-trade
+  discipline checklist.
+- **Watchlist** — tracked names.
+- **AI Trader** — AI-generated trade ideas with quant analytics and a
+  point-in-time backtester (scale-out + MA-trail exit model).
+- **Bot Trader** — connect to TWS / IB Gateway (paper or live), view account,
+  positions and orders, and place Market/Limit/Stop orders behind a confirmation
+  modal. US stocks only (IIROC 3200A). Endpoints disappear entirely if
+  `ib_insync` isn't installed.
+
+### 4 · Review & Learn
+- **Review** — edit setup / grade / emotion / notes per trade (sidecar-backed).
+- **Journal** — pre/post-trade plan, emotions, lessons, execution rating, tags.
+- **Trading Analysis** — win rate, profit factor, Sharpe/Sortino, expectancy,
+  P&L calendar heatmap, hold-time scatter, streak/tilt detection, entry-timing,
+  setup/symbol/market-cap breakdowns, SPY benchmark & alpha, R-multiple and
+  rolling/drawdown analytics.
+- **Wealthsimple** — separate-account analysis.
+- **Yearly Strongest** — strongest names by year.
+
+### Research & Validation
+- **Edge Validation** — cross-sectional, anti-overfitting checks on a signal.
+- **Factor Model** — cross-sectional factor ranking.
+- **Backtesting** — Previous-Day Breakout, SMA Crossover, RSI, Mean Reversion,
+  Buy & Hold; single- and multi-symbol with equity curves and full trade logs.
+- **Signal Lab / Bot Trader** — experiments and broker execution.
+
+> Every read is built to be **auditable** — score build-ups off a neutral
+> baseline, per-factor scoring criteria, data-provenance disclosure, and a
+> pipeline verifier that recounts on-screen numbers straight from the raw cached
+> bars. Reads are backward-looking regime filters, *not* timing signals.
+
+---
+
+## Screenshots
+
+| Trade Today — command page | Market Monitor — breadth |
+|---|---|
+| ![Trade Today](docs/screenshots/trade-today.png) | ![Market Monitor](docs/screenshots/market-monitor.png) |
+| **Stage Analysis — ranked setups** | **Trading Analysis — edge analytics** |
+| ![Stage Analysis](docs/screenshots/stage-analysis.png) | ![Trading Analysis](docs/screenshots/trading-analysis.png) |
+
+---
 
 ## Tech Stack
 
-| Layer    | Technology                                           |
-|----------|------------------------------------------------------|
-| Backend  | Python, FastAPI, pandas, NumPy, yfinance, ib_insync  |
-| Frontend | React 18, Vite, Tailwind CSS, Recharts               |
-| Broker   | Interactive Brokers (TWS / IB Gateway)               |
-| Data     | Massive (grouped-daily EOD), Yahoo Finance, Excel trade files, JSON storage |
+| Layer    | Technology                                                        |
+|----------|-------------------------------------------------------------------|
+| Backend  | Python, FastAPI, pandas, NumPy, openpyxl, yfinance, ib_insync     |
+| Frontend | React 18, Vite, Tailwind CSS, Recharts, lightweight-charts        |
+| Broker   | Interactive Brokers (TWS / IB Gateway) via `ib_insync`            |
+| AI       | Anthropic API (Claude) for trade ideas, criteria, and theme reads |
+| Data     | Massive (grouped-daily EOD, primary), Yahoo Finance & Finnhub (fallback), Excel trade files, JSON + sqlite storage |
+
+Two processes: a FastAPI backend on **:8000** and a React/Vite frontend on
+**:5173** that proxies `/api/*` to the backend. Runtime state is file-based
+(JSON + `screener_snapshots.db` under `backend/data/`) — there is no database
+server.
+
+---
 
 ## Quick Start
 
@@ -73,139 +115,113 @@ Upload your real trade data (Excel) or load a default file, then get:
 - Node.js 18+
 - (Optional) TWS or IB Gateway for Bot Trader
 
-### 1. Backend
+### One command
 
 ```bash
+./start.sh   # creates the venv / installs deps on first run, then starts both
+```
+
+Then open **http://localhost:5173**.
+
+### Or run each process yourself
+
+```bash
+# Backend
 cd backend
-python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
+python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-```
-
-Create a `.env` file in `backend/` (see `.env.example`):
-
-```env
-DEFAULT_TRADES_PATH=/path/to/your/Trades_2025.xlsx
-```
-
-Start the server:
-
-```bash
 uvicorn main:app --reload --port 8000
-```
 
-### 2. Frontend
-
-```bash
+# Frontend (in a second terminal)
 cd frontend
 npm install
 npm run dev
 ```
 
-### 3. Open the app
+### Configuration
 
-Visit **http://localhost:5173** — the frontend proxies `/api` requests to the backend.
+Copy `backend/.env.example` → `backend/.env` and fill in what you need (a
+project-root `.env` also works). Everything has a sensible default; keys are
+only required for the features that use them.
+
+| Variable              | Purpose                                                        |
+|-----------------------|----------------------------------------------------------------|
+| `DEFAULT_TRADES_PATH` | Default trades Excel workbook for Trading Analysis / Review     |
+| `MASSIVE_API_KEY`     | Primary market-data provider (breadth, screeners, calendar)    |
+| `FINNHUB_API_KEY`     | Fallback news / earnings provider                              |
+| `ANTHROPIC_API_KEY`   | AI Trader, Theme Radar, and stock-criteria analysis            |
+| `QF_DATA_PROVIDER`    | OHLCV provider switch — `massive` (default) or `yahoo`          |
+| `QF_NEWS_PROVIDER`    | News provider switch — `massive` (default) or `finnhub`        |
+| `IB_HOST` / `IB_PORT` / `IB_CLIENT_ID` / `IB_PAPER` | Interactive Brokers connection    |
+| `QF_LOG_LEVEL`        | Set `DEBUG` for per-symbol enrichment logs                     |
+
+**Interactive API docs** are auto-generated by FastAPI at
+**http://localhost:8000/docs** — the authoritative, always-current list of every
+endpoint. (This README no longer duplicates the full endpoint table; each
+backend feature is a self-contained router registered in `backend/main.py`.)
+
+---
+
+## Security
+
+QuantForge is **single-user and localhost-bound** — see **[SECURITY.md](SECURITY.md)**
+for the full threat model. Controls in place:
+
+- **No open network surface** — uvicorn binds `127.0.0.1`; CORS is locked to the
+  two localhost frontend origins (no wildcard). There is no auth layer, so *you*
+  own any exposure if you tunnel or reverse-proxy the app.
+- **Uploads** are size-capped (25 MB → clean `413`) and type-restricted; stored
+  filenames are always server-generated, never the client's.
+- **Served file paths** are contained to their directory (path-traversal safe).
+- **Secrets** live only in `backend/.env` (git-ignored); `.env.example` ships
+  placeholders. Startup logging reports only "set / missing", never a key value.
+- **Broker actions** (real order placement) sit behind an explicit confirmation
+  modal and a Paper/Live toggle.
+
+---
 
 ## Project Structure
 
 ```
 quantforge/
 ├── backend/
-│   ├── main.py                # FastAPI app & all endpoints
-│   ├── requirements.txt
-│   ├── .env.example           # Environment variable template
-│   ├── data/                  # Runtime data (journal, checklist)
-│   ├── backtester/
-│   │   ├── engine.py          # Backtest engine
-│   │   ├── breakout_engine.py # Breakout strategy engine
-│   │   ├── strategies.py      # Strategy implementations
-│   │   └── data_fetcher.py    # Yahoo Finance data fetcher
-│   └── broker/
-│       ├── connection.py      # IB connection wrapper (ib_insync)
-│       ├── manager.py         # Singleton broker instance
-│       └── router.py          # FastAPI router for /api/broker/*
+│   ├── main.py                # FastAPI app, middleware, backtesting + analytics endpoints
+│   ├── breadth/               # Market-context engine (Trade Today / Market Monitor / SA)
+│   ├── scanners/              # $9M, reversal, stage-analysis scanners
+│   ├── analytics/             # Factor model + edge validation
+│   ├── screener/qullamaggie/  # Breakout screener (providers, scoring, sqlite cache)
+│   ├── theme_radar/           # Theme-velocity analysis
+│   ├── ai_trader/, advisor/   # AI-powered analysis (Anthropic)
+│   ├── options_flow/, news/, broker/, formatter/
+│   ├── *_router.py            # Single-file routers (journal, calendar, movers, trade_plans, …)
+│   ├── market_clock.py        # effective_cache_ttl() — closed-market cache extension
+│   ├── ep_scorer.py           # Deterministic Qullamaggie EP scorer
+│   └── data/                  # Runtime state: JSON + screener_snapshots.db (git-ignored)
 ├── frontend/
-│   ├── src/
-│   │   ├── api/               # API client modules
-│   │   ├── components/        # Reusable UI components
-│   │   └── pages/             # All app pages
-│   ├── package.json
-│   └── vite.config.js
-├── .gitignore
+│   └── src/
+│       ├── pages/             # One component per route (code-split in App.jsx)
+│       ├── api/               # One client module per backend router
+│       ├── components/        # Shared UI (Layout, RefreshControl, analysis/, review/, …)
+│       └── autorefresh/       # Background daily-warm queue + serial refresh
+├── docs/screenshots/          # README imagery
+├── start.sh
+├── SECURITY.md
+├── CLAUDE.md                  # Guidance for AI coding assistants
 └── README.md
 ```
 
-## API Endpoints
+> The trade-log **formatter** that turns Interactive Brokers PDF reports into the
+> trades workbook lives in a **separate sibling repo** (`../trade-log-formatter`);
+> `backend/formatter/` is a thin wrapper that shells out to it and streams
+> progress to the UI. See `CLAUDE.md` for the full trade-data pipeline.
 
-### Backtesting
-| Method | Endpoint                      | Description                     |
-|--------|-------------------------------|---------------------------------|
-| GET    | `/api/strategies`             | List available strategies       |
-| POST   | `/api/backtest/run`           | Run single-symbol backtest      |
-| POST   | `/api/backtest/run-multi`     | Run multi-symbol backtest       |
-| POST   | `/api/backtest/run-breakout`  | Run breakout strategy backtest  |
+---
 
-### Trading Analysis
-| Method | Endpoint                                      | Description                        |
-|--------|-----------------------------------------------|------------------------------------|
-| GET    | `/api/trading-analysis/load-default`          | Load default trade file            |
-| POST   | `/api/trading-analysis/upload`                | Upload trade data (Excel)          |
-| POST   | `/api/trading-analysis/analyze`               | Full trade analysis                |
-| POST   | `/api/trading-analysis/statistics`            | Core trade statistics              |
-| POST   | `/api/trading-analysis/setup-statistics`      | Stats by trade setup               |
-| POST   | `/api/trading-analysis/symbol-statistics`     | Stats by ticker symbol             |
-| POST   | `/api/trading-analysis/drawdown-analysis`     | Drawdown periods                   |
-| POST   | `/api/trading-analysis/time-performance`      | Performance by time period         |
-| POST   | `/api/trading-analysis/rolling-performance`   | Rolling window metrics             |
-| POST   | `/api/trading-analysis/advanced-metrics`      | Sharpe, Sortino, expectancy        |
-| POST   | `/api/trading-analysis/entry-timing-analysis` | Win rate by entry/exit hour        |
-| POST   | `/api/trading-analysis/streak-detection`      | Win/loss streaks & tilt detection  |
-| POST   | `/api/trading-analysis/market-cap-performance`| Performance by market cap tier     |
-| POST   | `/api/trading-analysis/benchmark-comparison`  | Portfolio vs SPY comparison        |
-| POST   | `/api/trading-analysis/r-multiple`            | R-multiple analysis (1% risk)      |
+## Notes
 
-### Trade Journal
-| Method | Endpoint                              | Description                |
-|--------|---------------------------------------|----------------------------|
-| GET    | `/api/journal/entries`                | List all journal entries   |
-| GET    | `/api/journal/entries/{trade_id}`     | Get single entry           |
-| POST   | `/api/journal/entries`                | Create/update entry        |
-| DELETE | `/api/journal/entries/{trade_id}`     | Delete entry               |
-| GET    | `/api/journal/stats`                  | Aggregate journal stats    |
-| GET    | `/api/journal/search?q=keyword`       | Full-text search           |
-
-### Trading Tools
-| Method | Endpoint                         | Description                |
-|--------|----------------------------------|----------------------------|
-| POST   | `/api/tools/position-size`       | Calculate position size    |
-| GET    | `/api/tools/checklist/template`  | Get checklist template     |
-| POST   | `/api/tools/checklist/template`  | Save checklist template    |
-
-### Bot Trader (Interactive Brokers)
-| Method | Endpoint                            | Description              |
-|--------|-------------------------------------|--------------------------|
-| POST   | `/api/broker/connect`               | Connect to TWS/Gateway   |
-| POST   | `/api/broker/disconnect`            | Disconnect               |
-| GET    | `/api/broker/status`                | Connection status        |
-| GET    | `/api/broker/account`               | Account summary          |
-| GET    | `/api/broker/positions`             | Current positions        |
-| GET    | `/api/broker/orders`                | Open orders              |
-| POST   | `/api/broker/orders/place`          | Place order (US only)    |
-| POST   | `/api/broker/orders/cancel/{id}`    | Cancel order             |
-
-### Screener
-| Method | Endpoint                                     | Description                    |
-|--------|----------------------------------------------|--------------------------------|
-| GET    | `/api/screener/sector-performance`           | Sector ETF performance data    |
-| GET    | `/api/screener/sector-performance/progress`  | Fetch progress (polling)       |
-
-## Environment Variables
-
-| Variable              | Description                           | Default                    |
-|-----------------------|---------------------------------------|----------------------------|
-| `DEFAULT_TRADES_PATH` | Path to default trades Excel file     | `trades/Trades_2025.xlsx`  |
-| `JOURNAL_PATH`        | Journal storage file path             | `data/journal.json`        |
-| `CHECKLIST_PATH`      | Checklist template file path          | `data/checklist_template.json` |
+- **Personal project** — there is no test suite and no linter configured;
+  `screener/qullamaggie/test_fetch.py` is a manual data-provider sanity script.
+- **Not financial advice.** The screeners and regime reads are research tools.
 
 ## License
 
