@@ -155,6 +155,109 @@ export const MA_RAILS = [
   },
 ]
 
+// The weekly-chart companion to MA_RAILS. Different lines, different job: the
+// daily rails execute (entries, trails, exits); the weekly rails give context
+// (trend, stage, regime) and decide whether the daily is worth trading at all.
+// 10w ≈ 50-day, 30w ≈ 150-day (Weinstein stage line), 40w ≈ 200-day. Rendered
+// as a parallel card row under the daily rails in components/MARails.jsx.
+export const WEEKLY_RAILS = [
+  {
+    key: '10w',
+    period: '10',
+    type: 'SMA',
+    tagline: 'The trend line',
+    tone: 'wk10',
+    rider: 'Core holds and true leaders — the line a monster trends above for months without a second thought.',
+    lines: [
+      'Same line as the daily 50, one zoom out. The weekend “is the trend still intact?” verdict is made here.',
+      'A leader that keeps closing each week above a rising 10-week is still in its run — hold the core, stop micro-managing the daily.',
+    ],
+    breakRule: 'First weekly close below a flattening 10-week after a long advance = character change. Lighten the core — the easy trend is over.',
+    dailyNote: 'Enforced on the daily: a weekly verdict against the 10-week is executed as a daily close below the 50 — never sold off a half-printed weekly bar.',
+  },
+  {
+    key: '30w',
+    period: '30',
+    type: 'SMA',
+    tagline: 'The stage gate',
+    tone: 'wk30',
+    rider: 'Every name you consider — it sets the stage before you look at a single daily pivot.',
+    lines: [
+      'Weinstein Stage 2 = price above a rising 30-week. That is the only stage you buy breakouts in.',
+      'Below a falling 30-week = Stage 4: no “it’s basing,” that’s a pass or a short — worked on the Stage Analysis page, not here.',
+    ],
+    breakRule: 'Price breaking a rising 30-week is Stage 3 topping until proven otherwise — stop starting new longs in the name.',
+    dailyNote: 'A filter, never a trail. It says whether the daily is scannable at all; it never times an entry or sets a stop.',
+  },
+  {
+    key: '40w',
+    period: '40',
+    type: 'SMA',
+    tagline: 'The regime line',
+    tone: 'wk40',
+    rider: 'The index first, then your leaders — the one line that says risk-on or risk-off at the highest zoom.',
+    lines: [
+      'Index above a rising 40-week = bull backdrop: breakouts work, hold winners longer, press size.',
+      'Index below a falling 40-week = bear backdrop: breakouts fail, cut size, respect shorts.',
+    ],
+    breakRule: 'Index losing the 40-week on rising volume = risk-off. Cut gross exposure first, ask questions later.',
+    dailyNote: '≈ the 200-day — the same backdrop check the daily crowd runs. It sets your aggression, not your entries.',
+  },
+]
+
+// Crossover events — what a cross *means*, and whether it changes the trade.
+// The through-line: a cross confirms or gates, it never triggers. The entry is
+// always the pivot; the exit is always a daily close below the rail. `scope`
+// tags the chart it lives on; `verdict.label` is the one-word call. Rendered as
+// the Crossovers panel in components/MARails.jsx.
+export const MA_CROSSOVERS = [
+  {
+    key: 'px50',
+    pair: 'price × 50',
+    scope: 'DAILY',
+    tone: 'gate',
+    title: 'The qualifier',
+    meaning: 'Price reclaiming a rising 50 turns a name back on; a heavy-volume close below turns it off.',
+    verdict: { label: 'GATE', text: 'A state filter, not a signal. Above a rising 50 = eligible to trade; a decisive close below = off the leaders list. The 50 qualifies, the pivot times.' },
+  },
+  {
+    key: '10x20',
+    pair: '10 × 20',
+    scope: 'DAILY',
+    tone: 'confirm',
+    title: 'Momentum shift',
+    meaning: '10 crossing back above the 20 says the pullback is spent; slipping below says the fast leg is cooling.',
+    verdict: { label: 'CONFIRM', text: 'Confirms, never triggers. The recross tells you the dip is over — but the buy is still the pivot back through the base high, not the cross itself.' },
+  },
+  {
+    key: 'stack',
+    pair: '10 › 20 › 50',
+    scope: 'DAILY',
+    tone: 'confirm',
+    title: 'Stack forming / flipping',
+    meaning: 'Rails fanning into 10 > 20 > 50 = momentum on. Braiding together = coin flip. Inverting to 10 < 20 < 50 = momentum gone.',
+    verdict: { label: 'FILTER', text: 'The two-second scan filter. Stacked and fanning = tradeable; braided = skip; inverted = no longs, no exceptions for a good story.' },
+  },
+  {
+    key: '10x30w',
+    pair: '10w × 30w',
+    scope: 'WEEKLY',
+    tone: 'context',
+    title: 'Stage transition',
+    meaning: 'The 10-week crossing up through the 30-week is the classic Stage 1 → 2 turn; crossing down is Stage 3 → 4.',
+    verdict: { label: 'WATCH', text: 'A watchlist tell, not a buy. The weekly cross flags a name entering Stage 2 — confirm with a daily base and pivot before risking a cent.' },
+  },
+  {
+    key: '50x200',
+    pair: '50 × 200',
+    scope: 'INDEX',
+    tone: 'backdrop',
+    title: 'Golden / death cross',
+    meaning: 'The 50-day crossing the 200-day — the headline “golden cross” (up) and “death cross” (down), read on the index.',
+    verdict: { label: 'BACKDROP', text: 'Lagging backdrop, never a trigger. By the time it prints the move is old — use it to set aggression on the index, never to time a name.' },
+  },
+]
+
 // The annotated lifecycle drawn at the top of the MA Rails panel — one full
 // trade from base to exit (components/MARailsVisuals.jsx). Keys must match
 // HERO.markers in components/maRailsCharts.js; `moments` keys reference
