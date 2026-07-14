@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MA_RAILS, MA_MOMENTS, MA_ANATOMY_PHASES } from '../utils/tradingRules'
+import { MA_RAILS, WEEKLY_RAILS, MA_CROSSOVERS, MA_MOMENTS, MA_ANATOMY_PHASES } from '../utils/tradingRules'
 import { AnatomyChart, RailGlyph, StackedVsTangled, WickVsClose } from './MARailsVisuals'
 import MARailsDrill from './MARailsDrill'
 
@@ -45,6 +45,43 @@ const TONE = {
     hex: '#8B5CF6',
     touchLabel: 'BUY',
   },
+  // Weekly rails — a distinct palette so the weekly row reads as its own
+  // framework, not a recolor of the daily one. 10w echoes the daily 50 (purple)
+  // because it's the same line one zoom out; the 30w stage gate gets amber to
+  // stand out as the buy/no-buy decision line.
+  wk10: {
+    text: 'text-purple',
+    bg: 'bg-purple/10',
+    bgSoft: 'bg-purple/[0.04]',
+    border: 'border-purple/40',
+    chipBorder: 'border-purple/30',
+    bar: 'bg-purple',
+  },
+  wk30: {
+    text: 'text-warning',
+    bg: 'bg-warning/10',
+    bgSoft: 'bg-warning/[0.04]',
+    border: 'border-warning/40',
+    chipBorder: 'border-warning/30',
+    bar: 'bg-warning',
+  },
+  wk40: {
+    text: 'text-cyan',
+    bg: 'bg-cyan/10',
+    bgSoft: 'bg-cyan/[0.04]',
+    border: 'border-cyan/40',
+    chipBorder: 'border-cyan/30',
+    bar: 'bg-cyan',
+  },
+}
+
+// Crossover verdict tones — the one-word call on whether a cross changes the
+// trade. Kept literal for Tailwind.
+const VERDICT_TONE = {
+  gate: 'bg-cyan/10 text-cyan border-cyan/30',
+  confirm: 'bg-accent/10 text-accent border-accent/30',
+  context: 'bg-warning/10 text-warning border-warning/30',
+  backdrop: 'bg-surface-700/40 text-surface-300 border-surface-600',
 }
 
 // emphasis: null = no moment selected (all rails neutral),
@@ -113,6 +150,91 @@ function RailCard({ rail, emphasis }) {
           <p className="text-[11px] text-surface-500 leading-snug italic">{rail.weeklyNote}</p>
         </div>
       </div>
+    </div>
+  )
+}
+
+// Weekly-rail card — the context companion to RailCard. No glyph (weekly rails
+// aren't trailed bar by bar); the emphasis is the role, what a break means, and
+// how the line maps back to daily execution. Mirror of RailCard with the
+// DAILY/WEEKLY badges swapped and the break box in amber, not red — a weekly
+// break reassesses, it doesn't hard-stop the trade.
+function WeeklyRailCard({ rail }) {
+  const tone = TONE[rail.tone]
+  return (
+    <div className="relative rounded-2xl border overflow-hidden border-surface-700/40 bg-surface-900/40">
+      <div className={`absolute left-0 right-0 top-0 h-0.5 ${tone.bar} opacity-80`} />
+      <div className="p-4 sm:p-5 flex flex-col h-full">
+        {/* Rail identity */}
+        <div className="flex items-baseline gap-2">
+          <span className={`font-mono font-bold text-[30px] leading-none tabular-nums ${tone.text}`}>
+            {rail.period}<span className="text-[15px] font-semibold">w</span>
+          </span>
+          <span className="text-[10px] font-bold tracking-widest text-surface-500">{rail.type}</span>
+          <span className="flex-1" />
+          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border ${tone.bg} ${tone.text} ${tone.chipBorder}`}>
+            WEEKLY
+          </span>
+        </div>
+        <div className={`mt-1 text-[13.5px] font-semibold tracking-tight ${tone.text}`}>
+          {rail.tagline}
+        </div>
+
+        {/* Who watches it */}
+        <div className="mt-3">
+          <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-1">Who watches it</div>
+          <p className="text-[12px] text-surface-300 leading-snug">{rail.rider}</p>
+        </div>
+
+        {/* Weekly role */}
+        <ul className="mt-3 space-y-1.5">
+          {rail.lines.map((line, i) => (
+            <li key={i} className="flex gap-2 text-[12px] text-surface-300 leading-snug">
+              <span className={`mt-[6px] w-1 h-1 rounded-full shrink-0 ${tone.bar}`} />
+              <span>{line}</span>
+            </li>
+          ))}
+        </ul>
+
+        <div className="flex-1" />
+
+        {/* When it breaks — amber, not red: a weekly break reassesses, it doesn't hard-stop */}
+        <div className="mt-3.5 rounded-lg border border-warning/25 bg-warning/[0.06] px-3 py-2">
+          <div className="text-[9px] font-bold tracking-widest text-warning/80 uppercase mb-0.5">When it breaks</div>
+          <p className="text-[11.5px] text-surface-200 leading-snug">{rail.breakRule}</p>
+        </div>
+
+        {/* Daily translation — the inverse of the daily card's weekly note */}
+        <div className="mt-2.5 flex gap-2 items-start">
+          <span className="mt-px inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-surface-800/60 text-surface-400 border-surface-700 shrink-0">
+            DAILY
+          </span>
+          <p className="text-[11px] text-surface-500 leading-snug italic">{rail.dailyNote}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// One crossover event — the cross, what it means, and the one-word verdict on
+// whether it changes the trade. The chip carries the call; the two lines are
+// "what it is" then "what to do."
+function CrossoverRow({ cross }) {
+  return (
+    <div className="rounded-xl border border-surface-700/40 bg-surface-900/40 px-4 py-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="font-mono font-bold text-[13px] text-surface-100 tabular-nums">{cross.pair}</span>
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-surface-800/60 text-surface-400 border-surface-700">
+          {cross.scope}
+        </span>
+        <span className="text-[12px] text-surface-400">· {cross.title}</span>
+        <span className="flex-1" />
+        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border ${VERDICT_TONE[cross.tone]}`}>
+          {cross.verdict.label}
+        </span>
+      </div>
+      <p className="mt-1.5 text-[12px] text-surface-300 leading-snug">{cross.meaning}</p>
+      <p className="mt-1 text-[11.5px] text-surface-400 leading-snug">{cross.verdict.text}</p>
     </div>
   )
 }
@@ -227,8 +349,13 @@ export default function MARails() {
           )}
         </div>
 
-        {/* The three rails */}
-        <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
+        {/* The three daily rails — execution */}
+        <div className="mt-5 flex items-center gap-2 flex-wrap">
+          <span className="text-[9.5px] font-bold tracking-widest text-surface-400 uppercase">Daily rails</span>
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-accent/10 text-accent border-accent/30">EXECUTION</span>
+          <span className="text-[11px] text-surface-500">entries · trails · exits — every acted-on signal</span>
+        </div>
+        <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3">
           {MA_RAILS.map(rail => (
             <RailCard
               key={rail.key}
@@ -238,12 +365,46 @@ export default function MARails() {
           ))}
         </div>
 
+        {/* The three weekly rails — context. Parallel row so the two timeframes
+            read as separate frameworks: the daily executes, the weekly decides
+            whether there's anything worth executing. */}
+        <div className="mt-5 flex items-center gap-2 flex-wrap">
+          <span className="text-[9.5px] font-bold tracking-widest text-surface-400 uppercase">Weekly rails</span>
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-purple/10 text-purple border-purple/30">CONTEXT</span>
+          <span className="text-[11px] text-surface-500">trend · stage · regime — read on the weekend, never trailed</span>
+        </div>
+        <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3">
+          {WEEKLY_RAILS.map(rail => (
+            <WeeklyRailCard key={rail.key} rail={rail} />
+          ))}
+        </div>
+
         {/* The first filter — stacked or skip */}
         <div className="mt-4">
           <div className="text-[9.5px] font-bold tracking-widest text-surface-500 uppercase mb-2">
             The two-second filter — stacked or skip
           </div>
           <StackedVsTangled />
+        </div>
+
+        {/* Crossovers — the alignment idea as events: what a cross means, and
+            whether it actually changes the trade. */}
+        <div className="mt-4">
+          <div className="text-[9.5px] font-bold tracking-widest text-surface-500 uppercase mb-2">
+            Crossovers — does the cross change the trade?
+          </div>
+          <div className="rounded-xl border border-surface-700/40 bg-surface-900/30 p-3">
+            <p className="text-[11.5px] text-surface-400 leading-snug mb-3">
+              A cross <span className="text-surface-200">confirms or gates — it never triggers</span>. The entry is
+              always the pivot; the exit is always a daily close below the rail. A cross only tells you which way
+              the odds tilted.
+            </p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
+              {MA_CROSSOVERS.map(cross => (
+                <CrossoverRow key={cross.key} cross={cross} />
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Daily vs weekly — which chart answers which question */}
