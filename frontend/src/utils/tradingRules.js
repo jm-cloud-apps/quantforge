@@ -93,12 +93,66 @@ export function getRuleOfDay(rules, date = new Date()) {
 // Surfaced as a dedicated framework on the Rules page; the one-liner version
 // also lives in DEFAULT_RULES so it shows up in the daily rotation.
 export const CATALYST_HIERARCHY = [
-  { tier: 1, name: 'Theme',              blurb: 'The story everyone wants to own. AI, GLP-1, nuclear, EV — when capital decides what the next decade looks like.' },
-  { tier: 2, name: 'Government policy',  blurb: 'Tariffs, subsidies, mandates, rate decisions. Re-prices entire industries overnight.' },
-  { tier: 3, name: 'Shortages',          blurb: 'Supply shocks. Inelastic demand meets constrained supply — pricing power follows.' },
-  { tier: 4, name: 'Sales acceleration', blurb: 'Numbers that re-rate the multiple. Quarter-over-quarter growth surprising to the upside.' },
-  { tier: 5, name: 'New product launch', blurb: 'A real product, not a press release. Buyers can imagine the next four quarters.' },
-  { tier: 6, name: 'Management change',  blurb: 'New operator, new story. Slowest to play out — give it time.' },
+  {
+    tier: 1,
+    name: 'Theme',
+    blurb: 'The story everyone wants to own — when capital decides what the next decade looks like.',
+    examples: [
+      'A secular narrative capital is repricing around — AI, GLP-1, nuclear / uranium, quantum, stablecoins.',
+      'Bellwether backing: a leader takes a stake or partners with a name (e.g. NVDA invests in an AI company) — smart-money validation plus a halo bid on the whole group.',
+      'The group’s ETF and peers gap together — it’s the theme moving, not one stock.',
+    ],
+  },
+  {
+    tier: 2,
+    name: 'Government policy',
+    blurb: 'Re-prices entire industries overnight — the rules of the game change, not one company.',
+    examples: [
+      'Tariffs or export bans that re-price a supply chain overnight.',
+      'Subsidies and mandates — IRA credits, defense budgets, EV / solar incentives.',
+      'Regulatory approval, or a Fed / rate decision that changes the math for a whole sector.',
+    ],
+  },
+  {
+    tier: 3,
+    name: 'Shortages',
+    blurb: 'Supply shocks — inelastic demand meets constrained supply, and pricing power follows.',
+    examples: [
+      'A squeeze in a critical input — HBM memory, rare earths, uranium, shipping capacity.',
+      'Constrained supply → pricing power and margin expansion across the group.',
+      'A competitor’s outage or recall hands everyone else the volume.',
+    ],
+  },
+  {
+    tier: 4,
+    name: 'Sales acceleration',
+    blurb: 'Numbers that re-rate the multiple — growth surprising AND accelerating, not just a beat.',
+    examples: [
+      'A blowout quarter — revenue growth accelerating QoQ, not merely beating the estimate.',
+      'Raised guidance, or a huge booking / backlog that re-rates the forward multiple.',
+      'A design win or supply contract with a mega-cap customer — future revenue made concrete.',
+    ],
+  },
+  {
+    tier: 5,
+    name: 'New product launch',
+    blurb: 'A real product, not a press release — buyers can imagine the next four quarters.',
+    examples: [
+      'A shipping product with real demand — not a roadmap slide.',
+      'A category-defining launch the market can model out several quarters.',
+      'Platform expansion into a new, larger addressable market.',
+    ],
+  },
+  {
+    tier: 6,
+    name: 'Management change',
+    blurb: 'New operator, new story — the slowest to play out, so give it time.',
+    examples: [
+      'A proven operator or activist takes the helm — a new capital-allocation story.',
+      'A strategic review, spin-off, or buyback that unlocks trapped value.',
+      'Slowest to play out — measure the thesis in quarters, not days.',
+    ],
+  },
 ]
 
 // Moving-average framework — which of the 10/20/50 rails to trust, on which
