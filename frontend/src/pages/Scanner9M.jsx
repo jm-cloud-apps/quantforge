@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { get9MScan } from '../api/scanner9m'
+import RefreshControl from '../components/RefreshControl'
 
 // ---------------------------------------------------------------------------
 // "$9 Million Method" scanner — Stockbee framework summary.
@@ -228,13 +229,7 @@ export default function Scanner9M() {
             />
             Require not-late
           </label>
-          <button
-            onClick={() => load(true)}
-            disabled={loading}
-            className="px-3 py-1.5 rounded-lg bg-accent/10 border border-accent/30 text-accent text-[12px] font-medium hover:bg-accent/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
-          >
-            {loading ? 'Scanning…' : 'Refresh'}
-          </button>
+          <RefreshControl jobId="scanner-9m" onRefresh={() => load(true)} refreshing={loading} busyLabel="Scanning…" />
         </div>
       </div>
 

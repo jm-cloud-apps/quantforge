@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { getStageScan } from '../api/stageAnalysis'
 import TickerLink from '../components/TickerLink'
 import TradingViewChart from '../components/TradingViewChart'
+import RefreshControl from '../components/RefreshControl'
 
 // ---------------------------------------------------------------------------
 // Stan Weinstein Stage Analysis — from "Secrets for Profiting in Bull and Bear
@@ -258,13 +259,7 @@ export default function StageAnalysis() {
             and the Stage 2 advancers already running. Click a row for the weekly chart.
           </p>
         </div>
-        <button
-          onClick={() => load(true)}
-          disabled={loading}
-          className="px-3 py-1.5 rounded-lg bg-accent/10 border border-accent/30 text-accent text-[12px] font-medium hover:bg-accent/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
-        >
-          {loading ? 'Scanning…' : 'Refresh'}
-        </button>
+        <RefreshControl jobId="stage-analysis" onRefresh={() => load(true)} refreshing={loading} busyLabel="Scanning…" />
       </div>
 
       {error && <div className="rounded-xl bg-red-500/10 border border-red-400/30 px-4 py-3 text-sm text-red-200">{error}</div>}

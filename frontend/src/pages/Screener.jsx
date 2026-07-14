@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { getSectorPerformance, getFetchProgress, saveSnapshot, getSnapshots } from '../api/screener'
+import RefreshControl from '../components/RefreshControl'
 
 export default function Screener() {
   const [sectorData, setSectorData] = useState([])
@@ -290,13 +291,7 @@ export default function Screener() {
               {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
-          <button
-            onClick={() => fetchSectorData(true)}
-            disabled={loading && !sectorData.length}
-            className="px-4 py-2 rounded-lg bg-surface-800 border border-surface-600/50 text-sm font-medium text-surface-200 hover:bg-surface-700 hover:text-surface-50 transition-colors disabled:opacity-40"
-          >
-            {loading && !sectorData.length ? 'Loading...' : 'Refresh'}
-          </button>
+          <RefreshControl jobId="screener" onRefresh={() => fetchSectorData(true)} refreshing={loading && !sectorData.length} busyLabel="Loading..." />
         </div>
       </div>
 

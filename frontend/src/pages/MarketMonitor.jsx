@@ -11,6 +11,7 @@ import {
   ReferenceLine,
 } from 'recharts'
 import { getBreadthSnapshot, getBreadthHistory, refreshBreadth } from '../api/breadth'
+import RefreshControl from '../components/RefreshControl'
 
 // ---------------------------------------------------------------------------
 // Regime → color/text mappings. Keep these tight so the regime banner and
@@ -352,13 +353,7 @@ export default function MarketMonitor() {
           {snapshot?.as_of && (
             <span className="text-xs text-surface-500 font-mono">{snapshot.as_of}</span>
           )}
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="px-4 py-2 rounded-lg bg-accent/10 border border-accent/30 text-accent text-sm font-medium hover:bg-accent/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
-          >
-            {refreshing ? 'Refreshing…' : 'Refresh MM'}
-          </button>
+          <RefreshControl jobId="breadth" onRefresh={handleRefresh} refreshing={refreshing} />
         </div>
       </div>
 

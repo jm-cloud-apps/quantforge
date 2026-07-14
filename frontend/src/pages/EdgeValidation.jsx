@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getEdgeValidation } from '../api/edgeValidation'
+import RefreshControl from '../components/RefreshControl'
 
 // ---------------------------------------------------------------------------
 // Edge validation — replays a family of entry signals over cached history,
@@ -91,10 +92,7 @@ export default function EdgeValidation() {
               </button>
             ))}
           </div>
-          <button onClick={() => load(horizon, true)} disabled={loading}
-            className="px-3 py-1.5 rounded-lg bg-accent/10 border border-accent/30 text-accent text-[12px] font-medium hover:bg-accent/20 disabled:opacity-50 transition">
-            {loading ? 'Replaying…' : 'Refresh'}
-          </button>
+          <RefreshControl jobId="edge-validation" onRefresh={() => load(horizon, true)} refreshing={loading} busyLabel="Replaying…" />
         </div>
       </div>
 
