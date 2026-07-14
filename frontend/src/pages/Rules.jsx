@@ -343,7 +343,8 @@ function CategoryCard({ cat, count, active, onClick }) {
 // a one-line rule, because the *ordering* is the whole insight. Visually a
 // stacked tier ladder: tier number, name, blurb, and an intensity dot row
 // that decays from accent → muted as you walk down the hierarchy.
-function CatalystHierarchy() {
+function CatalystHierarchy({ collapsible = false, collapsed = false, onToggle, id }) {
+  const expanded = !collapsible || !collapsed
   // Intensity dots: tier 1 gets 6 filled, tier 6 gets 1 filled.
   const dots = (tier) => {
     const filled = Math.max(1, 7 - tier)
@@ -351,16 +352,20 @@ function CatalystHierarchy() {
   }
   return (
     <section
+      id={id}
       aria-labelledby="catalyst-hierarchy-title"
-      className="relative overflow-hidden rounded-3xl border border-accent/25 bg-gradient-to-br from-surface-900 via-surface-900 to-surface-950"
+      className="relative overflow-hidden rounded-3xl border border-accent/25 bg-gradient-to-br from-surface-900 via-surface-900 to-surface-950 scroll-mt-[116px] lg:scroll-mt-[64px]"
     >
       {/* Decorative top accent — mirrors the hero's gradient stripe */}
       <div className="absolute left-0 right-0 top-0 h-[2px] bg-gradient-to-r from-accent via-cyan to-purple opacity-70" />
       <div className="absolute -top-16 -right-16 w-72 h-72 rounded-full bg-accent/10 blur-3xl pointer-events-none" />
 
       <div className="relative px-6 sm:px-7 py-6 sm:py-7">
-        {/* Title row */}
-        <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
+        {/* Title row — doubles as the collapse toggle when embedded on Rules */}
+        <div
+          {...(collapsible ? { role: 'button', tabIndex: 0, 'aria-expanded': expanded, onClick: onToggle, onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle?.() } } } : {})}
+          className={`flex items-start justify-between gap-3 flex-wrap mb-1 ${collapsible ? 'cursor-pointer select-none' : ''}`}
+        >
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-accent/10 border border-accent/30 flex items-center justify-center text-accent">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.9}>
@@ -383,9 +388,16 @@ function CatalystHierarchy() {
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-surface-800/60 text-surface-400 border-surface-700">
               FRAMEWORK
             </span>
+            {collapsible && (
+              <svg className={`w-4 h-4 text-surface-500 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            )}
           </div>
         </div>
 
+        {expanded && (
+        <>
         {/* Tier ladder */}
         <ol className="mt-5 space-y-1.5">
           {CATALYST_HIERARCHY.map((c, i) => {
@@ -400,7 +412,7 @@ function CatalystHierarchy() {
                     : 'border-surface-700/40 bg-surface-900/40 hover:border-surface-600/70'
                 }`}
               >
-                <div className="flex items-center gap-3 px-3 py-2.5 sm:px-4">
+                <div className="flex items-start gap-3 px-3 py-2.5 sm:px-4">
                   {/* Tier numeral */}
                   <div
                     className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center font-mono font-bold text-[12px] tabular-nums ${
@@ -429,9 +441,19 @@ function CatalystHierarchy() {
                         </span>
                       )}
                     </div>
-                    <div className="text-[11.5px] text-surface-500 mt-0.5 leading-snug truncate sm:whitespace-normal">
+                    <div className="text-[11.5px] text-surface-400 mt-0.5 leading-snug">
                       {c.blurb}
                     </div>
+                    {c.examples && (
+                      <ul className="mt-2 space-y-1">
+                        {c.examples.map((ex, ei) => (
+                          <li key={ei} className="flex gap-2 text-[11.5px] text-surface-400 leading-snug">
+                            <span className={`mt-[6px] w-1 h-1 rounded-full shrink-0 ${isTop ? 'bg-accent' : 'bg-surface-500'}`} />
+                            <span>{ex}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
 
                   {/* Intensity dots — visual decay across tiers */}
@@ -458,8 +480,67 @@ function CatalystHierarchy() {
             Theme &gt; Policy &gt; Shortage &gt; Sales &gt; Product &gt; Mgmt
           </span>
         </div>
+        </>
+        )}
       </div>
     </section>
+  )
+}
+
+// ── Page architecture ────────────────────────────────────────────────
+// The user's own rules are the product; the four masterclass panels are
+// reference material. So: rules first, frameworks collapsed to a one-line
+// takeaway (state persisted), and a sticky section nav for wayfinding on
+// what is otherwise a very long page.
+
+const SECTION_NAV = [
+  { id: 'ma-rails', label: 'MA Rails' },
+  { id: 'volume', label: 'Volume' },
+  { id: 'candles', label: 'Candles' },
+  { id: 'catalysts', label: 'EP Catalysts' },
+  { id: 'my-rules', label: 'My Rules' },
+]
+
+// v2: earlier builds defaulted the frameworks to collapsed; the page now opens
+// fully expanded, so a fresh key resets everyone to that default.
+const COLLAPSE_KEY = 'qf:rules:collapsed:v2'
+
+function loadCollapsed() {
+  try {
+    const raw = localStorage.getItem(COLLAPSE_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch {}
+  return {} // everything expanded by default — a missing/false key means expanded
+}
+
+// Sticky wayfinding bar. Sits under the mobile header (h-14) and at the top
+// of the viewport on desktop; scrollspy highlights the section in view.
+function SectionNav({ active, onJump }) {
+  return (
+    <div className="sticky top-14 lg:top-0 z-40 py-1.5 -my-1.5">
+      <nav
+        aria-label="Page sections"
+        className="flex items-center gap-1.5 overflow-x-auto rounded-2xl border border-surface-700/40 bg-surface-950/85 backdrop-blur-xl px-2 py-1.5 scrollbar-none"
+      >
+        {SECTION_NAV.map(s => {
+          const isActive = active === s.id
+          return (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => onJump(s.id)}
+              className={`shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition-colors ${
+                isActive
+                  ? 'bg-accent/15 text-accent border-accent/40'
+                  : 'bg-transparent text-surface-400 border-transparent hover:text-surface-200 hover:bg-surface-800/60'
+              }`}
+            >
+              {s.label}
+            </button>
+          )
+        })}
+      </nav>
+    </div>
   )
 }
 
@@ -483,8 +564,51 @@ export default function Rules() {
   const [rules, setRules] = useState(loadRules)
   const [filter, setFilter] = useState('ALL')
   const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [collapsed, setCollapsed] = useState(loadCollapsed)
+  const [activeSection, setActiveSection] = useState('ma-rails')
 
   useEffect(() => { saveRules(rules) }, [rules])
+
+  useEffect(() => {
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsed)) } catch {}
+  }, [collapsed])
+
+  // Scrollspy — the topmost section crossing the upper band of the viewport
+  // owns the nav highlight. Re-observe when sections expand/collapse since
+  // their geometry changes.
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const hit = entries.filter(e => e.isIntersecting)
+        if (hit.length > 0) {
+          // Prefer the one closest to the top of the viewport.
+          hit.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
+          setActiveSection(hit[0].target.id)
+        }
+      },
+      { rootMargin: '-112px 0px -55% 0px', threshold: 0 }
+    )
+    for (const s of SECTION_NAV) {
+      const el = document.getElementById(s.id)
+      if (el) observer.observe(el)
+    }
+    return () => observer.disconnect()
+  }, [collapsed])
+
+  const toggleSection = (id) => setCollapsed(prev => ({ ...prev, [id]: !prev[id] }))
+
+  // Nav jump — expand a collapsed framework first, then scroll once the
+  // panel has rendered (double rAF waits out the commit).
+  const jumpTo = (id) => {
+    const scroll = () => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (collapsed[id]) {
+      setCollapsed(prev => ({ ...prev, [id]: false }))
+      requestAnimationFrame(() => requestAnimationFrame(scroll))
+    } else {
+      scroll()
+    }
+    setActiveSection(id)
+  }
 
   // Today's rotating rule — deterministic by day-of-year so the same rule
   // is shown all session, and the user cycles through every rule over time
@@ -634,17 +758,49 @@ export default function Rules() {
         </div>
       </div>
 
-      {/* MA RAILS — 10/20/50 framework: which rail, which timeframe, when. */}
-      <MARails />
+      {/* STICKY SECTION NAV — wayfinding; scrollspy highlights the section in view */}
+      <SectionNav active={activeSection} onJump={jumpTo} />
 
-      {/* VOLUME PATTERNS — the second opinion on every rail signal. */}
-      <VolumePatterns />
+      {/* FRAMEWORK PANELS — workflow order (MA Rails → Volume → Candles → EP
+          Catalysts). Each self-collapses via its own header; expanded by
+          default. My Rules comes last. */}
+      <MARails id="ma-rails" collapsible collapsed={!!collapsed['ma-rails']} onToggle={() => toggleSection('ma-rails')} />
+      <VolumePatterns id="volume" collapsible collapsed={!!collapsed.volume} onToggle={() => toggleSection('volume')} />
+      <CandleTells id="candles" collapsible collapsed={!!collapsed.candles} onToggle={() => toggleSection('candles')} />
+      <CatalystHierarchy id="catalysts" collapsible collapsed={!!collapsed.catalysts} onToggle={() => toggleSection('catalysts')} />
 
-      {/* CANDLE TELLS — range × close × volume, the lineage's candle reading. */}
-      <CandleTells />
+      {/* MY RULES — last; the rules you actually trade. Header doubles as the
+          collapse toggle, same as the framework panels. */}
+      <section id="my-rules" aria-label="My rules" className="scroll-mt-[116px] lg:scroll-mt-[64px]">
+        <div
+          role="button"
+          tabIndex={0}
+          aria-expanded={!collapsed['my-rules']}
+          onClick={() => toggleSection('my-rules')}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSection('my-rules') } }}
+          className="cursor-pointer select-none rounded-2xl border border-surface-700/50 bg-surface-900/60 hover:border-surface-600 transition-colors"
+        >
+          <div className="flex items-center gap-3 px-4 py-3">
+            <div className="shrink-0 w-9 h-9 rounded-xl bg-surface-800 border border-surface-700 flex items-center justify-center text-surface-200">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.9}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[16px] font-display font-bold text-surface-50 tracking-tight leading-tight">My Rules</div>
+              <div className="text-[11px] text-surface-500 mt-0.5">The {counts.ALL} rules you actually trade — edit, reorder, add your own.</div>
+            </div>
+            <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-surface-800/60 text-surface-400 border-surface-700 shrink-0">
+              YOURS
+            </span>
+            <svg className={`w-4 h-4 shrink-0 text-surface-500 transition-transform duration-200 ${collapsed['my-rules'] ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+        </div>
 
-      {/* CATALYST HIERARCHY — Stockbee framework for EP catalyst ranking. */}
-      <CatalystHierarchy />
+        {!collapsed['my-rules'] && (
+        <div className="mt-4 space-y-6 animate-fade-in">
 
       {/* CATEGORY CARDS — also serve as filters */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -736,6 +892,10 @@ export default function Rules() {
           <AddRuleForm onAdd={handleAdd} defaultCategory={filter === 'ALL' ? 'MINDSET' : filter} />
         </div>
       </div>
+
+        </div>
+        )}
+      </section>
 
       {/* Attribution */}
       <div className="pt-2 text-[10.5px] text-surface-500 font-mono text-center">

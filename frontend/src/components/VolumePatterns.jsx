@@ -60,18 +60,23 @@ function PatternCard({ p }) {
   )
 }
 
-export default function VolumePatterns() {
+export default function VolumePatterns({ collapsible = false, collapsed = false, onToggle, id }) {
+  const expanded = !collapsible || !collapsed
   return (
     <section
+      id={id}
       aria-labelledby="volume-patterns-title"
-      className="relative overflow-hidden rounded-3xl border border-accent/25 bg-gradient-to-br from-surface-900 via-surface-900 to-surface-950"
+      className="relative overflow-hidden rounded-3xl border border-accent/25 bg-gradient-to-br from-surface-900 via-surface-900 to-surface-950 scroll-mt-[116px] lg:scroll-mt-[64px]"
     >
       <div className="absolute left-0 right-0 top-0 h-[2px] bg-gradient-to-r from-accent via-cyan to-warning opacity-70" />
       <div className="absolute -top-16 -right-16 w-72 h-72 rounded-full bg-accent/10 blur-3xl pointer-events-none" />
 
       <div className="relative px-6 sm:px-7 py-6 sm:py-7">
-        {/* Title row */}
-        <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
+        {/* Title row — doubles as the collapse toggle when embedded on Rules */}
+        <div
+          {...(collapsible ? { role: 'button', tabIndex: 0, 'aria-expanded': expanded, onClick: onToggle, onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle?.() } } } : {})}
+          className={`flex items-start justify-between gap-3 flex-wrap mb-1 ${collapsible ? 'cursor-pointer select-none' : ''}`}
+        >
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-accent/10 border border-accent/30 flex items-center justify-center text-accent">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.9}>
@@ -94,9 +99,16 @@ export default function VolumePatterns() {
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-surface-800/60 text-surface-400 border-surface-700">
               FRAMEWORK
             </span>
+            {collapsible && (
+              <svg className={`w-4 h-4 text-surface-500 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            )}
           </div>
         </div>
 
+        {expanded && (
+        <>
         {/* Hero — the volume signature of one full trade */}
         <div className="mt-5">
           <VolumeHero />
@@ -150,6 +162,8 @@ export default function VolumePatterns() {
             event on the wrong volume is a half-signal — wait for both to agree.
           </p>
         </div>
+        </>
+        )}
       </div>
     </section>
   )
