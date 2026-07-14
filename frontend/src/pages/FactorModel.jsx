@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getFactorModel } from '../api/factorModel'
 import TickerLink from '../components/TickerLink'
+import RefreshControl from '../components/RefreshControl'
 
 // ---------------------------------------------------------------------------
 // Cross-sectional factor model — ranks the liquid universe on price/volume style
@@ -91,10 +92,7 @@ export default function FactorModel() {
             screens becomes a single relative-value view.
           </p>
         </div>
-        <button onClick={() => load(true)} disabled={loading}
-          className="px-3 py-1.5 rounded-lg bg-accent/10 border border-accent/30 text-accent text-[12px] font-medium hover:bg-accent/20 disabled:opacity-50 transition">
-          {loading ? 'Computing…' : 'Refresh'}
-        </button>
+        <RefreshControl jobId="factor-model" onRefresh={() => load(true)} refreshing={loading} busyLabel="Computing…" />
       </div>
 
       {error && <div className="rounded-xl bg-red-500/10 border border-red-400/30 px-4 py-3 text-sm text-red-200">{error}</div>}

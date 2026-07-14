@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getEarnings, getEarningsReactions } from '../api/calendar'
 import TradingViewLink from '../components/TradingViewLink'
 import EarningsSessionIcon from '../components/EarningsSessionIcon'
+import RefreshControl from '../components/RefreshControl'
 
 const WINDOWS = [
   { value: 5,  label: 'This week' },
@@ -292,13 +293,7 @@ export default function EarningsCalendar() {
               ★ My watchlist
             </button>
           </div>
-          <button
-            onClick={() => load(true)}
-            disabled={loading}
-            className="px-3 py-1.5 rounded-lg bg-accent/10 border border-accent/30 text-accent text-[12px] font-medium hover:bg-accent/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
-          >
-            {loading ? 'Loading…' : 'Refresh'}
-          </button>
+          <RefreshControl jobId="earnings" onRefresh={() => load(true)} refreshing={loading} busyLabel="Loading…" />
         </div>
       </div>
 
