@@ -2,6 +2,7 @@ import { lazy } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
 import { ToastProvider } from './components/Toast'
+import { AutoRefreshProvider } from './autorefresh/AutoRefreshProvider'
 
 // Route-level code-splitting — each page becomes its own chunk, so the
 // initial bundle is just the layout + the page you actually land on. Cuts
@@ -79,7 +80,9 @@ function AppRoutes() {
 function App() {
   return (
     <ToastProvider>
-      <AppRoutes />
+      <AutoRefreshProvider>
+        <AppRoutes />
+      </AutoRefreshProvider>
     </ToastProvider>
   )
 }

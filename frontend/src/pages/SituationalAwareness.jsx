@@ -16,6 +16,7 @@ import {
 import { Link } from 'react-router-dom'
 import { getSituationalAwareness, getSituationalHistory, getRegimeBacktest, getBreadthIndexTrend, getBreadthSystemBacktest, getBreadthVerify, refreshBreadth } from '../api/breadth'
 import { getThemeRadarAnalysis } from '../api/themeRadar'
+import RefreshControl from '../components/RefreshControl'
 
 // ---------------------------------------------------------------------------
 // Situational Awareness — the actionable layer on top of market breadth.
@@ -1219,13 +1220,7 @@ export default function SituationalAwareness() {
         </div>
         <div className="flex items-center gap-3">
           {sa?.as_of && <span className="text-xs text-surface-500 font-mono">{sa.as_of}</span>}
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="px-4 py-2 rounded-lg bg-accent/10 border border-accent/30 text-accent text-sm font-medium hover:bg-accent/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
-          >
-            {refreshing ? 'Refreshing…' : 'Refresh breadth'}
-          </button>
+          <RefreshControl jobId="breadth" onRefresh={handleRefresh} refreshing={refreshing} />
         </div>
       </div>
 

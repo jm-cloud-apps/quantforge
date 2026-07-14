@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getReversalScan } from '../api/reversal'
 import TickerLink from '../components/TickerLink'
+import RefreshControl from '../components/RefreshControl'
 
 // ---------------------------------------------------------------------------
 // "Reversal Setup" scanner — Stockbee's intraday-exhaustion reversal.
@@ -184,13 +185,7 @@ export default function ReversalSetup() {
             />
             Require green close
           </label>
-          <button
-            onClick={() => load(true)}
-            disabled={loading}
-            className="px-3 py-1.5 rounded-lg bg-accent/10 border border-accent/30 text-accent text-[12px] font-medium hover:bg-accent/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
-          >
-            {loading ? 'Scanning…' : 'Refresh'}
-          </button>
+          <RefreshControl jobId="reversal-setup" onRefresh={() => load(true)} refreshing={loading} busyLabel="Scanning…" />
         </div>
       </div>
 

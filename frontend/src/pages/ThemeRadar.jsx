@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getThemeRadarAnalysis } from '../api/themeRadar'
+import RefreshControl from '../components/RefreshControl'
 
 const signPct = (v, d = 1) => (v == null || Number.isNaN(Number(v)) ? '—' : `${Number(v) >= 0 ? '+' : ''}${Number(v).toFixed(d)}%`)
 const tone = (v) => (v == null ? 'text-surface-500' : v > 0 ? 'text-success' : v < 0 ? 'text-danger' : 'text-surface-400')
@@ -171,10 +172,7 @@ export default function ThemeRadar() {
             Structural theme strength × real-time tape velocity → the <span className="text-surface-200">near-term velocity matrix</span>
           </p>
         </div>
-        <button onClick={() => load(true)} disabled={loading}
-          className="rounded-lg bg-accent text-white text-sm font-semibold px-4 py-2 hover:bg-accent/90 disabled:opacity-50 transition-colors">
-          {loading ? 'Analyzing…' : 'Refresh'}
-        </button>
+        <RefreshControl jobId="theme-radar" onRefresh={() => load(true)} refreshing={loading} busyLabel="Analyzing…" />
       </div>
 
       {data && !loading && (
