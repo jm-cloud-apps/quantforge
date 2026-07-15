@@ -159,6 +159,11 @@ app.include_router(wealthsimple_router)
 from trade_plans_router import router as trade_plans_router
 app.include_router(trade_plans_router)
 
+# Sector-rotation intelligence (internals / RRG / leaders) — computes from the
+# breadth grouped cache + a cached symbol→sector map, so it's API-free once warm
+from sector_rotation.router import router as sector_rotation_router
+app.include_router(sector_rotation_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

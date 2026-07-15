@@ -40,6 +40,7 @@ Configuration lives in `backend/.env` (template: `backend/.env.example`; a proje
 - `breadth/` — the market-context engine behind Trade Today / Market Monitor / Situational Awareness: `universe` (active US common-stock universe), `calculator` (Stockbee-style 4%/thrust/T2108 breadth), `situational` (exposure score + per-setup regime filter), `regime` / `regime_backtest` (forward-return validation of the filter), `sa_history` (persistent daily ledger), `index_trend`, and `verify` (independent pipeline recount)
 - `scanners/` — `ep9m` ($9M episodic-pivot scanner), `reversal` (reversal setup), `stage_analysis` (Weinstein stages)
 - `analytics/` — `factor_model` (cross-sectional ranking) and `edge_validation` (anti-overfitting checks) over a shared `panel`
+- `sector_rotation/` — the Sector Scan page's rotation intelligence: `sectors` (symbol→sector map via Massive per-ticker SIC lookups, cached in `data/sector_rotation/sector_map.json`, background-warmed), `internals` (per-sector member breadth + stealth-accumulation flag), `rrg` (RS-ratio × RS-momentum quadrants vs SPY), `leaders` (per-sector members RS-ranked). Computes from the breadth grouped cache — API-free once the map is warm
 - `theme_radar/` — institutional theme-velocity analysis
 - `options_flow/`, `scanners/`, `news/` — market data features
 - `broker/` — Interactive Brokers via ib_insync; import is guarded in `main.py`, so broker endpoints simply vanish if ib_insync isn't installed

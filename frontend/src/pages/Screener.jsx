@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { getSectorPerformance, getFetchProgress, saveSnapshot, getSnapshots } from '../api/screener'
 import RefreshControl from '../components/RefreshControl'
+import SectorRotationIntel from '../components/screener/SectorRotationIntel'
 
 export default function Screener() {
   const [sectorData, setSectorData] = useState([])
@@ -345,6 +346,11 @@ export default function Screener() {
           </div>
         </div>
       )}
+
+      {/* ===== Sector Rotation Intelligence: internals · RRG · leaders =====
+          Independent of the ETF-performance fetch above — computes from the
+          backend's local OHLCV cache, so it renders even while that loads. */}
+      <SectorRotationIntel />
 
       {/* ===== Section 1: Rotation Intelligence Summary ===== */}
       {dataReady && rotationData && (
