@@ -3,6 +3,7 @@ import {
   ScatterChart, Scatter, XAxis, YAxis, ZAxis, ReferenceLine, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { getInternals, getRRG, getLeaders, getMappingProgress } from '../../api/sectorRotation'
+import InfoTip from '../InfoTip'
 
 // Sector Rotation Intelligence — the three quant layers on the Sector Scan page:
 //   1. Internals table  — per-sector breadth computed from MEMBERS (not the ETF):
@@ -33,6 +34,45 @@ const SHAPE_CLS = {
 
 const fmtSigned = (v, digits = 1) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(digits)}`)
 const tvLink = (sym) => `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(sym)}`
+
+// Plain-language explainers for every metric column, surfaced as instant
+// InfoTip hovers on the headers — the numbers are useless if you have to
+// remember what they mean.
+const INTERNALS_TIPS = {
+  score: 'Composite 0–100 rank vs the other sectors, weighted toward CHANGE (Δ%>50MA, up/down volume, 4% thrust) over level — rotation detection cares about the turn, not the crowd that already arrived.',
+  verdict: 'The one-word read of the score: ≥70 = ACCUMULATING (broad buying across members), ≤30 = DISTRIBUTING (broad selling), else NEUTRAL. Computed from member breadth, never from the ETF price.',
+  above50: 'Percent of the sector’s member stocks above their own 50-day moving average — the trend health of the group. The small ± is the change vs 5 sessions ago: a rising number means members are getting bought before the index shows it.',
+  udvol: 'Dollar volume on members’ up days ÷ down days, last 10 sessions. Above ~1.2 = buyers are paying up (accumulation); below ~0.85 = sellers dominate the tape.',
+  net4: 'Members’ +4% days minus −4% days over the last 10 sessions. Big positive = real momentum thrust inside the group; big negative = heavy institutional selling.',
+  nearHigh: 'Percent of members within 2% of their 3-month high — how much of the group is set up at highs, which is where leaders actually break out from.',
+  medianEtf: 'Median member 1-month return minus the ETF’s, in percentage points. Positive = the AVERAGE stock beats the index (broad, institutional participation). Negative = a few mega-caps carrying a weak group.',
+  shape: 'BROAD = the whole group participates — the institutional signature. NARROW = the ETF is up but the median member isn’t (mega-caps masking weakness). MIXED = in between.',
+}
+
+const LEADERS_TIPS = {
+  rs: 'Relative-strength rank: percentile of 3-month return across the ENTIRE ~1,500-name liquid universe, not just this sector. 90+ = a market leader, not merely a sector leader.',
+  m1: 'Price return over the last month (21 sessions).',
+  m3: 'Price return over the last 3 months (63 sessions) — this is what the RS rank is computed from.',
+  ma50: '✓ = price above a RISING 50-day moving average — the long qualifier (“longs only above a rising 50”). — = fails it.',
+  offHigh: 'Percent below its 3-month high. Near 0 = sitting at highs (breakout zone); deeply negative = still basing, or broken.',
+  udvol: 'Up-day vs down-day dollar volume for this stock, last 20 sessions. ≥1.5 (highlighted) = individual-name accumulation.',
+  adr: 'Average daily range over 20 sessions — the volatility that pays. The entry rule wants roughly 5%+ for momentum names.',
+  dvol: 'Median daily dollar volume, 20 sessions. The liquidity floor is $5M/day — names below it are dimmed as illiquid.',
+}
+
+// Header cell with an instant explainer. The dotted underline signals
+// "hover me" without shouting.
+function Th({ tip, align = 'right', className = '', children }) {
+  return (
+    <th className={`text-${align} px-2 py-2 ${className}`}>
+      {tip ? (
+        <InfoTip label={tip}>
+          <span className="border-b border-dotted border-surface-600">{children}</span>
+        </InfoTip>
+      ) : children}
+    </th>
+  )
+}
 
 // ── RRG chart pieces ─────────────────────────────────────────────────────
 
@@ -130,14 +170,14 @@ function LeadersTable({ data, loading, error }) {
           <tr className="text-[10px] uppercase tracking-wider text-surface-500 border-b border-surface-700/50">
             <th className="text-left px-2 py-1.5">Symbol</th>
             <th className="text-left px-2 py-1.5 hidden md:table-cell">Name</th>
-            <th className="text-right px-2 py-1.5">RS</th>
-            <th className="text-right px-2 py-1.5">1M</th>
-            <th className="text-right px-2 py-1.5">3M</th>
-            <th className="text-center px-2 py-1.5" title="Above a rising 50-day MA">50MA</th>
-            <th className="text-right px-2 py-1.5" title="% off 63-day high">Off&nbsp;High</th>
-            <th className="text-right px-2 py-1.5" title="Up/down dollar-volume ratio, 20d">U/D&nbsp;$Vol</th>
-            <th className="text-right px-2 py-1.5" title="Average daily range, 20d">ADR</th>
-            <th className="text-right px-2 py-1.5" title="Median daily dollar volume, 20d">$Vol</th>
+            <Th tip={LEADERS_TIPS.rs}>RS</Th>
+            <Th tip={LEADERS_TIPS.m1}>1M</Th>
+            <Th tip={LEADERS_TIPS.m3}>3M</Th>
+            <Th align="center" tip={LEADERS_TIPS.ma50}>50MA</Th>
+            <Th tip={LEADERS_TIPS.offHigh}>Off&nbsp;High</Th>
+            <Th tip={LEADERS_TIPS.udvol}>U/D&nbsp;$Vol</Th>
+            <Th tip={LEADERS_TIPS.adr}>ADR</Th>
+            <Th tip={LEADERS_TIPS.dvol}>$Vol</Th>
           </tr>
         </thead>
         <tbody>
@@ -230,6 +270,27 @@ export default function SectorRotationIntel() {
     return by
   }, [rrg])
 
+  // Early Flow watch — the direct answer to "where is big money STARTING to
+  // flow?". The strict ⚡ STEALTH flag can sit dark for weeks, so this ranks
+  // sectors by how many *change* signals fire at once (breadth turn, buyers
+  // paying up, thrust, RRG Improving) and always gives a directional read.
+  const earlyFlow = useMemo(() => {
+    if (!internals?.sectors?.length) return null
+    const quadByEtf = {}
+    for (const p of rrg?.points || []) quadByEtf[p.ticker] = p.quadrant
+    const candidates = internals.sectors.map(s => {
+      const reasons = []
+      if (s.stealth) reasons.push('⚡ members firming before the index')
+      if (s.delta_above_50 >= 3) reasons.push(`Δ${fmtSigned(s.delta_above_50)}pp >50MA this week`)
+      if ((s.ud_vol_ratio || 0) >= 1.15) reasons.push(`buyers paying up (U/D ${s.ud_vol_ratio})`)
+      if (s.net_4pct_10d >= 5) reasons.push(`+${s.net_4pct_10d} net 4%-day thrust`)
+      if (quadByEtf[s.etf] === 'improving') reasons.push('RRG Improving')
+      return { sector: s.sector, etf: s.etf, reasons, delta: s.delta_above_50, stealth: s.stealth }
+    }).filter(c => c.reasons.length >= 2)
+    candidates.sort((a, b) => (b.stealth - a.stealth) || (b.reasons.length - a.reasons.length) || (b.delta - a.delta))
+    return candidates.slice(0, 3)
+  }, [internals, rrg])
+
   if (error) {
     return (
       <div className="rounded-xl bg-surface-900/80 border border-surface-700/50 px-6 py-4">
@@ -263,6 +324,35 @@ export default function SectorRotationIntel() {
           </div>
         )}
 
+        {/* Early Flow watch — the "starting to flow" read, always answered */}
+        {earlyFlow !== null && (
+          <div className="px-6 py-3 border-b border-surface-700/50 bg-cyan/[0.04]">
+            <div className="flex items-center gap-x-3 gap-y-1.5 flex-wrap">
+              <InfoTip label="Sectors showing at least TWO change signals at once — breadth turning up (Δ%>50MA), buyers paying up (U/D $vol), 4%-day thrust, or an RRG Improving cross. Change signals precede return rankings: this is where accumulation looks like it's STARTING, not where it already happened. Click one to open its leaders.">
+                <span className="text-[10px] font-bold tracking-widest uppercase text-cyan border-b border-dotted border-cyan/40 shrink-0">
+                  Early flow watch
+                </span>
+              </InfoTip>
+              {earlyFlow.length === 0 ? (
+                <span className="text-[11.5px] text-surface-500 italic">
+                  no early-accumulation signature right now — nothing shows ≥2 change signals; watch for a Δ%>50MA turn with U/D volume &gt; 1.15
+                </span>
+              ) : earlyFlow.map(c => (
+                <button
+                  key={c.sector}
+                  type="button"
+                  onClick={() => toggleSector(c.sector)}
+                  title="Open this sector's leaders"
+                  className="inline-flex items-baseline gap-1.5 rounded-lg border border-cyan/25 bg-cyan/[0.06] hover:bg-cyan/[0.12] px-2.5 py-1 text-left transition-colors"
+                >
+                  <span className="text-[12px] font-semibold text-surface-100">{c.sector}</span>
+                  <span className="text-[10.5px] text-surface-400">{c.reasons.join(' · ')}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {!internals ? (
           <div className="px-6 py-8 text-[12px] text-surface-400 animate-pulse">Computing sector internals from the local OHLCV cache…</div>
         ) : (
@@ -271,14 +361,14 @@ export default function SectorRotationIntel() {
               <thead>
                 <tr className="text-[10px] uppercase tracking-wider text-surface-500 border-b border-surface-700/50">
                   <th className="text-left px-4 py-2">Sector</th>
-                  <th className="text-left px-2 py-2" title="Rank composite of level + change + volume + thrust">Score</th>
-                  <th className="text-left px-2 py-2">Verdict</th>
-                  <th className="text-right px-2 py-2" title="% of members above their 50-day SMA (Δ vs 5 sessions ago)">%&gt;50MA</th>
-                  <th className="text-right px-2 py-2" title="Up-day vs down-day dollar volume, last 10 sessions. >1.2 = buyers paying up">U/D&nbsp;$Vol</th>
-                  <th className="text-right px-2 py-2" title="Members' +4% days minus −4% days, last 10 sessions">Net&nbsp;4%</th>
-                  <th className="text-right px-2 py-2" title="% of members within 2% of a 3-month high">Near&nbsp;High</th>
-                  <th className="text-right px-2 py-2 hidden lg:table-cell" title="Median member 1-month return vs the ETF's — broad beats narrow">Median↔ETF</th>
-                  <th className="text-left px-2 py-2 hidden md:table-cell">Shape</th>
+                  <Th align="left" tip={INTERNALS_TIPS.score}>Score</Th>
+                  <Th align="left" tip={INTERNALS_TIPS.verdict}>Verdict</Th>
+                  <Th tip={INTERNALS_TIPS.above50}>%&gt;50MA</Th>
+                  <Th tip={INTERNALS_TIPS.udvol}>U/D&nbsp;$Vol</Th>
+                  <Th tip={INTERNALS_TIPS.net4}>Net&nbsp;4%</Th>
+                  <Th tip={INTERNALS_TIPS.nearHigh}>Near&nbsp;High</Th>
+                  <Th tip={INTERNALS_TIPS.medianEtf} className="hidden lg:table-cell">Median↔ETF</Th>
+                  <Th align="left" tip={INTERNALS_TIPS.shape} className="hidden md:table-cell">Shape</Th>
                 </tr>
               </thead>
               <tbody>
@@ -357,10 +447,11 @@ function SectorRow({ s, open, onToggle, leaders, busy, err }) {
             <span className="font-semibold text-surface-100">{s.sector}</span>
             <span className="text-[9.5px] font-mono text-surface-500">{s.etf}</span>
             {s.stealth && (
-              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-cyan/10 text-cyan border-cyan/30"
-                    title="Internals turning up hard while the ETF's return rank is still unremarkable — members firming before the index.">
-                ⚡ STEALTH
-              </span>
+              <InfoTip label="Stealth accumulation: internals turning up hard (Δ%>50MA ≥ +5pp, U/D volume ≥ 1.2) while the ETF's return rank is still bottom-half — members are being bought before the index shows it. The strongest early-flow tell on this table.">
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-cyan/10 text-cyan border-cyan/30">
+                  ⚡ STEALTH
+                </span>
+              </InfoTip>
             )}
           </div>
         </td>
