@@ -85,6 +85,17 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 20h4v-5h4v-4h4V6h6" />
     </svg>
   ),
+  reclaim: (
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeDasharray="3 2" d="M3 14h18" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 18l5-4 3 2 8-9m0 0h-4m4 0v4" />
+    </svg>
+  ),
+  board: (
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v11h-4z" />
+    </svg>
+  ),
   factor: (
     <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h10M4 18h6M18 12v6m3-3h-6" />
@@ -155,7 +166,9 @@ const navGroups = [
   {
     label: '2 · Find Setups',
     items: [
+      { path: '/setups',          label: 'Setups Board',     icon: icons.board },
       { path: '/stage-analysis',  label: 'Stage Analysis',   icon: icons.stages },
+      { path: '/ma-reclaim',      label: '200 MA Reclaim',   icon: icons.reclaim },
       { path: '/breakouts',       label: 'Breakouts',        icon: icons.breakouts },
       { path: '/scanner-9m',      label: '$9M Scanner',      icon: icons.ninem },
       { path: '/reversal-setup',  label: 'Reversal Setup',   icon: icons.reversal },
