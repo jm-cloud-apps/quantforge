@@ -38,7 +38,7 @@ The app is organized around a trading **workflow**, not a pile of tools:
   (Form 4 + 13-F) enrichment.
 - **$9M Scanner** — episodic-pivot / gap scanner with a deterministic scorer.
 - **Reversal Setup** — mean-reversion / reversal candidates.
-- **Sector Scan** — live sector performance via SPDR ETFs.
+- **Sector Scan** — live sector/industry ETF performance plus rotation intelligence: per-sector **internals** computed from members, not the cap-weighted ETF (%>50MA, up/down dollar-volume, stealth-accumulation flags), an **RRG quadrant chart** (RS vs SPY × RS momentum with weekly trails), and a click-through **leaders drill-down** ranking each sector's strongest members by cross-sectional RS.
 - **Earnings** — beat/miss + reaction calendar.
 - **Stock Analysis** — per-symbol news + AI criteria analysis.
 - **Options Flow** — Unusual-Whales-style unusual options activity.
