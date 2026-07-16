@@ -6,6 +6,8 @@ import { getFactorModel } from '../api/factorModel'
 import { getReversalScan } from '../api/reversal'
 import { get9MScan } from '../api/scanner9m'
 import { getStageScan } from '../api/stageAnalysis'
+import { getMAReclaimScan } from '../api/maReclaim'
+import { getSetupsBoard } from '../api/setupsBoard'
 import { getThemeRadarAnalysis } from '../api/themeRadar'
 import { getSectorPerformance } from '../api/screener'
 
@@ -72,6 +74,12 @@ export const AUTO_REFRESH_JOBS = [
     run: () => getStageScan({ force: true }),
   },
   {
+    id: 'ma-reclaim',
+    label: '200 MA reclaim',
+    hint: 'Re-runs the 200-day MA reclaim scan.',
+    run: () => getMAReclaimScan({ requireMaTurning: false, requireRs: false, excludeExtended: false, force: true }),
+  },
+  {
     id: 'theme-radar',
     label: 'Theme radar',
     hint: 'Refreshes the theme-rotation read.',
@@ -82,6 +90,15 @@ export const AUTO_REFRESH_JOBS = [
     label: 'Sector performance',
     hint: 'Refreshes the sector-performance screener.',
     run: () => getSectorPerformance({ forceRefresh: true }),
+  },
+  {
+    // Last on purpose: the board aggregates the scanner caches above, so it warms
+    // after they do. force:false — it reads their just-warmed caches (and pulls the
+    // breakouts lane, which has no job of its own) rather than re-forcing them.
+    id: 'setups-board',
+    label: 'Setups board',
+    hint: 'Re-aggregates the Find-Setups board from each scanner’s cache.',
+    run: () => getSetupsBoard({ force: false }),
   },
 ]
 

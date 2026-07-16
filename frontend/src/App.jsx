@@ -32,6 +32,8 @@ const AITrader        = lazy(() => import('./pages/AITrader'))
 const ThemeRadar      = lazy(() => import('./pages/ThemeRadar'))
 const ReversalSetup   = lazy(() => import('./pages/ReversalSetup'))
 const StageAnalysis   = lazy(() => import('./pages/StageAnalysis'))
+const MAReclaim       = lazy(() => import('./pages/MAReclaim'))
+const SetupsBoard     = lazy(() => import('./pages/SetupsBoard'))
 const FactorModel     = lazy(() => import('./pages/FactorModel'))
 const EdgeValidation  = lazy(() => import('./pages/EdgeValidation'))
 
@@ -70,6 +72,8 @@ function AppRoutes() {
         <Route path="scanner-9m" element={<Scanner9M />} />
         <Route path="reversal-setup" element={<ReversalSetup />} />
         <Route path="stage-analysis" element={<StageAnalysis />} />
+        <Route path="ma-reclaim" element={<MAReclaim />} />
+        <Route path="setups" element={<SetupsBoard />} />
         <Route path="factor-model" element={<FactorModel />} />
         <Route path="edge-validation" element={<EdgeValidation />} />
       </Route>
