@@ -10,6 +10,7 @@ security. main.py registers this via app.include_router and imports `_trades_cac
 Covered by tests/test_trading_analysis.py.
 """
 
+import io
 import math
 import os
 from datetime import datetime, timedelta
@@ -17,6 +18,7 @@ from typing import List
 
 import numpy as np
 import pandas as pd
+import yfinance as yf
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
@@ -25,6 +27,16 @@ from trade_data import read_trades_excel, normalize_trade_data, calculate_trade_
 from review_notes_router import merge_review_notes_into_trades
 
 router = APIRouter()
+
+
+def _money(v) -> str:
+    """Format a dollar amount for the edge-insights narrative."""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return "$0"
+    sign = "-" if v < 0 else ""
+    return f"{sign}${abs(v):,.0f}" if abs(v) >= 100 else f"{sign}${abs(v):,.2f}"
 
 # In-memory cache for trading-analysis data (keyed by the workbook's mtime).
 _trades_cache = {
