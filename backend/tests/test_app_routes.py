@@ -34,9 +34,13 @@ def test_critical_routes_are_registered():
         "/api/journal/calendar",       # stayed in main.py — must still be here
         "/api/playbook/entries",
         "/api/playbook/screenshots/{filename}",
-        # Trade analytics (still in main.py; its parsing core is in trade_data.py)
+        # Trade analytics (trading_analysis_router; parsing core in trade_data.py)
         "/api/trading-analysis/load-default",
         "/api/trading-analysis/file-status",
+        # Backtesting (backtest_router)
+        "/api/strategies",
+        "/api/backtest/run",
+        "/api/backtest/breakout",
         # A few load-bearing endpoints from elsewhere in the app
         "/api/breadth/situational",
         "/api/breadth/snapshot",
