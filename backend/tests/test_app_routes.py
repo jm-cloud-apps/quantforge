@@ -41,6 +41,18 @@ def test_critical_routes_are_registered():
         "/api/strategies",
         "/api/backtest/run",
         "/api/backtest/breakout",
+        # Research/validation + tools routers
+        "/api/analyze/factors",
+        "/api/analyze/edge-validation",
+        "/api/tools/position-size",
+        "/api/tools/checklist/template",
+        # Sector-performance + news / per-ticker analysis routers
+        "/api/screener/sector-performance",
+        "/api/news",
+        "/api/news/cache",
+        "/api/movers",
+        "/api/analysis/premarket/{ticker}",
+        "/api/analysis/qulla-ep/{ticker}",
         # A few load-bearing endpoints from elsewhere in the app
         "/api/breadth/situational",
         "/api/breadth/snapshot",
