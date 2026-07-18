@@ -735,6 +735,148 @@ export const RAIL_TOUCH_LADDER = [
   },
 ]
 
+// ── Bases & Pivots ──────────────────────────────────────────────────────────
+// The structure framework (components/BasesAndPivots.jsx): what a valid base
+// looks like (VCP / flag / cup-with-handle), the quantified quality gate, base
+// counting, and pivot quality. Every panel above reads the *moment*; this one
+// defines the *structure* the moment triggers out of.
+
+export const BASE_PATTERNS = [
+  {
+    key: 'vcp', glyph: 'vcp', tone: 'good', signal: 'confirm',
+    title: 'VCP — the contraction', tagline: 'Each pullback shallower than the last',
+    what: 'Two to four contractions, each retracement roughly half the prior one (25% → 12% → 6%), volume drying at every successive low — price coiling into the pivot.',
+    why: 'Each contraction is supply changing hands at higher lows: sellers exhaust in sequence. By the final tight coil the float that wanted out is out — the smallest demand moves it.',
+    rule: 'Count the contractions and demand the sequence tightens — each leg about half the prior, the final one in single digits on the driest volume of the base. Loose, widening swings are not a VCP, whatever the shape.',
+  },
+  {
+    key: 'htf', glyph: 'htf', tone: 'info', signal: 'confirm',
+    title: 'Flag / high-tight flag', tagline: 'A vertical pole, a quiet flag',
+    what: 'A sharp advance in days-to-weeks (the pole), then 3–15 sessions drifting sideways-to-down on collapsing volume, holding the upper third of the pole. The rare 100%-pole version is the high-tight flag.',
+    why: 'The pole proves demand extreme enough to trap everyone underinvested; the shallow flag proves holders won’t sell even after a huge run. Rest without retracement is the strongest statement a chart makes.',
+    rule: 'The flag must hold the upper third of the pole on drying volume. A “flag” that gives back half its pole is a correction with better marketing — pass.',
+  },
+  {
+    key: 'cup', glyph: 'cup', tone: 'purple', signal: 'confirm',
+    title: 'Cup with handle', tagline: 'The rounded turn, then the final shake',
+    what: 'A rounded multi-week base — decline, patient rounding low, recovery to near the old high — then a small handle drifting DOWN on quiet volume in the upper half, just before the pivot.',
+    why: 'The cup rebuilds ownership from weak hands to strong ones slowly; the handle is the last shakeout — the left-side buyers finally selling flat, right before the break they waited months for.',
+    rule: 'The handle must form in the upper half of the cup and drift down on quiet volume. A handle that wedges upward, or forms below the midpoint, is the failure-prone fake.',
+  },
+]
+
+// The quality gate — is the base even valid? Quantified thresholds in the same
+// spirit as VOLUME_METRICS: working conventions from the lineage, to be
+// validated against the trade log.
+export const BASE_QUALITY = [
+  {
+    key: 'depth', label: 'Depth', value: '≤ 25–30%', tone: 'good',
+    note: 'High-to-low of the base in a normal tape — shallower is stronger. 40%+ is a broken chart rebuilding, not a base; that’s Stage-1 work, not a buy setup.',
+  },
+  {
+    key: 'length', label: 'Length', value: '≥ 3 weeks', tone: 'info',
+    note: 'Flags/VCPs need 3+ weeks (a days-long pause is only tradeable as a flag WITH a pole); cups typically 7 weeks to months. Bases need time — time is what transfers the float.',
+  },
+  {
+    key: 'apex', label: 'The apex', value: 'tightest + driest', tone: 'warn',
+    note: 'The final days before the pivot should be the tightest ranges AND the driest volume of the entire base — the dry-up metric from the Volume panel, applied at the exact spot it matters.',
+  },
+  {
+    key: 'trend', label: 'Prior trend', value: '≥ 30% advance', tone: 'purple',
+    note: 'A base needs something to base ON: a meaningful prior advance, price above the 150/200 stage lines. No qualifying uptrend = nothing coiling, just sideways noise.',
+  },
+]
+
+// Base count — how far along the story is. Early bases get bought; late bases
+// get passed. Same three-row ladder format as the other verdict tables.
+export const BASE_COUNT_LADDER = [
+  {
+    key: 'early', tone: 'good', label: 'Base 1–2 off a fresh Stage-2 turn',
+    verdict: 'Early — buy them',
+    note: 'The story is obvious to nobody yet; institutions are still building. The best odds of the entire cycle live here.',
+  },
+  {
+    key: 'third', tone: 'warn', label: 'Base 3',
+    verdict: 'Late — smaller, stricter',
+    note: 'The story is known and the easy holders are in. Still tradeable — but tighten every quality criterion and cut the size.',
+  },
+  {
+    key: 'late', tone: 'bad', label: 'Base 4+ · or wide-and-loose late base',
+    verdict: 'Obvious to everyone — pass',
+    note: 'Late-stage bases fail as a rule: climax risk now exceeds continuation odds. Let someone else own the top tick.',
+  },
+]
+
+// ── Trade Lifecycle ─────────────────────────────────────────────────────────
+// The management framework (components/TradeLifecycle.jsx): entry day to
+// resolution as a day-by-day protocol, plus the progressive-exposure ladder.
+// side: 'early' = the first days decide; 'campaign' = adds, earnings, gaps.
+
+export const LIFECYCLE = [
+  {
+    key: 'entry', side: 'early', glyph: 'entry', tone: 'info', signal: 'context',
+    title: 'Day 0 — the entry print', tagline: 'Set it, then leave it alone',
+    what: 'Position on at the pivot, stop under the breakout-day low / handle low, size = planned risk ÷ stop distance. The trail rail (10/20/50) is written into the plan before the fill.',
+    why: 'The day-0 candle is still printing — judging a breakout intrahour is how good entries get sold to the first wiggle. Everything today was decided before the order went in.',
+    rule: 'Set the stop, write the rail, walk away. No adds, no “already up 2%” partials, no stop-widening on day 0.',
+  },
+  {
+    key: 'partial', side: 'early', glyph: 'partial', tone: 'good', signal: 'confirm',
+    title: 'Day 1–3 — sell strength, then breakeven', tagline: 'Bank R, free-roll the rest',
+    what: 'Real breakouts pay almost immediately — follow-through within 1–3 days. Sell ⅓–½ into that strength; after the partial (or ~2–3R), the stop moves to breakeven.',
+    why: 'Partials into demand convert paper edge into banked R while the runner stays on. The breakeven stop makes the remainder a free roll — but only after the market has PROVEN the move.',
+    rule: 'Strength in the first 3 days → take the partial, then breakeven. Moving to BE before any follow-through is choking the trade inside normal noise — earn it first.',
+  },
+  {
+    key: 'timestop', side: 'early', glyph: 'timestop', tone: 'warn', signal: 'caution',
+    title: 'Day 3–5 — the time stop', tagline: 'Wrong on schedule is still wrong',
+    what: 'No follow-through by day 3–5: the breakout sits, or drifts back toward the pivot on quiet volume, while other setups are moving.',
+    why: 'The big ones tend to work nearly immediately. Dead money isn’t neutral — it’s open risk plus opportunity cost, and stale breakouts are the ones that get undercut.',
+    rule: 'No progress by day 3–5 = cut it (or cut half), even above the stop. The price stop is for being wrong on direction; the time stop is for being wrong on schedule.',
+  },
+  {
+    key: 'add', side: 'campaign', glyph: 'add', tone: 'good', signal: 'confirm',
+    title: 'Adding — winners only, at structure', tagline: 'Average up, never sideways',
+    what: 'Adds happen at the NEXT structural event: the first orderly pullback to the rising 10/20 (the turn bar from Candles × Rails), or the next flag/base pivot.',
+    why: 'Adding at structure keeps the blended cost defensible with a logical stop behind it. Adding on feelings converts a winner into a full-size position bought at the top of its range.',
+    rule: 'Add only to winners, only at rails or pivots — and re-run the math: new size × new stop distance still ≤ planned risk. Never add to a loser; that’s the squeeze rule wearing long clothes.',
+  },
+  {
+    key: 'earnings', side: 'campaign', glyph: 'earnings', tone: 'warn', signal: 'caution',
+    title: 'The earnings gate', tagline: 'The gap your stop can’t catch',
+    what: 'A known date where the stock can reprice 10–30% overnight — the one scheduled event the daily-close discipline cannot manage.',
+    why: 'Overnight gaps skip the stop entirely. Full size into a print isn’t a trade with defined risk — it’s a coin flip holding your month’s R.',
+    rule: 'No new entries within ~5 days of earnings. Holding through requires all three: planned in advance, partials already banked, and a cushion bigger than a bad gap. Otherwise: flat before the print.',
+  },
+  {
+    key: 'gap', side: 'campaign', glyph: 'gap', tone: 'bad', signal: 'caution',
+    title: 'The gap against you', tagline: 'The one intraday exception',
+    what: 'The stock opens well below the stop — it never filled, and the plan is already broken at the bell with the loss bigger than designed.',
+    why: 'The close-only iron law assumes continuous prices; a gap breaks the assumption. Waiting for 4:00 PM on a position that opened through its stop is rationalizing, not discipline.',
+    rule: 'Gap through the stop = exit at the open or the first failed bounce, no negotiating for a reclaim. The loss already happened — the only choice left is whether it compounds.',
+  },
+]
+
+// Progressive exposure — the ladder that sizes the whole book off your own
+// recent results. Your last 5–10 trades are the regime gauge that never lags.
+export const EXPOSURE_LADDER = [
+  {
+    key: 'pilot', tone: 'warn', label: 'Coming off stops / a fresh regime',
+    verdict: 'Pilot size — ¼ to ½ risk',
+    note: 'Probe, don’t press. Pilots buy information; full size buys conviction you haven’t earned back yet.',
+  },
+  {
+    key: 'press', tone: 'good', label: 'Pilots working — recent trades green',
+    verdict: 'Normal risk — press what works',
+    note: 'Scale to plan risk and add at structure. The ladder climbs on results, never on forecasts.',
+  },
+  {
+    key: 'cut', tone: 'bad', label: 'Last 5–10 breakouts mostly failing',
+    verdict: 'Half size, then half again',
+    note: 'Your own fills are the most honest market read you own — obey them before the indices explain why.',
+  },
+]
+
 // ── Short Side ──────────────────────────────────────────────────────────────
 // The short-side framework panel (components/ShortSide.jsx): the lineage's one
 // A+ short — the parabolic short — plus the backside re-short, taught as the
