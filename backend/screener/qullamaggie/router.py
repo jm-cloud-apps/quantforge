@@ -1,6 +1,7 @@
 """FastAPI router for the Qullamaggie breakout screener."""
 
 import logging
+import threading
 import time
 from datetime import datetime
 
@@ -39,6 +40,11 @@ router = APIRouter(prefix="/api/screener/qullamaggie", tags=["screener-qullamagg
 _RESPONSE_CACHE: dict[str, tuple[float, dict]] = {}
 _CACHE_TTL_SEC_ACTIVE = 600  # 10 minutes during regular session
 
+# Single-flight registry: one lock per cache key so identical concurrent
+# requests coalesce into a single pipeline run instead of N (see get_breakouts).
+_INFLIGHT: dict[str, threading.Lock] = {}
+_INFLIGHT_GUARD = threading.Lock()
+
 
 @router.get("")
 def get_breakouts(
@@ -69,6 +75,43 @@ def get_breakouts(
             cached["cache_age_seconds"] = int(time.time() - entry[0])
             return cached
 
+    # Single-flight: identical concurrent requests (page mount + the boot warm
+    # job + the Setups Board can fire the same scan within seconds) must not
+    # each run the 10-30s universe pipeline. The first caller computes;
+    # everyone else blocks on the per-key lock, then serves the result the
+    # runner just wrote. That applies to fresh=1 too — a scan that finished
+    # moments ago IS the fresh result.
+    with _INFLIGHT_GUARD:
+        lock = _INFLIGHT.setdefault(cache_key, threading.Lock())
+    waited = not lock.acquire(blocking=False)
+    if waited:
+        lock.acquire()  # block until the in-flight identical scan finishes
+    try:
+        if waited:
+            entry = _RESPONSE_CACHE.get(cache_key)
+            if entry and (time.time() - entry[0]) < ttl:
+                cached = dict(entry[1])
+                cached["cached"] = True
+                cached["cache_age_seconds"] = int(time.time() - entry[0])
+                cached["coalesced"] = True  # served from the run we waited on
+                return cached
+            # The run we waited on failed to cache a result — compute ourselves.
+        return _run_breakout_scan(
+            mode=mode, limit=limit, min_dollar_vol=min_dollar_vol, min_adr=min_adr,
+            min_rvol=min_rvol, day_filter=day_filter, include_movers=include_movers,
+            enrich_news=enrich_news, enrich_rsi=enrich_rsi, enrich_calendar=enrich_calendar,
+            enrich_blocks=enrich_blocks, enrich_institutional=enrich_institutional,
+            wide=wide, persist=persist, cache_key=cache_key,
+        )
+    finally:
+        lock.release()
+
+
+def _run_breakout_scan(*, mode, limit, min_dollar_vol, min_adr, min_rvol, day_filter,
+                       include_movers, enrich_news, enrich_rsi, enrich_calendar,
+                       enrich_blocks, enrich_institutional, wide, persist, cache_key):
+    """The actual scan pipeline — universe → refresh → rank → enrich → cache.
+    Callers hold the per-key single-flight lock (see get_breakouts)."""
     started = datetime.now()
     universe_error = None
     use_wide = wide and mode == "unusual_volume"

@@ -163,6 +163,24 @@ const writeStoredAdr = (mode, value) => {
   try { localStorage.setItem(adrStorageKey(mode), String(value)) } catch { /* ignore */ }
 }
 
+// Persisted on/off preferences for the Unusual Volume enrichment toggles.
+// All three default ON: the wide universe is where the best unusual-volume
+// setups come from, and blocks/institutional are what qualifies them — the
+// serious scan is the default, opting *down* is the choice. The backend
+// caches make the repeat cost small (10-min response cache; 6h per-symbol
+// enrichment cache for the top-8 blocks/filings pulls).
+const prefKey = (k) => `${CACHE_PREFIX}pref:${k}`
+const readStoredPref = (key, fallback = true) => {
+  try {
+    const raw = localStorage.getItem(prefKey(key))
+    if (raw != null) return raw === '1'
+  } catch { /* ignore */ }
+  return fallback
+}
+const writeStoredPref = (key, v) => {
+  try { localStorage.setItem(prefKey(key), v ? '1' : '0') } catch { /* ignore */ }
+}
+
 const cacheKey = (mode, minAdr, includeMovers, dayFilter) =>
   `${CACHE_PREFIX}${mode}|adr=${minAdr.toFixed(3)}|movers=${includeMovers ? 1 : 0}|day=${dayFilter}`
 
@@ -203,9 +221,35 @@ const Breakouts = () => {
   const [adrSaved, setAdrSaved] = useState(true)
   const [includeMovers, setIncludeMovers] = useState(false)
   const [dayFilter, setDayFilter] = useState(0)
-  const [enrichBlocks, setEnrichBlocks] = useState(false)
-  const [enrichInstitutional, setEnrichInstitutional] = useState(false)
-  const [wideUniverse, setWideUniverse] = useState(false)
+  const [enrichBlocks, setEnrichBlocks] = useState(() => readStoredPref('blocks'))
+  const [enrichInstitutional, setEnrichInstitutional] = useState(() => readStoredPref('institutional'))
+  const [wideUniverse, setWideUniverse] = useState(() => readStoredPref('wide'))
+  // Persisted dismissals for the entitlement banners, keyed by error code. With
+  // the enrichments on by default, a plan gap (e.g. no tick-level trades) would
+  // otherwise re-nag on every visit — dismiss once, stays gone; a *different*
+  // error code still surfaces.
+  const [dismissedErrs, setDismissedErrs] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(`${CACHE_PREFIX}dismissedErrs`) || '[]')) } catch { return new Set() }
+  })
+  const dismissErr = (code) => {
+    setDismissedErrs(prev => {
+      const next = new Set(prev)
+      next.add(code)
+      try { localStorage.setItem(`${CACHE_PREFIX}dismissedErrs`, JSON.stringify([...next])) } catch { /* ignore */ }
+      return next
+    })
+  }
+  const errVisible = (err, fallbackCode) => Boolean(err) && !dismissedErrs.has(err.code || fallbackCode)
+  const DismissErrButton = ({ code }) => (
+    <button
+      onClick={() => dismissErr(code)}
+      className="shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-warning/60 hover:text-warning hover:bg-warning/10 transition-colors"
+      title="Dismiss — this warning won't show again"
+      aria-label="Dismiss warning"
+    >
+      ✕
+    </button>
+  )
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -253,14 +297,23 @@ const Breakouts = () => {
   }, [loading, loadStartedAt])
 
   const load = async (modeArg = mode, adrArg = minAdr, moversArg = includeMovers, opts = {}) => {
-    const { fresh = false, dayFilter: dayArg = dayFilter } = opts
+    // The toggle handlers pass their *next* value through opts — reading these
+    // from state here would use the closure's pre-toggle value (the setState
+    // hasn't re-rendered yet when the handler fires the reload).
+    const {
+      fresh = false,
+      dayFilter: dayArg = dayFilter,
+      wide = wideUniverse,
+      blocks = enrichBlocks,
+      inst = enrichInstitutional,
+    } = opts
     const limitForMode = MODES.find((m) => m.id === modeArg)?.limit ?? 24
     // day_filter only meaningful for unusual_volume; force 0 elsewhere so the
     // cache key stays stable when the user switches tabs.
     const effDayFilter = modeArg === 'unusual_volume' ? dayArg : 0
-    const effBlocks = modeArg === 'unusual_volume' && enrichBlocks
-    const effInst = modeArg === 'unusual_volume' && enrichInstitutional
-    const effWide = modeArg === 'unusual_volume' && wideUniverse
+    const effBlocks = modeArg === 'unusual_volume' && blocks
+    const effInst = modeArg === 'unusual_volume' && inst
+    const effWide = modeArg === 'unusual_volume' && wide
     const ck = cacheKey(modeArg, adrArg, moversArg, effDayFilter)
       + (effBlocks ? '|blk' : '')
       + (effInst ? '|inst' : '')
@@ -326,7 +379,7 @@ const Breakouts = () => {
     }, autoRefreshMin * 60_000)
     return () => clearInterval(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoRefreshMin, mode, minAdr, includeMovers, dayFilter])
+  }, [autoRefreshMin, mode, minAdr, includeMovers, dayFilter, wideUniverse, enrichBlocks, enrichInstitutional])
 
   const loadHistory = async () => {
     try {
@@ -516,7 +569,8 @@ const Breakouts = () => {
             onClick={() => {
               const next = !wideUniverse
               setWideUniverse(next)
-              setTimeout(() => load(mode, minAdr, includeMovers, { dayFilter }), 0)
+              writeStoredPref('wide', next)
+              load(mode, minAdr, includeMovers, { dayFilter, wide: next })
             }}
             className={`ml-2 px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${
               wideUniverse
@@ -534,7 +588,8 @@ const Breakouts = () => {
               onClick={() => {
                 const next = !enrichBlocks
                 setEnrichBlocks(next)
-                setTimeout(() => load(mode, minAdr, includeMovers, { dayFilter }), 0)
+                writeStoredPref('blocks', next)
+                load(mode, minAdr, includeMovers, { dayFilter, blocks: next })
               }}
               className={`px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${
                 enrichBlocks
@@ -561,7 +616,8 @@ const Breakouts = () => {
               onClick={() => {
                 const next = !enrichInstitutional
                 setEnrichInstitutional(next)
-                setTimeout(() => load(mode, minAdr, includeMovers, { dayFilter }), 0)
+                writeStoredPref('institutional', next)
+                load(mode, minAdr, includeMovers, { dayFilter, inst: next })
               }}
               className={`px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${
                 enrichInstitutional
@@ -591,7 +647,7 @@ const Breakouts = () => {
       )}
 
       {/* Wide universe failed — usually entitlement on the grouped endpoint. */}
-      {data?.universe_error && (
+      {errVisible(data?.universe_error, 'universe') && (
         <div className="rounded-lg bg-warning/10 border border-warning/40 px-4 py-3 flex items-start gap-3">
           <div className="shrink-0 w-6 h-6 rounded-full border border-warning/40 text-warning flex items-center justify-center font-bold text-xs mt-0.5">$</div>
           <div className="min-w-0 flex-1">
@@ -604,11 +660,12 @@ const Breakouts = () => {
               {data.universe_error.hint || data.universe_error.message} Falling back to the curated universe.
             </div>
           </div>
+          <DismissErrButton code={data.universe_error.code || 'universe'} />
         </div>
       )}
 
       {/* Institutional (Form 4 + 13-F) enrichment failed — usually entitlement. */}
-      {data?.institutional_error && (
+      {errVisible(data?.institutional_error, 'institutional') && (
         <div className="rounded-lg bg-warning/10 border border-warning/40 px-4 py-3 flex items-start gap-3">
           <div className="shrink-0 w-6 h-6 rounded-full border border-warning/40 text-warning flex items-center justify-center font-bold text-xs mt-0.5">$</div>
           <div className="min-w-0 flex-1">
@@ -621,12 +678,13 @@ const Breakouts = () => {
               {data.institutional_error.hint || data.institutional_error.message}
             </div>
           </div>
+          <DismissErrButton code={data.institutional_error.code || 'institutional'} />
         </div>
       )}
 
       {/* Smart Money (Tier C) enrichment failed — usually entitlement. The chain
           summary still rendered, so this is a soft warning, not a hard error. */}
-      {data?.blocks_error && (
+      {errVisible(data?.blocks_error, 'blocks') && (
         <div className="rounded-lg bg-warning/10 border border-warning/40 px-4 py-3 flex items-start gap-3">
           <div className="shrink-0 w-6 h-6 rounded-full border border-warning/40 text-warning flex items-center justify-center font-bold text-xs mt-0.5">$</div>
           <div className="min-w-0 flex-1">
@@ -649,6 +707,7 @@ const Breakouts = () => {
               </a>
             )}
           </div>
+          <DismissErrButton code={data.blocks_error.code || 'blocks'} />
         </div>
       )}
 

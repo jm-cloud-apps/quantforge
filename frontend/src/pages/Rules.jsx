@@ -10,6 +10,8 @@ import {
 import MARails from '../components/MARails'
 import VolumePatterns from '../components/VolumePatterns'
 import CandleTells from '../components/CandleTells'
+import CandlesAtRails from '../components/CandlesAtRails'
+import ShortSide from '../components/ShortSide'
 
 // Category metadata — single source of truth for icons, tones, and labels.
 
@@ -493,12 +495,27 @@ function CatalystHierarchy({ collapsible = false, collapsed = false, onToggle, i
 // takeaway (state persisted), and a sticky section nav for wayfinding on
 // what is otherwise a very long page.
 
+// Each chip adopts its section's identity color when active (the panels each
+// wear one: cyan rails, amber candles, purple candles×rails, red short side) —
+// the nav doubles as a color legend for where you are. Literal classes for
+// Tailwind's JIT.
+const NAV_TONE = {
+  cyan:    'bg-cyan/15 text-cyan border-cyan/40',
+  accent:  'bg-accent/15 text-accent border-accent/40',
+  warning: 'bg-warning/15 text-warning border-warning/40',
+  purple:  'bg-purple/15 text-purple border-purple/40',
+  danger:  'bg-danger/15 text-danger border-danger/40',
+  neutral: 'bg-surface-700/40 text-surface-100 border-surface-500/50',
+}
+
 const SECTION_NAV = [
-  { id: 'ma-rails', label: 'MA Rails' },
-  { id: 'volume', label: 'Volume' },
-  { id: 'candles', label: 'Candles' },
-  { id: 'catalysts', label: 'EP Catalysts' },
-  { id: 'my-rules', label: 'My Rules' },
+  { id: 'ma-rails', label: 'MA Rails', tone: 'cyan' },
+  { id: 'volume', label: 'Volume', tone: 'accent' },
+  { id: 'candles', label: 'Candles', tone: 'warning' },
+  { id: 'rail-candles', label: 'Candles × Rails', tone: 'purple' },
+  { id: 'catalysts', label: 'EP Catalysts', tone: 'accent' },
+  { id: 'short-side', label: 'Short Side', tone: 'danger' },
+  { id: 'my-rules', label: 'My Rules', tone: 'neutral' },
 ]
 
 // v2: earlier builds defaulted the frameworks to collapsed; the page now opens
@@ -515,7 +532,7 @@ function loadCollapsed() {
 
 // Sticky wayfinding bar. Sits under the mobile header (h-14) and at the top
 // of the viewport on desktop; scrollspy highlights the section in view.
-function SectionNav({ active, onJump }) {
+function SectionNav({ active, onJump, allCollapsed, onToggleAll }) {
   return (
     <div className="sticky top-14 lg:top-0 z-40 py-1.5 -my-1.5">
       <nav
@@ -531,7 +548,7 @@ function SectionNav({ active, onJump }) {
               onClick={() => onJump(s.id)}
               className={`shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition-colors ${
                 isActive
-                  ? 'bg-accent/15 text-accent border-accent/40'
+                  ? (NAV_TONE[s.tone] || NAV_TONE.accent)
                   : 'bg-transparent text-surface-400 border-transparent hover:text-surface-200 hover:bg-surface-800/60'
               }`}
             >
@@ -539,6 +556,20 @@ function SectionNav({ active, onJump }) {
             </button>
           )
         })}
+        <span className="flex-1 min-w-2" aria-hidden />
+        {/* Collapse/expand every panel at once — collapsed, the page reads as a
+            table of contents of panel headers. */}
+        <button
+          type="button"
+          onClick={onToggleAll}
+          title={allCollapsed ? 'Expand every section' : 'Collapse every section to its header'}
+          className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-surface-700/60 text-surface-400 hover:text-surface-100 hover:bg-surface-800/60 transition-colors"
+        >
+          <svg className={`w-3 h-3 transition-transform duration-200 ${allCollapsed ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 11l7-7 7 7M5 19l7-7 7 7" />
+          </svg>
+          {allCollapsed ? 'Expand all' : 'Collapse all'}
+        </button>
       </nav>
     </div>
   )
@@ -596,6 +627,13 @@ export default function Rules() {
   }, [collapsed])
 
   const toggleSection = (id) => setCollapsed(prev => ({ ...prev, [id]: !prev[id] }))
+
+  // Collapse-all ↔ expand-all from the sticky nav. Collapsed, the page reads
+  // as a table of contents; {} restores the all-expanded default.
+  const allCollapsed = useMemo(() => SECTION_NAV.every(s => collapsed[s.id]), [collapsed])
+  const toggleAll = () => {
+    setCollapsed(allCollapsed ? {} : Object.fromEntries(SECTION_NAV.map(s => [s.id, true])))
+  }
 
   // Nav jump — expand a collapsed framework first, then scroll once the
   // panel has rendered (double rAF waits out the commit).
@@ -759,7 +797,7 @@ export default function Rules() {
       </div>
 
       {/* STICKY SECTION NAV — wayfinding; scrollspy highlights the section in view */}
-      <SectionNav active={activeSection} onJump={jumpTo} />
+      <SectionNav active={activeSection} onJump={jumpTo} allCollapsed={allCollapsed} onToggleAll={toggleAll} />
 
       {/* FRAMEWORK PANELS — workflow order (MA Rails → Volume → Candles → EP
           Catalysts). Each self-collapses via its own header; expanded by
@@ -767,7 +805,9 @@ export default function Rules() {
       <MARails id="ma-rails" collapsible collapsed={!!collapsed['ma-rails']} onToggle={() => toggleSection('ma-rails')} />
       <VolumePatterns id="volume" collapsible collapsed={!!collapsed.volume} onToggle={() => toggleSection('volume')} />
       <CandleTells id="candles" collapsible collapsed={!!collapsed.candles} onToggle={() => toggleSection('candles')} />
+      <CandlesAtRails id="rail-candles" collapsible collapsed={!!collapsed['rail-candles']} onToggle={() => toggleSection('rail-candles')} />
       <CatalystHierarchy id="catalysts" collapsible collapsed={!!collapsed.catalysts} onToggle={() => toggleSection('catalysts')} />
+      <ShortSide id="short-side" collapsible collapsed={!!collapsed['short-side']} onToggle={() => toggleSection('short-side')} />
 
       {/* MY RULES — last; the rules you actually trade. Header doubles as the
           collapse toggle, same as the framework panels. */}

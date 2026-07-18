@@ -631,10 +631,194 @@ export const CANDLE_TELLS = [
     rule: 'Heaviest volume of the run + smallest gain of the run = someone big is leaving. Tighten the trail.',
   },
   {
+    key: 'outside', glyph: 'outside', tone: 'bad', signal: 'caution',
+    title: 'Outside reversal', tagline: 'The key reversal',
+    what: 'After extension: a bar that trades above the prior day’s high, then engulfs it and closes below the prior day’s low — on heavy volume.',
+    why: 'Buyers made the new high and were overwhelmed the same session. One bar trapped everyone who bought yesterday — that supply now sits overhead.',
+    rule: 'After a long run, an outside-down day is a sell-into-strength cue: take partials and tighten the trail on that same close.',
+  },
+  {
+    key: 'follow', glyph: 'follow', tone: 'good', signal: 'confirm',
+    title: 'Follow-through', tagline: 'Days 2–5 tell the truth',
+    what: 'After the demand bar: tight bars holding the top third of the breakout candle, dips getting bought before each close, volume staying warm.',
+    why: 'Real breakouts get defended — the institutions that bought day 1 keep supporting day 2 and 3. Giving the whole bar back says the buyers were a one-day crowd.',
+    rule: 'Judge every breakout by its second and third day, not its first. A close back inside the base within 3 days = failed pivot — exit, don’t hope.',
+  },
+  {
+    key: 'gap', glyph: 'gap', tone: 'info', signal: 'context',
+    title: 'Gap open', tagline: 'Hold or fill decides',
+    what: 'The session after a gap up: does the day build on the open (close above it), or bleed back into the gap (close below the open)?',
+    why: 'A gap is an auction verdict printed before the bell. Holding above the open all day is demand confirming the reprice; fading below the open is the gap being sold into.',
+    rule: 'Gap-and-hold above the open = tradeable strength. Gap-and-fade below the open = distribution — and for EPs, a close below the gap-day low kills the trade.',
+  },
+  {
     key: 'weekly', glyph: 'weekly', tone: 'info', signal: 'context',
     title: 'The weekly wrap', tagline: 'Five dailies, one verdict',
     what: 'Every weekly candle is five dailies compressed — Friday’s close decides where the week actually settled.',
     why: 'A strong Mon–Wed means nothing if Friday closes the week low: the weekly prints a topping tail. Weekly wicks are late-week selling.',
     rule: 'Judge weekly candles on Friday only. An outside / reversal week after a long advance is a daily-timeframe exit cue.',
+  },
+]
+
+// Candles at the rails — the interaction layer between the two frameworks
+// above: the rail says WHERE to look, the candle says WHEN to act. Rendered as
+// its own panel (components/CandlesAtRails.jsx) between Candle Tells and the
+// catalyst ladder. Two sides: how a pullback buy at a rising rail actually
+// prints (approach → turn bar → trigger), and how selling around the rail
+// actually prints (extension → shakeout wick → exit body). `glyph` keys
+// reference the scene specs in the component; `side` groups the cards.
+export const RAIL_CANDLES = [
+  // ── BUY SIDE — anatomy of the pullback buy ────────────────────────────
+  {
+    key: 'approach', side: 'buy', glyph: 'approach', tone: 'info', signal: 'context',
+    title: 'The approach', tagline: 'Shrinking bodies, dying volume',
+    what: 'Price drifts down into the rising 10/20 on small red bodies, each range tighter than the last, volume fading to the driest of the move.',
+    why: 'That’s profit-taking, not urgent selling — the auction running out of sellers exactly where the rail is rising to meet price.',
+    rule: 'Stalk, don’t buy. An orderly approach earns the alert; wide red bars accelerating into the rail is a falling knife — stand aside.',
+  },
+  {
+    key: 'turn', side: 'buy', glyph: 'turn', tone: 'good', signal: 'confirm',
+    title: 'The turn bar', tagline: 'The rail holds — and a candle proves it',
+    what: 'The bar that tags the rail intraday and refuses it: lower wick into the line, close in the upper half — or an undercut that closes back above the rail the same day.',
+    why: 'The tag is where dip-buyers met the last sellers and won; the close location is the verdict. A bar that closes on its low at the rail proved nothing.',
+    rule: 'No turn bar, no trade. The rail alone is never the signal — the candle that rejects it is.',
+  },
+  {
+    key: 'trigger', side: 'buy', glyph: 'trigger', tone: 'good', signal: 'confirm',
+    title: 'The trigger', tagline: 'Buy the proof, stop under the tag',
+    what: 'Entry is the push through the turn bar’s high — ideally a green bar on re-expanding volume that closes back above the 10-day.',
+    why: 'Breaking the turn-bar high confirms the low is in with the rail behind it — and the structure that just proved itself defines the risk.',
+    rule: 'Buy the turn-bar high; stop under the turn-bar low, just below the rail. If the trigger never prints, there was no trade — that’s the system working.',
+  },
+  // ── SELL SIDE — selling around the rail ───────────────────────────────
+  {
+    key: 'stretch', side: 'sell', glyph: 'stretch', tone: 'warn', signal: 'caution',
+    title: 'Stretched above the rail', tagline: 'Sell the reach, not the snap-back',
+    what: 'After a long leg: wide green bars going near-vertical, price 20%+ above the 10-day — the gap between candle and rail at its widest of the run.',
+    why: 'Distance from the rail is the temperature gauge. Climax buying stretches the band right before it snaps back — and that reach is where partials fill at great prices.',
+    rule: 'Sell partials into extension, never into the pullback. If you’re selling at the rail, you’re selling the panic — sell the reach instead.',
+  },
+  {
+    key: 'shakeout', side: 'sell', glyph: 'shakeout', tone: 'info', signal: 'confirm',
+    title: 'The wick below', tagline: 'A tail through the rail is not a break',
+    what: 'An intraday flush through the rail that closes back above it — long lower tail, often on the heaviest volume in days.',
+    why: 'Stops ran, weak hands left, and the close says buyers took it back: the undercut & reclaim printing at the exact line everyone watches.',
+    rule: 'Judged at 4:00 PM only. Wick below + close above = hold, often add. Selling the intraday flush is donating the shakeout.',
+  },
+  {
+    key: 'exitbody', side: 'sell', glyph: 'exitbody', tone: 'bad', signal: 'caution',
+    title: 'The exit body', tagline: 'A real close below ends it',
+    what: 'A full body closing decisively below the trail rail — wide red bar, close near the low, volume above every recent up-day.',
+    why: 'That isn’t a wick that got bought — it’s supply still in control at the print. The candle and the rail agree: the swing is over.',
+    rule: 'Body below the rail at the close = exit, no negotiating. Widening the trail doesn’t rescue it — hoping for the reclaim is how a plan turns Random.',
+  },
+]
+
+// The verdict ladder — how to read the close on any rail touch. The 4:00 PM
+// decision table for the panel above: same candle location, three different
+// verdicts depending on body vs wick and volume.
+export const RAIL_TOUCH_LADDER = [
+  {
+    key: 'hold', tone: 'good', label: 'Wick below, close above',
+    verdict: 'Shakeout — hold / add',
+    note: 'The flush was bought back before the bell. That’s strength using the rail, not losing it.',
+  },
+  {
+    key: 'watch', tone: 'warn', label: 'Small body just below, quiet volume',
+    verdict: 'Warning — no adds, judge tomorrow',
+    note: 'A marginal close is a question, not a verdict. Any follow-through lower confirms the break; a fast reclaim voids it.',
+  },
+  {
+    key: 'exit', tone: 'bad', label: 'Wide body below on heavy volume',
+    verdict: 'Broken — exit now',
+    note: 'Size stayed in control into the close. The reclaim you’re hoping for is the exit liquidity someone else is selling into.',
+  },
+]
+
+// ── Short Side ──────────────────────────────────────────────────────────────
+// The short-side framework panel (components/ShortSide.jsx): the lineage's one
+// A+ short — the parabolic short — plus the backside re-short, taught as the
+// MIRROR of the long frameworks above. Structure mirrors; risk does not:
+// losses are unbounded, squeezes are violent, so the discipline rules are
+// stricter than their long-side counterparts, not symmetrical.
+
+// The mirror map — every long-side concept on this page, flipped. This is the
+// connective tissue back to the MA Rails / Candles × Rails panels.
+export const SHORT_MIRROR = [
+  { long: 'Rails stacked 10 > 20 > 50, fanning up', short: 'Rails inverted 10 < 20 < 50, fanning down' },
+  { long: 'Stage 2 — above a rising 30-week', short: 'Stage 4 — below a falling 30-week' },
+  { long: 'Pullback to a rising rail = add zone', short: 'Rally into a declining rail = short zone' },
+  { long: 'Undercut & reclaim = shakeout, hold', short: 'Overthrow & fail = bull trap, short signal' },
+  { long: 'Daily close below the rail = exit long', short: 'Daily close above the declining rail = cover' },
+  { long: 'Buy the turn-bar high, stop under the tag', short: 'Short the signal-bar low, stop over the high' },
+]
+
+// The playbook cards. side: 'setup' = finding/entering the parabolic short;
+// 'manage' = covers, the backside, and the squeeze rule. `glyph` keys
+// reference the scene specs in components/ShortSide.jsx.
+export const SHORT_SIDE = [
+  // ── THE SETUP — the parabolic short, in order ─────────────────────────
+  {
+    key: 'frontside', side: 'setup', glyph: 'frontside', tone: 'warn', signal: 'caution',
+    title: 'The front side', tagline: 'Never step in front of it',
+    what: 'Day 1–3 of a vertical move: stacked green bars, each close near its high, volume building — the stock is going up in a straight line.',
+    why: 'Strength this violent runs further than any short thesis survives. “Too high” is not a signal — front-side shorts are how accounts die in a day.',
+    rule: 'No shorts while the closes keep printing near the highs. The front side is for stalking, never for entering — wait for the tape to crack first.',
+  },
+  {
+    key: 'exhaust', side: 'setup', glyph: 'exhaust', tone: 'warn', signal: 'confirm',
+    title: 'The exhaustion tell', tagline: 'The crowd arrives last',
+    what: 'Day 3–5+: a huge gap up that fades, a monster upper wick on the run’s heaviest volume, or the first decisive red close (the first red day).',
+    why: 'Peak volume at peak price is the last buyers piling in while early money sells to them — the same climax tell from the Candles panel, read from the other side.',
+    rule: 'The exhaustion bar is the signal, not the entry. Mark its low and its high — the low is the trigger, the high is the stop. Then wait.',
+  },
+  {
+    key: 'strigger', side: 'setup', glyph: 'strigger', tone: 'bad', signal: 'confirm',
+    title: 'The trigger', tagline: 'Short the crack, stop over the high',
+    what: 'Entry is the break of the signal bar’s low — or the failed bounce that puts in a lower high under it. Stop goes above the recent high, always.',
+    why: 'The broken low proves supply finally won a session. Until it breaks, every “top” is a guess — after it breaks, the trapped late buyers become fuel for the fade.',
+    rule: 'Short the signal-bar low, hard stop above the high, half the size of your longs. If the low never breaks, there was no trade — same as the long side.',
+  },
+  // ── MANAGING IT — covers, the backside, the squeeze ───────────────────
+  {
+    key: 'cover', side: 'manage', glyph: 'cover', tone: 'good', signal: 'confirm',
+    title: 'Cover into panic', tagline: 'The fade is faster than the rise',
+    what: 'Wide red flushes on spiking volume — covers get filled into the panic, a third at a time, with the declining 10/20-day as the magnet.',
+    why: 'Shorts are paid in days, not weeks: parabolic fades give back most of the move fast, then chop. The flush you’re watching is your fill, not your victory lap.',
+    rule: 'Cover ⅓ into each flush — never into quiet drift. A short that stops making lower lows in 2–3 days is done; take it off, don’t marry it.',
+  },
+  {
+    key: 'backside', side: 'manage', glyph: 'backside', tone: 'info', signal: 'confirm',
+    title: 'The backside', tagline: 'Pops into declining rails',
+    what: 'After the crack: lower highs forming under the now-declining 10/20 — every bounce into the falling rail that rejects is a re-short zone.',
+    why: 'This is the mirror of the pullback buy. The declining rail is where trapped longs sell hope and late shorts re-load — the same crowd, opposite door.',
+    rule: 'Re-short the rejection at the declining rail, stop over the last lower high. The trade dies the day price closes back above the declining 20.',
+  },
+  {
+    key: 'squeeze', side: 'manage', glyph: 'squeeze', tone: 'bad', signal: 'caution',
+    title: 'The squeeze rule', tagline: 'Reclaimed highs = you’re the fuel',
+    what: 'The short goes green-side-up: price reclaims the signal-bar high — or your stop — on expanding volume, and every tick higher forces more shorts to buy.',
+    why: 'A reclaimed high is the long side’s undercut & reclaim happening to you. Averaging up into it is the one mistake this page exists to prevent — losses on shorts have no floor.',
+    rule: 'Stop hits = flat, instantly, no averaging, no “it has to come back.” Never hold a squeezing short overnight — gap risk on the short side is unbounded.',
+  },
+]
+
+// Where in the arc is it? The one-glance verdict table for the panel — the
+// same three-row format as the rail-touch ladder.
+export const SHORT_ARC_LADDER = [
+  {
+    key: 'front', tone: 'warn', label: 'Day 1–3 vertical, closes near highs',
+    verdict: 'Front side — no short',
+    note: 'Strength is the signal to wait, not to fade. Stalk it onto the watchlist and let the crowd finish buying.',
+  },
+  {
+    key: 'signal', tone: 'good', label: 'Day 3–5+, climax volume, first crack',
+    verdict: 'Signal — stalk the trigger',
+    note: 'Exhaustion bar printed: mark its low (trigger) and high (stop). The entry is the break, never the prediction.',
+  },
+  {
+    key: 'squeezed', tone: 'bad', label: 'Reclaims the highs after entry',
+    verdict: 'Squeezed — cover now',
+    note: 'No averaging up, no overnight holds. The trade is wrong; the only question is how small the loss stays.',
   },
 ]

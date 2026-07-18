@@ -77,6 +77,43 @@ const SCENES = {
     hiVol: 3,
     mark: { x: 165, y: 18, r: 12 },
   },
+  // Three up bars, then the last bar engulfs the prior day and closes below its low.
+  outside: {
+    candles: [
+      { x: 30, top: 44, bot: 52, hi: 40, lo: 56, up: true },
+      { x: 75, top: 34, bot: 42, hi: 30, lo: 46, up: true },
+      { x: 120, top: 24, bot: 32, hi: 20, lo: 36, up: true },
+      { x: 170, top: 16, bot: 44, hi: 10, lo: 48, up: false }, // engulfs the prior bar
+    ],
+    vols: [0.3, 0.35, 0.4, 1.0],
+    hiVol: 3,
+    mark: { x: 170, y: 30, r: 14 },
+  },
+  // Demand bar, then tight bars holding its top third (guide = top-third line).
+  follow: {
+    candles: [
+      { x: 35, top: 14, bot: 52, hi: 10, lo: 56, up: true }, // the demand bar
+      { x: 85, top: 16, bot: 23, hi: 12, lo: 26, up: true },
+      { x: 130, top: 19, bot: 25, hi: 15, lo: 28, up: false },
+      { x: 175, top: 14, bot: 21, hi: 11, lo: 24, up: true },
+    ],
+    vols: [1.0, 0.45, 0.3, 0.5],
+    hiVol: 0,
+    guide: { y: 27, x0: 35, x1: 205 }, // top third of the breakout bar
+  },
+  // Gap up (marked void), then bars building on the open instead of filling.
+  gap: {
+    candles: [
+      { x: 30, top: 46, bot: 54, hi: 42, lo: 58, up: true },
+      { x: 70, top: 42, bot: 50, hi: 38, lo: 54, up: true },
+      { x: 125, top: 18, bot: 26, hi: 14, lo: 28, up: true }, // gap bar — holds its open
+      { x: 170, top: 12, bot: 20, hi: 8, lo: 24, up: true },
+    ],
+    vols: [0.3, 0.35, 1.0, 0.5],
+    hiVol: 2,
+    guide: { y: 26, x0: 125, x1: 205 }, // the gap-day open it must hold
+    mark: { x: 97, y: 33, r: 10 },      // the gap void itself
+  },
   // Five dailies compress into one weekly bar with a topping tail.
   weekly: {
     candles: [
@@ -145,6 +182,51 @@ function Scene({ spec, toneHex, label }) {
     </svg>
   )
 }
+
+// "Reading one bar" — the vocabulary the tells are built from. One annotated
+// candle (OHLC + body/wick anatomy) plus the four dimensions every tell below
+// mixes: range, close location, body vs wicks, volume.
+function AnatomyBar() {
+  const L = { mono: 'JetBrains Mono, monospace' }
+  return (
+    <svg viewBox="0 0 190 112" className="w-full h-auto block rounded-lg bg-surface-950/60" role="img"
+      aria-label="Anatomy of a candle: high, close, open, low; upper wick, body, lower wick">
+      {/* the candle — a green (up) bar: open at bottom of body, close at top */}
+      <line x1="92" y1="10" x2="92" y2="102" stroke={TONE.good.hex} strokeWidth="1.6" />
+      <rect x="83" y="32" width="18" height="46" rx="1.5" fill="#0F1623" stroke={TONE.good.hex} strokeWidth="1.6" />
+      {/* right side — OHLC leader lines */}
+      {[
+        { y: 10, t: 'HIGH' },
+        { y: 32, t: 'CLOSE' },
+        { y: 78, t: 'OPEN' },
+        { y: 102, t: 'LOW' },
+      ].map(m => (
+        <g key={m.t}>
+          <line x1="104" y1={m.y} x2="126" y2={m.y} stroke={VOL_COLORS.avg} strokeWidth="0.8" strokeDasharray="2 2" />
+          <text x="130" y={m.y + 2.5} fontSize="7.5" fontWeight="700" fill={VOL_COLORS.avg} fontFamily={L.mono}>{m.t}</text>
+        </g>
+      ))}
+      {/* left side — anatomy labels */}
+      {[
+        { y: 21, t: 'upper wick', s: 'the fight' },
+        { y: 55, t: 'body', s: 'the verdict' },
+        { y: 90, t: 'lower wick', s: 'the defense' },
+      ].map(m => (
+        <g key={m.t}>
+          <text x="74" y={m.y} fontSize="7.5" fontWeight="700" fill="#CBD5E1" textAnchor="end" fontFamily={L.mono}>{m.t}</text>
+          <text x="74" y={m.y + 9} fontSize="6.5" fill={VOL_COLORS.avg} textAnchor="end" fontFamily={L.mono}>{m.s}</text>
+        </g>
+      ))}
+    </svg>
+  )
+}
+
+const ANATOMY_DIMS = [
+  { k: 'Range', t: 'High − low = conviction. Wide bars are statements; narrow bars are pauses.' },
+  { k: 'Close location', t: 'Where in the range it closed = who won at the bell. Top quarter: buyers. Bottom quarter: sellers.' },
+  { k: 'Body vs wicks', t: 'The body is what held; a wick is an excursion that got rejected. Long tails mark where the other side showed up.' },
+  { k: 'Volume', t: 'How many voted. The identical bar on 3× average volume is a different — and far louder — bar.' },
+]
 
 function TellCard({ t }) {
   const tone = TONE[t.tone]
@@ -237,8 +319,30 @@ export default function CandleTells({ collapsible = false, collapsed = false, on
 
         {expanded && (
         <>
+        {/* Reading one bar — the vocabulary before the tells */}
+        <div className="mt-5 rounded-2xl border border-surface-700/40 bg-surface-900/40 p-4 sm:p-5">
+          <div className="text-[9.5px] font-bold tracking-widest text-surface-500 uppercase mb-3">
+            Reading one bar — the four dimensions
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-[210px_1fr] gap-4 items-center">
+            <AnatomyBar />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {ANATOMY_DIMS.map(d => (
+                <div key={d.k} className="rounded-lg border border-surface-700/40 bg-surface-950/40 px-3 py-2">
+                  <div className="text-[10px] font-bold tracking-widest text-surface-300 uppercase mb-0.5">{d.k}</div>
+                  <p className="text-[11.5px] text-surface-400 leading-snug">{d.t}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="mt-3 text-[11.5px] text-surface-500 leading-snug">
+            Every tell below is just these four dimensions in combination — no named patterns to memorize,
+            only the question <span className="text-surface-300">“who was in control when the bar finished, and how many showed up?”</span>
+          </p>
+        </div>
+
         {/* Tell cards */}
-        <div className="mt-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {CANDLE_TELLS.map(t => (
             <TellCard key={t.key} t={t} />
           ))}
