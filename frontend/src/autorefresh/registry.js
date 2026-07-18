@@ -8,6 +8,7 @@ import { get9MScan } from '../api/scanner9m'
 import { getStageScan } from '../api/stageAnalysis'
 import { getMAReclaimScan } from '../api/maReclaim'
 import { getSetupsBoard } from '../api/setupsBoard'
+import { getBreakouts } from '../api/breakoutScreener'
 import { getThemeRadarAnalysis } from '../api/themeRadar'
 import { getSectorPerformance } from '../api/screener'
 
@@ -92,9 +93,26 @@ export const AUTO_REFRESH_JOBS = [
     run: () => getSectorPerformance({ forceRefresh: true }),
   },
   {
+    // The Ranked Chart Wall's default scan: Unusual Volume over the wide
+    // universe with Smart Money + Institutional enrichment on. The expensive
+    // layers (per-symbol OHLCV snapshots, 6h blocks/filings caches) are
+    // param-independent, so this warm makes the page's first visit fast even
+    // if the user has tweaked Min ADR. Deliberately near the end of the queue
+    // — it's the heaviest job, so everything cheap warms first.
+    id: 'breakouts',
+    label: 'Chart wall (unusual volume)',
+    hint: 'Re-runs the wide-universe unusual-volume scan with Smart Money + Institutional.',
+    run: () => getBreakouts({
+      mode: 'unusual_volume', limit: 24, minAdr: 0.015, minRvol: 2.0, dayFilter: 0,
+      wide: true, enrichBlocks: true, enrichInstitutional: true, fresh: true,
+    }),
+  },
+  {
     // Last on purpose: the board aggregates the scanner caches above, so it warms
-    // after they do. force:false — it reads their just-warmed caches (and pulls the
-    // breakouts lane, which has no job of its own) rather than re-forcing them.
+    // after they do. force:false — it reads their just-warmed caches rather than
+    // re-forcing them. (Its breakout-mode lane is a different scan from the
+    // unusual-volume chart-wall job above, but they share the per-symbol
+    // snapshot layer that job just warmed.)
     id: 'setups-board',
     label: 'Setups board',
     hint: 'Re-aggregates the Find-Setups board from each scanner’s cache.',
