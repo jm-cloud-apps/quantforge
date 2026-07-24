@@ -142,7 +142,6 @@ def run_multi_backtest(request: MultiBacktestRequest):
         avg_return = sum(r["total_return_pct"] for r in successful) / len(successful)
         total_trades = sum(r["total_trades"] for r in successful)
         wins = sum(r["winning_trades"] for r in successful)
-        losses = sum(r["losing_trades"] for r in successful)
         win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
     else:
         avg_return = 0

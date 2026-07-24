@@ -513,6 +513,76 @@ export default function MARails({ collapsible = false, collapsed = false, onTogg
           </p>
         </div>
 
+        {/* The 200 — its own read: for this line slope and distance matter far
+            more than a touch does, so it gets three reads rather than a touch rule. */}
+        <div className="mt-3 rounded-xl border border-surface-700/40 bg-surface-900/40 px-4 py-3">
+          <div className="flex items-center gap-2 mb-2.5 flex-wrap">
+            <span className="text-[10px] font-bold tracking-widest text-surface-200 uppercase">The 200</span>
+            <span className="text-[10px] font-mono text-surface-500">— slope &amp; extension, not a rail you trail</span>
+            <span className="flex-1" />
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-warning/10 text-warning border-warning/30">GATE</span>
+          </div>
+          <p className="text-[12px] text-surface-400 leading-snug mb-3">
+            A swing is never trailed on the 200 — by the time it speaks it has given back the whole move. Its
+            three jobs are all read <span className="text-surface-200">before</span> the trade: is the regime long,
+            am I already late, and is the trend being eaten. Always the <span className="text-surface-200">200-SMA</span>
+            {' '}— the institutional line everyone watches; a 200-EMA is a line nobody trades against.
+          </p>
+          <ul className="space-y-2.5">
+            <li className="flex gap-2.5">
+              <span className="mt-px inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-surface-800/60 text-surface-300 border-surface-700 shrink-0">SLOPE</span>
+              <p className="text-[12px] text-surface-400 leading-snug">
+                Direction is the gate, not the cross. Price above a <span className="text-surface-200">falling</span> 200
+                is a bounce in a downtrend; price above a <span className="text-surface-200">rising</span> 200 (up ≥ 1 month)
+                is stage 2. The rising-200 requirement is the single biggest filter — it’s what makes a chart scannable at all.
+              </p>
+            </li>
+            <li className="flex gap-2.5">
+              <span className="mt-px inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-surface-800/60 text-surface-300 border-surface-700 shrink-0">EXTENSION</span>
+              <p className="text-[12px] text-surface-400 leading-snug">
+                Distance from the 200 is the exhaustion gauge. Stretched to an extreme % above it (per-name, ~2× the
+                stock’s normal range) means you’re <span className="text-surface-200">late</span> — a trim / no-chase read,
+                not an entry. The long-timeframe cousin of the “reach that gets sold” candle tell.
+              </p>
+            </li>
+            <li className="flex gap-2.5">
+              <span className="mt-px inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-surface-800/60 text-surface-300 border-surface-700 shrink-0">REGIME</span>
+              <p className="text-[12px] text-surface-400 leading-snug">
+                The 200 is the underlying’s line in the sand. The <span className="text-surface-200">first</span> clean test
+                of a rising 200 after a long advance is often a base-builder; <span className="text-surface-200">repeated</span>
+                {' '}tests in a few weeks mean the trend is being eaten — the same “third tag” logic the 10/20 use, one zoom out.
+              </p>
+            </li>
+          </ul>
+        </div>
+
+        {/* Anchored VWAP — the one "line to trust" that isn't a moving average.
+            Sits at the end of the rail family because it does the same job (a
+            dynamic support/resistance line) from a different input: volume-
+            weighted price from a chosen bar, i.e. the crowd's cost basis. */}
+        <div className="mt-3 rounded-xl border border-cyan/25 bg-surface-900/40 px-4 py-3">
+          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+            <span className="text-[10px] font-bold tracking-widest text-surface-200 uppercase">Anchored VWAP</span>
+            <span className="text-[10px] font-mono text-surface-500">— the cost-basis rail</span>
+            <span className="flex-1" />
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-cyan/10 text-cyan border-cyan/30">NOT AN MA</span>
+          </div>
+          <p className="text-[12px] text-surface-400 leading-snug">
+            An MA averages <span className="text-surface-200">price over time</span>; an anchored VWAP averages
+            <span className="text-surface-200"> price weighted by volume</span> from a bar you pick — so it reads as the
+            actual <span className="text-surface-200">cost basis of everyone who bought since that event</span>. Anchor it to
+            the moment that reset the stock: the breakout day, the earnings gap, the 52-week high, or a major pivot low.
+          </p>
+          <p className="mt-1.5 text-[12px] text-surface-400 leading-snug">
+            Above the anchor, the average buyer since the event is in profit — supporters, not sellers — so pullbacks to the
+            line get bought; a <span className="text-surface-200">reclaim of the earnings-gap VWAP</span> is a classic EP
+            re-entry. Lose it on a daily close and the crowd from that event is now underwater and trapped overhead. Same job
+            as a rail — <span className="text-surface-200">where, and whether to believe the hold</span> — read on the daily
+            close like every other line here. It complements the 10/20/50, it doesn’t replace them: use it to grade a rail
+            touch, not as a second trail to rationalize into.
+          </p>
+        </div>
+
         {/* Iron law */}
         <div className="mt-4 rounded-xl border border-warning/25 bg-warning/[0.06] px-4 py-3">
           <div className="flex items-start gap-2.5">

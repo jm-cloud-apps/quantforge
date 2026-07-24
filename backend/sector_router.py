@@ -9,7 +9,7 @@ registers this via app.include_router.
 import json
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import numpy as np
 from fastapi import APIRouter

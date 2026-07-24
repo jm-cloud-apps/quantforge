@@ -529,6 +529,13 @@ export const VOLUME_PATTERNS = [
     rule: 'Hunt for the driest volume at the apex of a tight base. Dry-up + tight range = ready to go.',
   },
   {
+    key: 'pocketpivot', glyph: 'pocketpivot', tone: 'good', signal: 'confirm',
+    title: 'Pocket pivot', tagline: 'The early tell inside the base',
+    what: 'An up-day still inside the base whose volume tops the highest down-day volume of the prior ~10 sessions — a green bar bigger than any recent red one.',
+    why: 'Supply just got overwhelmed before the pivot even prints. Institutions accumulating inside the range show up as up-volume swamping every recent down-day — the footprint that precedes the breakout.',
+    rule: 'Use it as an early, lower-risk entry off a rising 10 / 20 inside a proper base — stop under the pivot bar. Not a breakout substitute: a pocket pivot in a loose, sloppy base is just a bounce.',
+  },
+  {
     key: 'breakout', glyph: 'breakout', tone: 'good', signal: 'confirm',
     title: 'Breakout expansion', tagline: 'Institutions vote',
     what: 'The pivot day prints 1.5–3×+ average volume on a wide bar that closes near its high.',
@@ -657,6 +664,32 @@ export const CANDLE_TELLS = [
     what: 'Every weekly candle is five dailies compressed — Friday’s close decides where the week actually settled.',
     why: 'A strong Mon–Wed means nothing if Friday closes the week low: the weekly prints a topping tail. Weekly wicks are late-week selling.',
     rule: 'Judge weekly candles on Friday only. An outside / reversal week after a long advance is a daily-timeframe exit cue.',
+  },
+]
+
+// Gap taxonomy — the same gap-up bar means opposite things depending on WHERE
+// in the move it prints. Rendered as a 3-row ladder under the Candle Tells
+// cards (components/CandleTells.jsx); mirrors RAIL_TOUCH_LADDER's shape. The
+// `gap` tell reads hold-vs-fill on one gap; this reads which gap you're looking
+// at — the context that decides whether a hold is an entry or an exit cue.
+export const GAP_TAXONOMY = [
+  {
+    key: 'breakaway', tone: 'good', label: 'Breakaway gap',
+    where: 'Off a base / at the pivot',
+    verdict: 'Buy — the move is starting',
+    note: 'A gap out of a proper base on heavy volume is the breakout in one bar — demand so urgent it skipped the pivot. Highest-odds gap; stop under the gap-day low.',
+  },
+  {
+    key: 'runaway', tone: 'info', label: 'Runaway / continuation gap',
+    where: 'Mid-trend, already extended a leg',
+    verdict: 'Hold / add — trend confirming',
+    note: 'A gap partway up an established advance — a measuring gap that says the trend has more to go. Add only if it holds its open; it marks roughly the middle of the move, not the end.',
+  },
+  {
+    key: 'exhaustion', tone: 'bad', label: 'Exhaustion gap',
+    where: 'After a long, extended run',
+    verdict: 'Sell into it — the move is ending',
+    note: 'A gap late in a climactic run, often the widest bar of all — the last buyers paying up. It looks identical to a breakaway; the difference is you’re 40%+ into the move, not at its start. Trim, don’t chase.',
   },
 ]
 

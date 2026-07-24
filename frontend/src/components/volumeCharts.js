@@ -204,6 +204,14 @@ export const VOLUME_GLYPHS = {
     hi: [6, 7, 8],
     price: [0.55, 0.5, 0.54, 0.5, 0.52, 0.5, 0.51, 0.5, 0.5],
   }),
+  // Pocket pivot — a quiet base, then one green up-bar taller than every
+  // recent down-bar, still inside the range. The early tell before the pivot.
+  pocketpivot: glyph({
+    mags: [0.4, 0.46, 0.32, 0.5, 0.34, 0.28, 0.86, 0.34, 0.3],
+    dir: [1, -1, 1, -1, -1, -1, 1, 1, -1],
+    hi: [6],
+    price: [0.5, 0.52, 0.48, 0.53, 0.49, 0.47, 0.62, 0.64, 0.61],
+  }),
   // Breakout surge — a wall of volume on the pivot day.
   breakout: glyph({
     mags: [0.24, 0.18, 0.22, 0.16, 0.2, 0.15, 1.0, 0.7, 0.6],

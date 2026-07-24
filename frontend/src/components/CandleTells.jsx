@@ -1,4 +1,4 @@
-import { CANDLE_TELLS } from '../utils/tradingRules'
+import { CANDLE_TELLS, GAP_TAXONOMY } from '../utils/tradingRules'
 import { Candle } from './MARailsVisuals'
 import { VOL_COLORS } from './volumeCharts'
 
@@ -346,6 +346,39 @@ export default function CandleTells({ collapsible = false, collapsed = false, on
           {CANDLE_TELLS.map(t => (
             <TellCard key={t.key} t={t} />
           ))}
+        </div>
+
+        {/* Gap taxonomy — the gap tell above reads hold-vs-fill; this reads
+            WHICH gap, because the same bar means the opposite at the start vs the
+            end of a move. A ladder, not cards: it's a where-am-I lookup. */}
+        <div className="mt-4 rounded-2xl border border-surface-700/40 bg-surface-900/40 p-4 sm:p-5">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className="text-[9.5px] font-bold tracking-widest text-surface-400 uppercase">Which gap is it?</span>
+            <span className="text-[11px] text-surface-500">— the same gap-up bar, three verdicts by where it prints in the move</span>
+          </div>
+          <div className="mt-2.5 space-y-2">
+            {GAP_TAXONOMY.map(g => {
+              const tone = TONE[g.tone]
+              return (
+                <div key={g.key} className={`rounded-xl border ${tone.border} ${tone.bgSoft} px-4 py-3`}>
+                  <div className="flex items-baseline gap-2 flex-wrap">
+                    <span className={`text-[13px] font-bold tracking-tight ${tone.text}`}>{g.label}</span>
+                    <span className="text-[11px] text-surface-500">· {g.where}</span>
+                    <span className="flex-1" />
+                    <span className={`shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border ${tone.chip}`}>
+                      {g.verdict}
+                    </span>
+                  </div>
+                  <p className="mt-1.5 text-[12px] text-surface-400 leading-snug">{g.note}</p>
+                </div>
+              )
+            })}
+          </div>
+          <p className="mt-3 text-[11.5px] text-surface-500 leading-snug">
+            Bar-for-bar the three are identical — the only difference is
+            <span className="text-surface-300"> how far the move has already run</span>. Read the gap against the base
+            and the prior legs, never in isolation; for EPs, a close back below the gap-day low kills any of them.
+          </p>
         </div>
 
         {/* Ties back to the iron law */}

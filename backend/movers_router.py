@@ -15,13 +15,11 @@ Two endpoints power the dashboard widgets:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import threading
 import time
-from datetime import date, datetime, timedelta
-from typing import Optional
+from datetime import datetime
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
