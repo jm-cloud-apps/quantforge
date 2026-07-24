@@ -1,0 +1,37 @@
+# Backend CI — the safety net that already exists locally (pytest suite +
+# pyflakes) run automatically on every PR and push to main. The suite is
+# offline-safe: data-dependent tests (e.g. breadth) skip themselves when the
+# local caches are absent, and no test performs network I/O.
+name: backend
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Static undefined-name / dead-import gate. This has caught real bugs when
+      # moving code between routers (missing imports in handler bodies that the
+      # tests can't reach) — the tree is kept fully pyflakes-clean on purpose.
+      - name: pyflakes
+        run: python -m pyflakes *.py tests/*.py
+
+      - name: pytest
+        run: python -m pytest

@@ -2,13 +2,19 @@
 
 Thin HTTP shells over analytics/: the cross-sectional factor model
 (/api/analyze/factors) and the event-study edge validation
-(/api/analyze/edge-validation), each with a 5-minute TTL cache. main.py registers
-this via app.include_router.
+(/api/analyze/edge-validation), each behind a per-parameter response cache
+(ScanCache: 5-minute active TTL, market-aware — see ttl_cache.py). main.py
+registers this via app.include_router.
 """
 
 from fastapi import APIRouter, HTTPException
 
+from ttl_cache import ScanCache
+
 router = APIRouter()
+
+_FACTOR_CACHE = ScanCache(5 * 60)
+_EDGE_CACHE = ScanCache(5 * 60)
 
 
 # ─── Cross-sectional Factor Model ────────────────────────────────────────────
@@ -16,11 +22,7 @@ router = APIRouter()
 # Ranks the liquid universe on price/volume style factors (momentum, trend
 # quality, relative strength, low-vol, short reversal, liquidity) with z-scores,
 # a composite, factor rotation and factor correlation. Logic in
-# analytics/factor_model.py; this is the HTTP shell + a 5-minute TTL cache.
-
-_FACTOR_CACHE: dict = {"key": None, "result": None, "ts": 0.0}
-_FACTOR_TTL_SECONDS = 5 * 60
-
+# analytics/factor_model.py; this is the HTTP shell + the response cache.
 
 @router.get("/api/analyze/factors")
 def get_factor_model(
@@ -30,23 +32,20 @@ def get_factor_model(
 ) -> dict:
     """Cross-sectional price/volume factor model off the breadth cache.
 
-    Cached for 5 minutes per parameter tuple. force=1 bypasses. Returns 500 if the
-    breadth cache hasn't been seeded — point the user at Market Monitor → Refresh.
+    Cached per parameter tuple (market-aware TTL). force=1 bypasses. Returns
+    500 if the breadth cache hasn't been seeded — point the user at Market
+    Monitor → Refresh.
     """
-    import time as _time
     from analytics import factor_model as _fm
 
+    def _compute() -> dict:
+        try:
+            return _fm.run(min_price=float(min_price), min_dollar_volume=float(min_dollar_volume))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Factor model failed: {e}")
+
     key = (float(min_price), float(min_dollar_volume))
-    if not force and _FACTOR_CACHE["key"] == key and (_time.time() - _FACTOR_CACHE["ts"]) < _FACTOR_TTL_SECONDS:
-        return {**_FACTOR_CACHE["result"], "from_cache": True}
-
-    try:
-        result = _fm.run(min_price=float(min_price), min_dollar_volume=float(min_dollar_volume))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Factor model failed: {e}")
-
-    _FACTOR_CACHE.update(key=key, result=result, ts=_time.time())
-    return {**result, "from_cache": False}
+    return _FACTOR_CACHE.fetch(key, _compute, force=bool(force))
 
 
 # ─── Edge Validation (event-study / multiple-testing) ────────────────────────
@@ -54,10 +53,6 @@ def get_factor_model(
 # Replays a family of entry signals over the cached history and scores each
 # against multiple testing (bootstrap CIs, deflated Sharpe, BH-FDR) to quantify
 # data-mining risk. Logic in analytics/edge_validation.py.
-
-_EDGE_CACHE: dict = {"key": None, "result": None, "ts": 0.0}
-_EDGE_TTL_SECONDS = 5 * 60
-
 
 @router.get("/api/analyze/edge-validation")
 def get_edge_validation(
@@ -68,21 +63,18 @@ def get_edge_validation(
 ) -> dict:
     """Event-study edge validation with multiple-testing correction.
 
-    `horizon` is the forward holding period in trading days. Cached for 5 minutes
-    per parameter tuple. force=1 bypasses. Returns 500 if the breadth cache is empty.
+    `horizon` is the forward holding period in trading days. Cached per
+    parameter tuple (market-aware TTL). force=1 bypasses. Returns 500 if the
+    breadth cache is empty.
     """
-    import time as _time
     from analytics import edge_validation as _ev
 
+    def _compute() -> dict:
+        try:
+            return _ev.run(horizon=int(horizon), min_price=float(min_price),
+                           min_dollar_volume=float(min_dollar_volume))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Edge validation failed: {e}")
+
     key = (int(horizon), float(min_price), float(min_dollar_volume))
-    if not force and _EDGE_CACHE["key"] == key and (_time.time() - _EDGE_CACHE["ts"]) < _EDGE_TTL_SECONDS:
-        return {**_EDGE_CACHE["result"], "from_cache": True}
-
-    try:
-        result = _ev.run(horizon=int(horizon), min_price=float(min_price),
-                         min_dollar_volume=float(min_dollar_volume))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Edge validation failed: {e}")
-
-    _EDGE_CACHE.update(key=key, result=result, ts=_time.time())
-    return {**result, "from_cache": False}
+    return _EDGE_CACHE.fetch(key, _compute, force=bool(force))

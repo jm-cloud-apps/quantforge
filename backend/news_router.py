@@ -9,7 +9,6 @@ registers this via app.include_router.
 
 import json
 import os
-import re
 import threading
 import time
 from datetime import datetime, timedelta
@@ -547,14 +546,14 @@ def criteria_check(body: dict):
                         avg_vol_20 = sum(volumes[-21:-1]) / 20
                         latest_vol = volumes[-1]
                         vol_ratio = latest_vol / avg_vol_20 if avg_vol_20 > 0 else 0
-                        context_parts.append(f"\n## Volume Analysis")
+                        context_parts.append("\n## Volume Analysis")
                         context_parts.append(f"- Latest Volume: {latest_vol:,.0f}")
                         context_parts.append(f"- 20-Day Avg Volume: {avg_vol_20:,.0f}")
                         context_parts.append(f"- Volume Ratio (latest/avg): {vol_ratio:.1f}×")
 
                     # Find largest single-day gaps in last 30 days
                     if len(closes) >= 30:
-                        context_parts.append(f"\n## Recent Gaps (Last 30 Trading Days)")
+                        context_parts.append("\n## Recent Gaps (Last 30 Trading Days)")
                         recent_n = min(30, len(closes) - 1)
                         gaps = []
                         for i in range(len(closes) - recent_n, len(closes)):
@@ -572,7 +571,7 @@ def criteria_check(body: dict):
 
                     # Price range / basing analysis
                     if len(closes) >= 60:
-                        context_parts.append(f"\n## Basing Analysis")
+                        context_parts.append("\n## Basing Analysis")
                         high_3m = max(highs[-63:]) if len(highs) >= 63 else max(highs)
                         low_3m = min(lows[-63:]) if len(lows) >= 63 else min(lows)
                         range_pct = ((high_3m / low_3m) - 1) * 100 if low_3m > 0 else 0

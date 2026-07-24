@@ -13,7 +13,7 @@ Covered by tests/test_trading_analysis.py.
 import io
 import math
 import os
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import List
 
 import numpy as np
