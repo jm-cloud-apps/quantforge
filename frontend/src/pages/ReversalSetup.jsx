@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getReversalScan } from '../api/reversal'
 import TickerLink from '../components/TickerLink'
 import RefreshControl from '../components/RefreshControl'
+import { fmtInt, fmtMoney, fmtCompactDollars, fmtRelativeAge, isScanStale } from '../utils/format'
 
 // ---------------------------------------------------------------------------
 // "Reversal Setup" scanner — Stockbee's intraday-exhaustion reversal.
@@ -78,55 +79,6 @@ const COLUMN_HELP = {
   '5d ↓':   'Decline being reversed: drop from the prior 5-session high down to today\'s low. Bigger = more selling exhausted into the low.',
   Run:      'Trailing run of lower-closing sessions leading into the low — the selling streak this candle is fading. 3+ = washed out.',
   Stop:     'Reference stop: the signal-day low. Size so the Close-to-Stop distance is your fixed dollar risk.',
-}
-
-// Compact relative-time string for the freshness indicator.
-function fmtRelativeAge(iso) {
-  if (!iso) return null
-  try {
-    const then = new Date(iso).getTime()
-    if (Number.isNaN(then)) return null
-    const diffMs = Date.now() - then
-    if (diffMs < 0) return 'just now'
-    const sec = Math.floor(diffMs / 1000)
-    if (sec < 60) return 'just now'
-    const min = Math.floor(sec / 60)
-    if (min < 60) return `${min}m ago`
-    const hr = Math.floor(min / 60)
-    if (hr < 24) return `${hr}h ago`
-    return null
-  } catch {
-    return null
-  }
-}
-
-const STALE_AFTER_MIN = 90
-function isScanStale(iso) {
-  if (!iso) return false
-  try {
-    const then = new Date(iso).getTime()
-    if (Number.isNaN(then)) return false
-    return (Date.now() - then) / 60000 > STALE_AFTER_MIN
-  } catch {
-    return false
-  }
-}
-
-function fmtInt(n) {
-  if (n === null || n === undefined || Number.isNaN(n)) return '—'
-  return Number(n).toLocaleString('en-US')
-}
-function fmtMoney(n, digits = 2) {
-  if (n === null || n === undefined || Number.isNaN(n)) return '—'
-  return `$${Number(n).toFixed(digits)}`
-}
-function fmtCompactDollars(n) {
-  if (n === null || n === undefined || Number.isNaN(n)) return '—'
-  const v = Math.abs(Number(n))
-  if (v >= 1e9) return `$${(n / 1e9).toFixed(2)}B`
-  if (v >= 1e6) return `$${(n / 1e6).toFixed(1)}M`
-  if (v >= 1e3) return `$${(n / 1e3).toFixed(1)}K`
-  return `$${Number(n).toFixed(0)}`
 }
 
 export default function ReversalSetup() {

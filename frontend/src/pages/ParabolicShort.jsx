@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getParabolicScan } from '../api/parabolic'
 import TickerLink from '../components/TickerLink'
 import RefreshControl from '../components/RefreshControl'
+import { fmtInt, fmtMoney, fmtCompactDollars, fmtRelativeAge, isScanStale } from '../utils/format'
 
 // ---------------------------------------------------------------------------
 // "Parabolic Short" scanner — Qullamaggie's over-extension / snap-back setup.
@@ -70,50 +71,6 @@ const COLUMN_HELP = {
   'Risk%':  'Distance from the close up to the stop (today\'s high): (High − Close) ÷ Close. Your risk if you shorted at the close.',
 }
 
-// Compact relative-time string for the freshness indicator.
-function fmtRelativeAge(iso) {
-  if (!iso) return null
-  try {
-    const then = new Date(iso).getTime()
-    if (Number.isNaN(then)) return null
-    const diffMs = Date.now() - then
-    if (diffMs < 0) return 'just now'
-    const sec = Math.floor(diffMs / 1000)
-    if (sec < 60) return 'just now'
-    const min = Math.floor(sec / 60)
-    if (min < 60) return `${min}m ago`
-    const hr = Math.floor(min / 60)
-    if (hr < 24) return `${hr}h ago`
-    return null
-  } catch {
-    return null
-  }
-}
-
-const STALE_AFTER_MIN = 90
-function isScanStale(iso) {
-  if (!iso) return false
-  try {
-    const then = new Date(iso).getTime()
-    if (Number.isNaN(then)) return false
-    return (Date.now() - then) / 60000 > STALE_AFTER_MIN
-  } catch {
-    return false
-  }
-}
-
-function fmtMoney(n, digits = 2) {
-  if (n === null || n === undefined || Number.isNaN(n)) return '—'
-  return `$${Number(n).toFixed(digits)}`
-}
-function fmtCompactDollars(n) {
-  if (n === null || n === undefined || Number.isNaN(n)) return '—'
-  const v = Math.abs(Number(n))
-  if (v >= 1e9) return `$${(n / 1e9).toFixed(2)}B`
-  if (v >= 1e6) return `$${(n / 1e6).toFixed(1)}M`
-  if (v >= 1e3) return `$${(n / 1e3).toFixed(1)}K`
-  return `$${Number(n).toFixed(0)}`
-}
 function fmtPct(n, digits = 1) {
   if (n === null || n === undefined || Number.isNaN(n)) return '—'
   return `${Number(n).toFixed(digits)}%`
@@ -321,15 +278,15 @@ export default function ParabolicShort() {
             </div>
             <div className="rounded-xl bg-surface-900/80 border border-surface-700/50 p-3" title="Total US tickers considered before any filter.">
               <div className="text-[10px] uppercase tracking-wider text-surface-500 font-semibold">Universe</div>
-              <div className="mt-1 text-[15px] font-mono font-semibold text-surface-100">{(data.counts?.universe ?? 0).toLocaleString()}</div>
+              <div className="mt-1 text-[15px] font-mono font-semibold text-surface-100">{fmtInt(data.counts?.universe)}</div>
             </div>
             <div className="rounded-xl bg-surface-900/80 border border-surface-700/50 p-3" title="Tickers that passed the liquidity floor (Close ≥ $3 AND $ Vol ≥ $3M).">
               <div className="text-[10px] uppercase tracking-wider text-surface-500 font-semibold">Liquid</div>
-              <div className="mt-1 text-[15px] font-mono font-semibold text-surface-100">{(data.counts?.passed_liquidity ?? 0).toLocaleString()}</div>
+              <div className="mt-1 text-[15px] font-mono font-semibold text-surface-100">{fmtInt(data.counts?.passed_liquidity)}</div>
             </div>
             <div className="rounded-xl bg-surface-900/80 border border-surface-700/50 p-3" title="Tickers that cleared every rule and reached the candidate table.">
               <div className="text-[10px] uppercase tracking-wider text-surface-500 font-semibold">Parabolics</div>
-              <div className="mt-1 text-[15px] font-mono font-semibold text-rose-300">{(data.counts?.passed_all ?? 0).toLocaleString()}</div>
+              <div className="mt-1 text-[15px] font-mono font-semibold text-rose-300">{fmtInt(data.counts?.passed_all)}</div>
             </div>
           </div>
         )

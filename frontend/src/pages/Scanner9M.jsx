@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { get9MScan } from '../api/scanner9m'
 import RefreshControl from '../components/RefreshControl'
+import { fmtInt, fmtMoney, fmtCompactDollars, fmtRelativeAge, isScanStale } from '../utils/format'
 
 // ---------------------------------------------------------------------------
 // "$9 Million Method" scanner — Stockbee framework summary.
@@ -93,61 +94,6 @@ const COLUMN_HELP = {
   Compr:    'Compression ratio. Prior 5-day range ÷ prior 20-day range. ≤ 0.70 means the stock was "quiet" before today — silence then expansion is the textbook EP shape. Toggle the gate above to require it.',
   'Not late': 'Did the move actually start TODAY? Close 3 days ago should be below today\'s low. ✓ = clean, ⚠ = stock is already 3+ days into the move (Stockbee: do not enter).',
   Range:    'Today\'s dollar range (High − Low). Combine with Close to size your stop — a $2 range on a $40 stock needs a wider stop than a $2 range on a $200 stock.',
-}
-
-// Compact relative-time string for the freshness indicator: "2m ago",
-// "1h ago", "yesterday". Older than a day → return null so the caller can
-// decide to show the full date instead (different formatting).
-function fmtRelativeAge(iso) {
-  if (!iso) return null
-  try {
-    const then = new Date(iso).getTime()
-    if (Number.isNaN(then)) return null
-    const diffMs = Date.now() - then
-    if (diffMs < 0) return 'just now'
-    const sec = Math.floor(diffMs / 1000)
-    if (sec < 60) return 'just now'
-    const min = Math.floor(sec / 60)
-    if (min < 60) return `${min}m ago`
-    const hr = Math.floor(min / 60)
-    if (hr < 24) return `${hr}h ago`
-    return null
-  } catch {
-    return null
-  }
-}
-
-// Stockbee scans on EOD bars, but stale scan data is still misleading if it's
-// hours old — the trader needs to know whether they're looking at "today's
-// candle" or last week's. 90 min after generation we flag it.
-const STALE_AFTER_MIN = 90
-
-function isScanStale(iso) {
-  if (!iso) return false
-  try {
-    const then = new Date(iso).getTime()
-    if (Number.isNaN(then)) return false
-    return (Date.now() - then) / 60000 > STALE_AFTER_MIN
-  } catch {
-    return false
-  }
-}
-
-function fmtInt(n) {
-  if (n === null || n === undefined || Number.isNaN(n)) return '—'
-  return Number(n).toLocaleString('en-US')
-}
-function fmtMoney(n, digits = 2) {
-  if (n === null || n === undefined || Number.isNaN(n)) return '—'
-  return `$${Number(n).toFixed(digits)}`
-}
-function fmtCompactDollars(n) {
-  if (n === null || n === undefined || Number.isNaN(n)) return '—'
-  const v = Math.abs(Number(n))
-  if (v >= 1e9) return `$${(n / 1e9).toFixed(2)}B`
-  if (v >= 1e6) return `$${(n / 1e6).toFixed(1)}M`
-  if (v >= 1e3) return `$${(n / 1e3).toFixed(1)}K`
-  return `$${Number(n).toFixed(0)}`
 }
 
 const BUCKET_TONE = {
