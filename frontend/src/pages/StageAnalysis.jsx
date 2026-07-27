@@ -3,6 +3,7 @@ import { getStageScan } from '../api/stageAnalysis'
 import TickerLink from '../components/TickerLink'
 import TradingViewChart from '../components/TradingViewChart'
 import RefreshControl from '../components/RefreshControl'
+import { fmtMoney, fmtRelativeAge } from '../utils/format'
 
 // ---------------------------------------------------------------------------
 // Stan Weinstein Stage Analysis — from "Secrets for Profiting in Bull and Bear
@@ -81,20 +82,11 @@ const STAGE_STYLE = {
   4: { pill: 'bg-rose-500/15 text-rose-300 border-rose-400/30', dot: 'text-rose-400', border: 'border-rose-400/30' },
 }
 
-// -- formatting helpers -----------------------------------------------------
-function fmtMoney(n, d = 2) { return n == null || Number.isNaN(n) ? '—' : `$${Number(n).toFixed(d)}` }
+// -- formatting helpers (fmtMoney / fmtRelativeAge come from utils/format) ----
+// fmtPct here is signed (a +/- leading sign on the % vs MA / to pivot); fmtNum
+// is a bare fixed-decimal number — both are Stage-specific and stay local.
 function fmtPct(n, d = 1) { return n == null || Number.isNaN(n) ? '—' : `${Number(n) > 0 ? '+' : ''}${Number(n).toFixed(d)}%` }
 function fmtNum(n, d = 2) { return n == null || Number.isNaN(n) ? '—' : Number(n).toFixed(d) }
-function fmtRelativeAge(iso) {
-  if (!iso) return null
-  try {
-    const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
-    if (sec < 60) return 'just now'
-    const min = Math.floor(sec / 60); if (min < 60) return `${min}m ago`
-    const hr = Math.floor(min / 60); if (hr < 24) return `${hr}h ago`
-    return null
-  } catch { return null }
-}
 
 function StageBadge({ stage }) {
   const s = STAGE_STYLE[stage] || STAGE_STYLE[1]

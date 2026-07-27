@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getMAReclaimScan } from '../api/maReclaim'
 import TickerLink from '../components/TickerLink'
 import RefreshControl from '../components/RefreshControl'
+import { fmtInt, fmtMoney, fmtRelativeAge, isScanStale } from '../utils/format'
 
 // ---------------------------------------------------------------------------
 // "200 MA Reclaim" scanner — a long-term momentum flip from bearish to bullish.
@@ -79,46 +80,6 @@ function signalDot(signal) {
   if (signal.includes('MA turning')) return 'text-emerald-400'
   if (signal.startsWith('Fresh')) return 'text-teal-300'
   return 'text-sky-400'
-}
-
-function fmtRelativeAge(iso) {
-  if (!iso) return null
-  try {
-    const then = new Date(iso).getTime()
-    if (Number.isNaN(then)) return null
-    const diffMs = Date.now() - then
-    if (diffMs < 0) return 'just now'
-    const sec = Math.floor(diffMs / 1000)
-    if (sec < 60) return 'just now'
-    const min = Math.floor(sec / 60)
-    if (min < 60) return `${min}m ago`
-    const hr = Math.floor(min / 60)
-    if (hr < 24) return `${hr}h ago`
-    return null
-  } catch {
-    return null
-  }
-}
-
-const STALE_AFTER_MIN = 90
-function isScanStale(iso) {
-  if (!iso) return false
-  try {
-    const then = new Date(iso).getTime()
-    if (Number.isNaN(then)) return false
-    return (Date.now() - then) / 60000 > STALE_AFTER_MIN
-  } catch {
-    return false
-  }
-}
-
-function fmtInt(n) {
-  if (n === null || n === undefined || Number.isNaN(n)) return '—'
-  return Number(n).toLocaleString('en-US')
-}
-function fmtMoney(n, digits = 2) {
-  if (n === null || n === undefined || Number.isNaN(n)) return '—'
-  return `$${Number(n).toFixed(digits)}`
 }
 
 export default function MAReclaim() {
