@@ -19,6 +19,7 @@ _EP9M_CACHE = ScanCache(5 * 60)
 _REVERSAL_CACHE = ScanCache(5 * 60)
 _STAGE_CACHE = ScanCache(5 * 60)
 _MA_RECLAIM_CACHE = ScanCache(5 * 60)
+_PARABOLIC_CACHE = ScanCache(5 * 60)
 
 
 # ─── $9 Million Method Scanner ───────────────────────────────────────────────
@@ -187,3 +188,61 @@ def get_ma_reclaim_scan(
     key = (float(min_price), float(min_dollar_volume), bool(require_ma_turning),
            bool(require_rs), bool(exclude_extended))
     return _MA_RECLAIM_CACHE.fetch(key, _compute, force=bool(force))
+
+
+# ─── Parabolic Short Scanner ─────────────────────────────────────────────────
+#
+# Qullamaggie's parabolic setup: an over-extended "rubber band" — a stock up
+# 50-100%+ (large cap) / 300-1000%+ (small cap) over days-to-weeks and up 3-5+
+# days in a row — set up for a powerful snap-back you fade short. Rules live in
+# scanners/parabolic.py; this is the HTTP shell + the response cache, reading the
+# same grouped breadth cache as the other scanners (zero extra API calls).
+
+@router.get("/api/scanner/parabolic")
+def get_parabolic_scan(
+    min_price: float = 3.0,
+    min_dollar_volume: float = 3_000_000,
+    min_gain_large_pct: float = 50.0,
+    min_gain_small_pct: float = 100.0,
+    large_cap_price: float = 20.0,
+    min_up_days: int = 3,
+    run_lookback: int = 20,
+    require_extended: int = 0,
+    require_accelerating: int = 0,
+    force: int = 0,
+) -> dict:
+    """Scan the breadth cache for over-extended parabolic (short) candidates.
+
+    Hard filters (liquidity, a cap-tiered run-up gain — price is a market-cap
+    proxy since the OHLCV cache has no cap data — and a ≥ min_up_days consecutive-
+    up-close streak) are always applied. "Extended ≥ 20% above the 10-day" and
+    "accelerating (biggest 1-day gain is today)" are computed as soft signals;
+    pass `require_extended=1` or `require_accelerating=1` to promote them to hard
+    gates.
+
+    Cached per parameter tuple (market-aware TTL). force=1 bypasses. Returns 500
+    if the breadth cache hasn't been seeded — point the user at Market Monitor →
+    Refresh to build it.
+    """
+    from scanners import parabolic as _parabolic
+
+    def _compute() -> dict:
+        try:
+            return _parabolic.run(
+                min_price=float(min_price),
+                min_dollar_volume=float(min_dollar_volume),
+                min_gain_large_pct=float(min_gain_large_pct),
+                min_gain_small_pct=float(min_gain_small_pct),
+                large_cap_price=float(large_cap_price),
+                min_up_days=int(min_up_days),
+                run_lookback=int(run_lookback),
+                require_extended=bool(require_extended),
+                require_accelerating=bool(require_accelerating),
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Parabolic scan failed: {e}")
+
+    key = (float(min_price), float(min_dollar_volume), float(min_gain_large_pct),
+           float(min_gain_small_pct), float(large_cap_price), int(min_up_days),
+           int(run_lookback), bool(require_extended), bool(require_accelerating))
+    return _PARABOLIC_CACHE.fetch(key, _compute, force=bool(force))

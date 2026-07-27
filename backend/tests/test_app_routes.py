@@ -27,6 +27,7 @@ def test_critical_routes_are_registered():
         "/api/scanner/reversal",
         "/api/scanner/stage",
         "/api/scanner/ma-reclaim",
+        "/api/scanner/parabolic",
         "/api/setups/board",
         # Extracted CRUD routers (journal_router / playbook_router)
         "/api/journal/entries",
