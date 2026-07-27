@@ -80,6 +80,13 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M19 15a5 5 0 00-10 0V8m0 0L6 11m3-3l3 3" />
     </svg>
   ),
+  parabolic: (
+    // A vertical ramp that rolls over — the parabola that snaps back.
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 20c3 0 5-2 6.5-6S13 5 15 5s3 3 3.5 6" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 15l-2.5 3L15 16" />
+    </svg>
+  ),
   stages: (
     <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 20h4v-5h4v-4h4V6h6" />
@@ -172,6 +179,7 @@ const navGroups = [
       { path: '/breakouts',       label: 'Breakouts',        icon: icons.breakouts },
       { path: '/scanner-9m',      label: '$9M Scanner',      icon: icons.ninem },
       { path: '/reversal-setup',  label: 'Reversal Setup',   icon: icons.reversal },
+      { path: '/parabolic-short', label: 'Parabolic Short',  icon: icons.parabolic },
       { path: '/screener',        label: 'Sector Scan',      icon: icons.sector },
       { path: '/earnings',        label: 'Earnings',         icon: icons.calendar },
       { path: '/news',            label: 'Stock Analysis',   icon: icons.stock },

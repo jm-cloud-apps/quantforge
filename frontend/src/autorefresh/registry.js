@@ -4,6 +4,7 @@ import { getEarnings } from '../api/calendar'
 import { getEdgeValidation } from '../api/edgeValidation'
 import { getFactorModel } from '../api/factorModel'
 import { getReversalScan } from '../api/reversal'
+import { getParabolicScan } from '../api/parabolic'
 import { get9MScan } from '../api/scanner9m'
 import { getStageScan } from '../api/stageAnalysis'
 import { getMAReclaimScan } from '../api/maReclaim'
@@ -61,6 +62,12 @@ export const AUTO_REFRESH_JOBS = [
     label: 'Reversal scan',
     hint: 'Re-runs the fresh-low reversal scan.',
     run: () => getReversalScan({ requireStrongTail: false, requireGreen: false, force: true }),
+  },
+  {
+    id: 'parabolic-short',
+    label: 'Parabolic scan',
+    hint: 'Re-runs the parabolic over-extension short scan.',
+    run: () => getParabolicScan({ requireExtended: false, requireAccelerating: false, force: true }),
   },
   {
     id: 'scanner-9m',
