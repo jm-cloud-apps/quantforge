@@ -31,21 +31,39 @@ The app is organized around a trading **workflow**, not a pile of tools:
   near-term velocity matrix that flags sweet spots vs distribution traps.
 
 ### 2 · Find Setups
+- **Setups Board** — one board aggregating every scanner below into per-setup
+  lanes, plus cross-scanner **confluence** (names showing up in more than one)
+  and the current regime read.
 - **Stage Analysis** — Weinstein's four-stage cycle off the 30-week MA; surfaces
   Stage 1 bases about to break into Stage 2 and the Stage 2 advancers running.
+- **200 MA Reclaim** — long-term trend flips: names that sat below the 200-day
+  for weeks and have just reclaimed it, with MA slope, RS and extension reads.
 - **Breakouts (Ranked Chart Wall)** — Day 1/2/3+ of sustained ≥2× volume with a
   directional accumulation score, short-volume %, and optional institutional
   (Form 4 + 13-F) enrichment.
 - **$9M Scanner** — episodic-pivot / gap scanner with a deterministic scorer.
-- **Reversal Setup** — mean-reversion / reversal candidates.
+- **Reversal Setup** — Stockbee's intraday-exhaustion reversal: a fresh 5-day low
+  that recovered to close near the high on a long lower tail.
+- **Parabolic Short** — Qullamaggie's over-extension fade: stretched "rubber
+  bands" (up 50–100%+ large-cap / 300–1000%+ small-cap over days-to-weeks **and**
+  up 3–5+ days in a row) set up for a snap-back. Includes a reverse-split guard,
+  since the daily cache is unadjusted and a split otherwise fakes a +900% run.
 - **Sector Scan** — live sector/industry ETF performance plus rotation intelligence: per-sector **internals** computed from members, not the cap-weighted ETF (%>50MA, up/down dollar-volume, stealth-accumulation flags), an **RRG quadrant chart** (RS vs SPY × RS momentum with weekly trails), and a click-through **leaders drill-down** ranking each sector's strongest members by cross-sectional RS.
 - **Earnings** — beat/miss + reaction calendar.
 - **Stock Analysis** — per-symbol news + AI criteria analysis.
 - **Options Flow** — Unusual-Whales-style unusual options activity.
 
 ### 3 · Plan & Execute
-- **Rules** — your codified playbook: MA rails, volume metrics, candle tells,
-  weekly-rail guidance.
+- **Rules** — your codified playbook, as interactive framework panels rather than
+  a list: **MA Rails** (10/20/50 daily + weekly, crossovers, EMA-vs-SMA, the 200
+  as a slope/extension gate, anchored VWAP), **Volume** (dry-up, pocket pivot,
+  breakout expansion, climax, distribution + quantified thresholds), **Candle
+  Tells** (supply/demand math, not named patterns — plus a breakaway / runaway /
+  exhaustion gap taxonomy), **Candles × Rails** (which candle at the rail is
+  buyable), **Exit — Trend Death vs Shakeout** (7 discriminators and a tiered
+  cascade ladder for when to leave a winner for good), **Bases & Pivots**,
+  **EP Catalysts**, **Trade Lifecycle**, **Short Side**, and your own editable
+  rule list with a rule-of-the-day.
 - **Playbook** — annotated setup library with chart screenshots.
 - **Tools** — Position Sizer (Fixed %, Kelly, ATR) and a customizable pre-trade
   discipline checklist.
@@ -184,24 +202,34 @@ for the full threat model. Controls in place:
 
 ```
 quantforge/
+├── .github/workflows/         # backend CI — pyflakes + pytest on every PR
 ├── backend/
-│   ├── main.py                # FastAPI app, middleware, backtesting + analytics endpoints
+│   ├── main.py                # Thin hub: app setup, middleware, ~20 router registrations
 │   ├── breadth/               # Market-context engine (Trade Today / Market Monitor / SA)
-│   ├── scanners/              # $9M, reversal, stage-analysis scanners
+│   ├── scanners/              # Pure scanner logic: ep9m, reversal, stage_analysis,
+│   │                          #   ma_reclaim, parabolic (HTTP shells in scanners_router.py)
 │   ├── analytics/             # Factor model + edge validation
+│   ├── sector_rotation/       # Sector internals, RRG quadrants, per-sector leaders
 │   ├── screener/qullamaggie/  # Breakout screener (providers, scoring, sqlite cache)
 │   ├── theme_radar/           # Theme-velocity analysis
 │   ├── ai_trader/, advisor/   # AI-powered analysis (Anthropic)
 │   ├── options_flow/, news/, broker/, formatter/
-│   ├── *_router.py            # Single-file routers (journal, calendar, movers, trade_plans, …)
+│   ├── *_router.py            # Routers (scanners, journal, trading_analysis, calendar, …)
+│   ├── trade_data.py          # Pure trade-workbook parsing + metrics
+│   ├── setups_board.py        # Cross-scanner aggregation for the Setups Board
+│   ├── ttl_cache.py           # ScanCache — multi-key, market-aware response cache
 │   ├── market_clock.py        # effective_cache_ttl() — closed-market cache extension
 │   ├── ep_scorer.py           # Deterministic Qullamaggie EP scorer
+│   ├── security.py            # Shared upload-size + path-traversal guards
+│   ├── tests/                 # pytest suite (pure-logic units + route registration)
 │   └── data/                  # Runtime state: JSON + screener_snapshots.db (git-ignored)
 ├── frontend/
 │   └── src/
 │       ├── pages/             # One component per route (code-split in App.jsx)
 │       ├── api/               # One client module per backend router
 │       ├── components/        # Shared UI (Layout, RefreshControl, analysis/, review/, …)
+│       │   └── framework/     # Rules-page panel chrome (PanelShell, VerdictLadder, tones)
+│       ├── utils/             # tradingRules.js (Rules content), format.js (display helpers)
 │       └── autorefresh/       # Background daily-warm queue + serial refresh
 ├── docs/screenshots/          # README imagery
 ├── start.sh
@@ -217,10 +245,30 @@ quantforge/
 
 ---
 
+## Tests & CI
+
+```bash
+cd backend && source venv/bin/activate
+python -m pytest                      # 98 tests
+python -m pyflakes *.py tests/*.py    # undefined-name / dead-import gate
+```
+
+The suite favours **pure-logic units** — position sizing/validation, the EP
+scorer, the MA-reclaim and parabolic scanner math, trade-workbook parsing, the
+`ScanCache` TTL primitive, the file-endpoint security guards — plus
+`test_app_routes.py`, which imports the app and asserts every critical route is
+still registered (the safety net when endpoints move between routers).
+
+It's **offline-safe**: no test performs network I/O, and data-dependent tests
+skip themselves when the local caches are absent. `.github/workflows/backend.yml`
+runs pyflakes + pytest on every PR and push to `main`.
+
+> `screener/qullamaggie/test_fetch.py` is *not* a pytest test — it's a manual
+> data-provider sanity script.
+
 ## Notes
 
-- **Personal project** — there is no test suite and no linter configured;
-  `screener/qullamaggie/test_fetch.py` is a manual data-provider sanity script.
+- **Personal project**, single-user and localhost-bound by design.
 - **Not financial advice.** The screeners and regime reads are research tools.
 
 ## License
