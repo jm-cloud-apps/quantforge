@@ -11,6 +11,7 @@ import MARails from '../components/MARails'
 import VolumePatterns from '../components/VolumePatterns'
 import CandleTells from '../components/CandleTells'
 import CandlesAtRails from '../components/CandlesAtRails'
+import ExitTrendDeath from '../components/ExitTrendDeath'
 import BasesAndPivots from '../components/BasesAndPivots'
 import TradeLifecycle from '../components/TradeLifecycle'
 import ShortSide from '../components/ShortSide'
@@ -515,6 +516,7 @@ const SECTION_NAV = [
   { id: 'volume', label: 'Volume', tone: 'accent' },
   { id: 'candles', label: 'Candles', tone: 'warning' },
   { id: 'rail-candles', label: 'Candles × Rails', tone: 'purple' },
+  { id: 'exit', label: 'Exit', tone: 'danger' },
   { id: 'bases', label: 'Bases', tone: 'accent' },
   { id: 'catalysts', label: 'EP Catalysts', tone: 'accent' },
   { id: 'lifecycle', label: 'Lifecycle', tone: 'cyan' },
@@ -810,6 +812,7 @@ export default function Rules() {
       <VolumePatterns id="volume" collapsible collapsed={!!collapsed.volume} onToggle={() => toggleSection('volume')} />
       <CandleTells id="candles" collapsible collapsed={!!collapsed.candles} onToggle={() => toggleSection('candles')} />
       <CandlesAtRails id="rail-candles" collapsible collapsed={!!collapsed['rail-candles']} onToggle={() => toggleSection('rail-candles')} />
+      <ExitTrendDeath id="exit" collapsible collapsed={!!collapsed.exit} onToggle={() => toggleSection('exit')} />
       <BasesAndPivots id="bases" collapsible collapsed={!!collapsed.bases} onToggle={() => toggleSection('bases')} />
       <CatalystHierarchy id="catalysts" collapsible collapsed={!!collapsed.catalysts} onToggle={() => toggleSection('catalysts')} />
       <TradeLifecycle id="lifecycle" collapsible collapsed={!!collapsed.lifecycle} onToggle={() => toggleSection('lifecycle')} />
