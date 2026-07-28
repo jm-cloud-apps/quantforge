@@ -768,6 +768,107 @@ export const RAIL_TOUCH_LADDER = [
   },
 ]
 
+// ── Exit: trend death vs shakeout ───────────────────────────────────────────
+// The long-horizon counterpart to RAIL_TOUCH_LADDER above. That ladder reads
+// ONE rail on ONE day; this framework answers the position-level question —
+// "is this trend over, or is this the shakeout I'm supposed to sit through?"
+//
+// The framing is deliberately probabilistic. In a live stage-2 trend, pullbacks
+// to a rising rail resolve upward far more often than not — that base rate is
+// exactly why trailing a rail works, and it's why a single MA break is weak
+// evidence on its own. What raises P(the trend is dead) is *conditionally
+// independent* tells stacking: volume says who acted, slope says whether the
+// engine still runs, RS says whether sponsorship already left, and the reclaim
+// window says whether the sellers were weak hands or size. Each answers a
+// different question, so agreement between them is real information rather
+// than the same fact counted three times.
+//
+// `weight` is the tell's discriminating power (how much it moves the estimate),
+// not its certainty. Rendered by components/ExitTrendDeath.jsx.
+export const TREND_DEATH_TELLS = [
+  {
+    key: 'volume', weight: 'high',
+    title: 'Volume on the break', tagline: 'Who actually acted',
+    holds: 'Price wicks or drifts below the rail on average-or-lighter volume — nobody is rushing for the exit.',
+    dies: 'The close below prints on volume greater than any up-day of the entire advance. Supply is now bigger than demand ever was.',
+    why: 'Volume is the one input that can’t be faked by price: it measures participation, not opinion. A break nobody sold into is a break that gets bought back.',
+  },
+  {
+    key: 'cascade', weight: 'high',
+    title: 'Rail cascade & speed', tagline: 'How many trampolines broke',
+    holds: 'Loses the 10 and the 20 catches it within a bar or two — the next rail down still does its job.',
+    dies: 'Slices 10 → 20 → 50 in three bars or fewer with no bounce at any of them.',
+    why: 'In a live trend each rail is a separate bid from a separate timeframe of buyer. Losing three in a row isn’t three signals — it’s one signal that every cohort defending those levels is gone.',
+  },
+  {
+    key: 'reclaim', weight: 'high',
+    title: 'The reclaim window', tagline: 'The tiebreaker',
+    holds: 'Back above the lost rail within roughly 1–3 sessions — the undercut & reclaim.',
+    dies: 'Never reclaims; each bounce into the underside of the rail gets sold. Former support is now resistance.',
+    why: 'The highest-value tell when the others disagree. A shakeout reclaims fast because the sellers were weak hands; when size is distributing, the rally back into the line is the exit liquidity they need.',
+  },
+  {
+    key: 'extension', weight: 'med',
+    title: 'Extension when it breaks', tagline: 'Where the break happens',
+    holds: 'The break comes from a normal pullback near a rising 50 — a move that had already digested its gains.',
+    dies: 'The break comes after a climax run, from the widest stretch above the 50 of the whole advance.',
+    why: 'Distance from the mean sets the prior. The identical break is a top when it follows exhaustion and noise when the trend was never stretched — same bar, opposite meaning.',
+  },
+  {
+    key: 'slope', weight: 'med',
+    title: 'Slope of the broken rail', tagline: 'Is the engine still running',
+    holds: 'The rail it lost is still rising — it climbs back into price and catches it.',
+    dies: 'The 20 / 50 has flattened or rolled over. A falling rail doesn’t catch price, it follows it down.',
+    why: 'Slope is the trend’s engine. Crossing a rising average is a pause; sitting under a falling one means nothing is pulling price back up.',
+  },
+  {
+    key: 'rs', weight: 'med',
+    title: 'Relative strength', tagline: 'Did sponsorship leave first',
+    holds: 'The RS line is still at or near its highs — the name is still where money wants to be.',
+    dies: 'RS rolled over *before* the price break. The break is confirmation, not news.',
+    why: 'RS deteriorates ahead of price because institutions exit gradually. An RS top that precedes the price top is the earliest structural warning you get.',
+  },
+  {
+    key: 'structure', weight: 'confirm',
+    title: 'Structure after the break', tagline: 'The slowest, surest tell',
+    holds: 'One lower high, then it takes out the prior high — the uptrend definition survived.',
+    dies: 'Two consecutive lower highs and lower lows. The uptrend is broken, not bent.',
+    why: 'The most certain and the most expensive: by the time it prints you’ve given back a lot. Use it to confirm you were right to leave, never to decide whether to.',
+  },
+]
+
+// The multi-rail escalation ladder — the position-level action at each stage of
+// a breakdown. Deliberately TIERED rather than binary: the cost of exiting a
+// good trend early (forfeiting the fat tail that pays for everything) is not
+// symmetric with the cost of holding a dead one, so the response scales with
+// the evidence. Rows match the VerdictLadder shape.
+export const RAIL_CASCADE_LADDER = [
+  {
+    key: 'pullback', tone: 'good',
+    label: 'Lost the 10 · 20 holding · 50 rising',
+    verdict: 'Hold — normal pullback',
+    note: 'The next rail caught it and the engine is still climbing. In a leader this is an add zone, not a warning.',
+  },
+  {
+    key: 'trim', tone: 'warn',
+    label: 'Lost 10 + 20 · volume expanding',
+    verdict: 'Trim — shorten the leash',
+    note: 'Two rails gone on real supply. Cut back to a core and let the 50 be the decider. No adds here.',
+  },
+  {
+    key: 'exit', tone: 'bad',
+    label: '10 → 20 → 50 in ≤3 bars · no reclaim',
+    verdict: 'Exit the core — structure is gone',
+    note: 'Every level that was a bid broke in sequence. This is the trend-death signature, not a dip — and the reclaim you’re waiting for is the rally someone else is selling into.',
+  },
+  {
+    key: 'late', tone: 'bad',
+    label: 'Below the 50 · testing the 100 / 200',
+    verdict: 'Already late — stage 4',
+    note: 'The swing thesis died back at the 50. What happens down here is stage analysis, not trade management — and never a place to average down.',
+  },
+]
+
 // ── Bases & Pivots ──────────────────────────────────────────────────────────
 // The structure framework (components/BasesAndPivots.jsx): what a valid base
 // looks like (VCP / flag / cup-with-handle), the quantified quality gate, base
