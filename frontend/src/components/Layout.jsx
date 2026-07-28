@@ -80,6 +80,14 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M19 15a5 5 0 00-10 0V8m0 0L6 11m3-3l3 3" />
     </svg>
   ),
+  flashcards: (
+    // A stack of cards — the retrieval drill over the Rules frameworks.
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <rect x="3" y="7" width="14" height="12" rx="2" />
+      <path strokeLinecap="round" d="M7 4h10a3 3 0 013 3v9" />
+      <path strokeLinecap="round" d="M7 12h6M7 15.5h4" />
+    </svg>
+  ),
   parabolic: (
     // A vertical ramp that rolls over — the parabola that snaps back.
     <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -202,6 +210,7 @@ const navGroups = [
       { path: '/review',           label: 'Review',           icon: icons.journal },
       { path: '/journal',          label: 'Journal',          icon: icons.journal },
       { path: '/trading-analysis', label: 'Trading Analysis', icon: icons.trading },
+      { path: '/flashcards',       label: 'Flashcards',       icon: icons.flashcards },
       { path: '/wealthsimple',     label: 'Wealthsimple',     icon: icons.journal },
       { path: '/yearly-strongest', label: 'Yearly Strongest', icon: icons.trophy },
     ],

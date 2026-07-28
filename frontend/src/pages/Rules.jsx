@@ -722,47 +722,50 @@ export default function Rules() {
 
   return (
     <div className="space-y-6">
-      {/* HERO — gradient panel with quote */}
-      <div className="relative overflow-hidden rounded-3xl border border-surface-700/50 bg-gradient-to-br from-surface-900 via-surface-900/80 to-surface-950">
+      {/* HERO — deliberately compact: this page's value is the frameworks below,
+          so the header identifies the page and shows the daily rule without
+          eating a third of the first screen. */}
+      <div className="relative overflow-hidden rounded-2xl border border-surface-700/50 bg-gradient-to-br from-surface-900 via-surface-900/80 to-surface-950">
         {/* Decorative gradient orbs */}
-        <div className="absolute -top-24 -right-24 w-96 h-96 rounded-full bg-accent/10 blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-24 -left-24 w-96 h-96 rounded-full bg-purple/10 blur-3xl pointer-events-none" />
+        <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full bg-accent/10 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-20 -left-20 w-64 h-64 rounded-full bg-purple/10 blur-3xl pointer-events-none" />
 
-        <div className="relative px-6 sm:px-8 py-7 sm:py-8">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="relative px-5 sm:px-6 py-4 sm:py-5">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="min-w-0">
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-bold tracking-widest text-accent bg-accent/10 border border-accent/30 uppercase">
+              {/* Badge sits inline with the title rather than on its own row */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold tracking-widest text-accent bg-accent/10 border border-accent/30 uppercase">
                   <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse-soft" />
                   Discipline
                 </span>
+                <h1 className="text-[20px] sm:text-[22px] font-display font-bold text-surface-50 tracking-tight leading-tight">
+                  Trading Rules
+                </h1>
               </div>
-              <h1 className="text-[28px] sm:text-[32px] font-display font-bold text-surface-50 tracking-tight leading-tight">
-                Trading Rules
-              </h1>
-              <p className="mt-1.5 text-[13.5px] text-surface-400 max-w-xl">
+              <p className="mt-0.5 text-[12px] text-surface-400">
                 Review before every session. Especially before clicking the buy button.
               </p>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
               {showResetConfirm ? (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-danger/10 border border-danger/30">
-                  <span className="text-[11px] text-danger">Reset to Qullamaggie defaults?</span>
-                  <button onClick={() => setShowResetConfirm(false)} className="text-[11px] text-surface-300 hover:text-surface-100 px-1.5">
+                <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-danger/10 border border-danger/30">
+                  <span className="text-[10.5px] text-danger">Reset to Qullamaggie defaults?</span>
+                  <button onClick={() => setShowResetConfirm(false)} className="text-[10.5px] text-surface-300 hover:text-surface-100 px-1">
                     Cancel
                   </button>
-                  <button onClick={handleReset} className="text-[11px] font-semibold text-danger hover:text-red-300 px-1.5">
+                  <button onClick={handleReset} className="text-[10.5px] font-semibold text-danger hover:text-red-300 px-1">
                     Reset
                   </button>
                 </div>
               ) : (
                 <button
                   onClick={() => setShowResetConfirm(true)}
-                  className="text-[11.5px] text-surface-300 hover:text-surface-100 px-3 py-2 rounded-xl border border-surface-700 hover:border-surface-600 bg-surface-900/60 transition-colors flex items-center gap-1.5"
+                  className="text-[11px] text-surface-300 hover:text-surface-100 px-2.5 py-1.5 rounded-lg border border-surface-700 hover:border-surface-600 bg-surface-900/60 transition-colors flex items-center gap-1.5"
                   title="Replace current rules with Qullamaggie defaults"
                 >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
                   Reset to defaults
@@ -773,12 +776,13 @@ export default function Rules() {
 
           {/* Rule of the Day — rotates deterministically through the user's
               rules so the hero always shows something fresh without being
-              random or flashy. Tapping it filters to that rule's category. */}
+              random or flashy. Tapping it filters to that rule's category.
+              The meta row is one line: label · category · rotation position. */}
           {dailyRule && dailyMeta && (
-            <figure className="mt-6 relative pl-5">
-              <div className={`absolute left-0 top-1 bottom-1 w-[3px] rounded-full ${dailyMeta.bar}`} />
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="text-[9.5px] font-bold tracking-widest text-surface-500 uppercase">
+            <figure className="mt-3 relative pl-3.5">
+              <div className={`absolute left-0 top-0.5 bottom-0.5 w-[2.5px] rounded-full ${dailyMeta.bar}`} />
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[9px] font-bold tracking-widest text-surface-500 uppercase">
                   Rule of the day
                 </span>
                 <button
@@ -790,13 +794,13 @@ export default function Rules() {
                   <span className="w-2.5 h-2.5">{dailyMeta.icon}</span>
                   {dailyMeta.label.toUpperCase()}
                 </button>
+                <figcaption className="ml-auto text-[10px] font-mono text-surface-500 tracking-wide shrink-0">
+                  {(new Date()).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · 1 of {rules.length}
+                </figcaption>
               </div>
-              <blockquote className="text-[16px] sm:text-[17px] text-surface-100 font-display leading-relaxed italic">
+              <blockquote className="mt-1 text-[13.5px] sm:text-[14.5px] text-surface-100 font-display leading-snug italic">
                 “{dailyRule.text}”
               </blockquote>
-              <figcaption className="mt-1.5 text-[11px] font-mono text-surface-500 tracking-wide">
-                Day {(new Date()).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · 1 of {rules.length} on rotation
-              </figcaption>
             </figure>
           )}
         </div>
