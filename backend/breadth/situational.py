@@ -552,6 +552,143 @@ def _breakout_takeaway(setups: list[dict]) -> str:
     return "Mixed tape — be selective on breakouts."
 
 
+# ---------------------------------------------------------------------------
+# Day verdict — "what do I actually do today?"
+#
+# The score + lights describe the tape; this turns them into the two decisions a
+# swing trader actually makes each morning: do I put on NEW risk (and in which
+# direction), and what do I do with what I already hold. They're separate axes
+# on purpose — "don't buy anything new" is not the same instruction as "sell
+# what you own", and collapsing them is how good positions get dumped in noise.
+#
+# Two properties worth stating because they are not intuitive:
+#
+#   1. Exposure is a LONG-side gauge. A low score means "bad for my long edge",
+#      which is NOT the same as "good for shorts". Absence of a long green is
+#      never, by itself, a short signal — shorts need their own green.
+#
+#   2. Short risk is NON-MONOTONIC in the score. It is worst at the very bottom:
+#      the washed-out band is where oversold snap-backs and squeezes live, so
+#      that's where new shorts get hurt most. The best short window is the
+#      *defensive* band — the decline is underway but not yet exhausted — not
+#      the capitulation low.
+#
+# `ratio_10d` between these bounds means neither side has thrust — the mushy
+# middle where breakouts fail and shorts get squeezed. Paired with "no setup
+# family is green", that's a genuine no-edge day.
+CHOP_RATIO_LO = 0.8
+CHOP_RATIO_HI = 1.4
+
+
+def _verdict(code, label, tone, new_long, new_short, existing, why, avoid=False) -> dict:
+    return {
+        "code": code, "label": label, "tone": tone,
+        "new_long": new_long,      # yes | selective | no
+        "new_short": new_short,    # yes | stalk | no
+        "existing": existing,
+        "why": why,
+        "avoid": avoid,
+    }
+
+
+def day_verdict(score: int, level: str, setups: list[dict], row: dict) -> dict:
+    """Turn the score + setup lights into today's actionable stance.
+
+    Rules are evaluated in priority order; the first match wins. Every branch
+    answers both axes (new risk, existing positions) so the UI never has to
+    infer one from the other.
+    """
+    lights = {s["key"]: s["light"] for s in (setups or [])}
+    short_l = lights.get("short")
+    breakout_l = lights.get("breakout")
+    ratio = row.get("ratio_10d")
+    any_green = any(l == "green" for l in lights.values())
+    no_thrust = ratio is not None and CHOP_RATIO_LO <= ratio <= CHOP_RATIO_HI
+    r_txt = f"{ratio:.2f}" if ratio is not None else "n/a"
+
+    # 1 · Washed out. Shorts may still read "green" on breadth here, but this is
+    #     the squeeze floor — the wrong end of the move to be initiating them.
+    if level == "cash":
+        return _verdict(
+            "washed_out", "Washed out — cash, and do not chase shorts", "bad",
+            new_long="no", new_short="no",
+            existing="Cover shorts into weakness rather than adding. Longs: survivors only — anything still above its rails has already proven itself.",
+            why=f"Heavy selling with the 10-day ratio at {r_txt}. This is capitulation territory, where oversold bounces start — the most expensive place to open a new short.",
+            avoid=True,
+        )
+
+    # 2 · The genuine short window: decline underway, not yet exhausted, and the
+    #     short family has its own green — never inferred from a weak long read.
+    if level == "defensive" and short_l == "green":
+        return _verdict(
+            "short_on", "Shorts in season — on their own signal", "bad",
+            new_long="no", new_short="yes",
+            existing="No new longs; keep stops tight on what's left. Shorts: size small, stop above the signal-bar high.",
+            why=f"Sustained distribution (10-day ratio {r_txt}) with the Shorts/Hedges light green. This band — decline underway but not capitulated — is the best short window.",
+        )
+
+    # 3 · Defensive without a short green: de-risk, stalk only.
+    if level == "defensive":
+        return _verdict(
+            "defend", "Defend — no new longs, stalk shorts only", "warn",
+            new_long="no", new_short="stalk",
+            existing="Trim laggards, raise stops to structure, bank partials. Let the winners that still hold their rails run.",
+            why=f"Distribution is underway (10-day ratio {r_txt}) but the Shorts/Hedges light isn't green yet. Cash is the position — shorting needs its own confirmation, not just a weak long tape.",
+        )
+
+    # 4 · No thrust either way and nothing in season — the no-edge day.
+    if no_thrust and not any_green:
+        return _verdict(
+            "chop", "Chop — stand down", "neutral",
+            new_long="no", new_short="no",
+            existing="Hold what's working, tighten what isn't. Manage, don't initiate.",
+            why=f"The 10-day ratio is {r_txt} — no thrust in either direction — and no setup family is green. Breakouts fail and shorts get squeezed in this tape.",
+            avoid=True,
+        )
+
+    # 5 · Full risk-on.
+    if level == "aggressive" and breakout_l == "green":
+        return _verdict(
+            "press_long", "Press longs — thrust is on", "good",
+            new_long="yes", new_short="no",
+            existing="Add on quality breakouts and pullbacks to rising rails. Let winners run; only trim into froth.",
+            why=f"Broad thrust with the 10-day ratio at {r_txt} and breakouts green. This is the band that pays for the rest of the year — be aggressive on A+ setups.",
+        )
+    if level == "aggressive":
+        return _verdict(
+            "hunt_long", "Hunt longs — full size on A+", "good",
+            new_long="yes", new_short="no",
+            existing="Hold and add on confirmation. Keep stops honest.",
+            why=f"Exposure is strong (score {score}, 10-day ratio {r_txt}), though breakouts aren't cleanly green — take the best setups at full size.",
+        )
+
+    # 6 · Constructive — the normal-size working tape.
+    if level == "constructive":
+        return _verdict(
+            "hunt_long", "Hunt longs — normal size", "good",
+            new_long="yes", new_short="no",
+            existing="Hold and add on confirmation; take partials into strength per plan.",
+            why=f"Constructive tape (score {score}, 10-day ratio {r_txt}). Quality breakouts follow through here — trade your plan at normal size.",
+        )
+
+    # 7 · Selective — A+ only, and only if something is actually in season.
+    if any_green:
+        return _verdict(
+            "selective_long", "Selective — A+ longs only", "info",
+            new_long="selective", new_short="no",
+            existing="Hold winners, cut laggards early, take partials quickly. Don't chase extensions.",
+            why=f"Mixed tape (score {score}, 10-day ratio {r_txt}) with at least one setup family green. Demand A+ structure and cut size.",
+        )
+
+    return _verdict(
+        "chop", "Chop — stand down", "neutral",
+        new_long="no", new_short="no",
+        existing="Hold what's working, tighten what isn't. Manage, don't initiate.",
+        why=f"Score {score} with no setup family green — nothing is in season. The best trade available is no trade.",
+        avoid=True,
+    )
+
+
 def assess(rows: list[dict], universe_size: int = 0, universe_as_of: str | None = None) -> dict:
     """Build the full situational-awareness payload from breadth history rows.
 
@@ -565,6 +702,7 @@ def assess(rows: list[dict], universe_size: int = 0, universe_as_of: str | None 
             "stance": {"level": "neutral", "label": "No data", "headline": "Refresh breadth",
                        "exposure": "—", "action": "Refresh the breadth cache on Market Monitor to compute a read."},
             "breakout_takeaway": "No breadth data cached yet.",
+            "verdict": None,
             "drivers": [],
             "setups": [],
             "criteria": {"factors": [], "stance_bands": _stance_bands("neutral")},
@@ -595,6 +733,7 @@ def assess(rows: list[dict], universe_size: int = 0, universe_as_of: str | None 
         "score": score,
         "stance": {"level": level, **_STANCE[level]},
         "breakout_takeaway": _breakout_takeaway(setups),
+        "verdict": day_verdict(score, level, setups, latest),
         "drivers": drivers,
         "setups": setups,
         "criteria": {"factors": evs, "stance_bands": _stance_bands(level)},

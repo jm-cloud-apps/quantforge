@@ -659,6 +659,91 @@ function DataMethodology({ sa, stats }) {
 
 // ─── Trade-today decision header — the 3-gate command answer ────────────────
 // Consolidates the whole "should I trade, how big, and where" call into one band
+// ─── Day verdict — "what do I actually do today?" ───────────────────────────
+// The two decisions a swing trader makes each morning, kept on separate axes:
+// do I put on NEW risk (and which way), and what do I do with what I hold.
+// Backend logic lives in breadth/situational.py::day_verdict.
+
+const V_TONE = {
+  good:    { border: 'border-accent/40',  bg: 'bg-accent/[0.06]',  text: 'text-accent',  chip: 'bg-accent/10 text-accent border-accent/30' },
+  info:    { border: 'border-cyan/40',    bg: 'bg-cyan/[0.06]',    text: 'text-cyan',    chip: 'bg-cyan/10 text-cyan border-cyan/30' },
+  warn:    { border: 'border-amber-400/40', bg: 'bg-amber-500/[0.07]', text: 'text-amber-300', chip: 'bg-amber-500/10 text-amber-300 border-amber-400/30' },
+  bad:     { border: 'border-rose-400/40', bg: 'bg-rose-500/[0.07]', text: 'text-rose-300', chip: 'bg-rose-500/10 text-rose-300 border-rose-400/30' },
+  neutral: { border: 'border-surface-600', bg: 'bg-surface-800/30', text: 'text-surface-300', chip: 'bg-surface-800/60 text-surface-400 border-surface-700' },
+}
+
+// New-risk pills: the answer is one of three states per direction.
+const RISK_STATE = {
+  yes:       { label: 'Yes',        cls: 'bg-accent/10 text-accent border-accent/30' },
+  selective: { label: 'A+ only',    cls: 'bg-cyan/10 text-cyan border-cyan/30' },
+  stalk:     { label: 'Stalk only', cls: 'bg-amber-500/10 text-amber-300 border-amber-400/30' },
+  no:        { label: 'No',         cls: 'bg-surface-800/60 text-surface-500 border-surface-700' },
+}
+
+function RiskPill({ label, state }) {
+  const s = RISK_STATE[state] || RISK_STATE.no
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] font-bold tracking-widest text-surface-500 uppercase w-[74px] shrink-0">{label}</span>
+      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold tracking-wide border ${s.cls}`}>
+        {s.label}
+      </span>
+    </div>
+  )
+}
+
+function DayVerdict({ v, setups }) {
+  const t = V_TONE[v.tone] || V_TONE.neutral
+  const shortLight = (setups || []).find(s => s.key === 'short')?.light
+
+  return (
+    <div className={`rounded-2xl border ${t.border} ${t.bg} px-5 py-4`}>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[9.5px] font-bold tracking-widest text-surface-500 uppercase">Today</span>
+            {v.avoid && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-surface-800/60 text-surface-400 border-surface-700 uppercase">
+                No-trade day
+              </span>
+            )}
+          </div>
+          <div className={`mt-0.5 text-[19px] font-display font-bold tracking-tight leading-tight ${t.text}`}>
+            {v.label}
+          </div>
+        </div>
+
+        {/* The two axes, answered explicitly */}
+        <div className="flex flex-col gap-1.5 shrink-0">
+          <RiskPill label="New long" state={v.new_long} />
+          <RiskPill label="New short" state={v.new_short} />
+        </div>
+      </div>
+
+      <p className="mt-2.5 text-[12.5px] text-surface-300 leading-snug">{v.why}</p>
+
+      <div className="mt-3 rounded-lg border border-surface-700/50 bg-surface-950/40 px-3 py-2">
+        <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-0.5">Positions you already hold</div>
+        <p className="text-[12px] text-surface-200 leading-snug">{v.existing}</p>
+      </div>
+
+      {/* The asymmetry note — why a weak long tape is not a short signal. Shown
+          whenever shorts aren't authorised but the tape is soft, which is
+          exactly when the temptation to flip direction shows up. */}
+      {v.new_short !== 'yes' && (v.tone === 'bad' || v.tone === 'warn' || v.tone === 'neutral') && (
+        <p className="mt-2 text-[11.5px] text-surface-500 leading-snug">
+          <span className="font-semibold text-surface-400">Why no shorts:</span> exposure is a
+          <span className="text-surface-300"> long-side</span> gauge — a weak long tape isn't a short signal, it's an
+          absence of one. Shorts need their own green
+          {shortLight ? <> (Shorts / Hedges is currently <span className="text-surface-300">{shortLight}</span>)</> : null}
+          , and the risk is worst at the <span className="text-surface-300">bottom</span> of the range, where squeezes
+          live. See the <Link to="/rules#short-side" className="text-cyan hover:underline underline-offset-2">Short Side</Link> framework before any short.
+        </p>
+      )}
+    </div>
+  )
+}
+
 // at the top: Gate 1 (breakout light) · Gate 2 (exposure score → % long) · Gate 3
 // (in-season themes, pulled from Theme Radar). Everything below is the supporting
 // detail behind these three calls.
@@ -1230,7 +1315,7 @@ export default function SituationalAwareness() {
 
       {/* Pre-trade discipline gate — plan (setup + stop + target) before the fill;
           size is derived off the stop. Always available, independent of breadth. */}
-      <TradePlanGate regime={stance?.label ?? null} />
+      <TradePlanGate regime={stance?.label ?? null} verdict={sa?.verdict ?? null} />
 
       {loading && !sa && (
         <div className="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-12 text-center">
@@ -1254,6 +1339,8 @@ export default function SituationalAwareness() {
           </p>
         </div>
       )}
+
+      {sa?.verdict && <DayVerdict v={sa.verdict} setups={sa.setups} />}
 
       {sa && stance && sa.score != null && (
         <>
