@@ -1,4 +1,5 @@
-import { BASE_PATTERNS, BASE_QUALITY, BASE_COUNT_LADDER } from '../utils/tradingRules'
+import { Link } from 'react-router-dom'
+import { BASE_PATTERNS, BASE_QUALITY, BASE_COUNT_LADDER, POLE_FORK, SETUP_MATRIX } from '../utils/tradingRules'
 import { Candle } from './MARailsVisuals'
 import { VOL_COLORS } from './volumeCharts'
 
@@ -101,6 +102,38 @@ function Scene({ spec, toneHex, label }) {
         <circle cx={spec.mark.x} cy={spec.mark.y} r={spec.mark.r} fill="none"
           stroke={toneHex} strokeWidth="1.2" strokeDasharray="3 2.5" strokeOpacity="0.9" />
       )}
+    </svg>
+  )
+}
+
+// One shared pole, then the fork. Drawn as paths rather than candles because
+// the point is the SHAPE of the two resolutions, not any individual bar.
+function ForkScene() {
+  const GOOD = TONE.good.hex
+  const BAD = TONE.bad.hex
+  const MONO = 'JetBrains Mono, monospace'
+  return (
+    <svg viewBox="0 0 260 108" className="w-full h-auto block rounded-lg bg-surface-950/60" role="img"
+      aria-label="One vertical pole forking into two outcomes: a tight quiet flag that breaks out, or a climax that rolls over.">
+      {/* the shared pole */}
+      <path d="M14 94 L92 26" stroke={VOL_COLORS.avg} strokeWidth="2.4" fill="none" strokeLinecap="round" />
+      <text x="16" y="86" fontSize="7.5" fontWeight="700" fill={VOL_COLORS.avg} fontFamily={MONO}>THE POLE</text>
+      <circle cx="92" cy="26" r="3.2" fill="none" stroke={VOL_COLORS.avg} strokeWidth="1.4" />
+
+      {/* branch A — tight flag, then break out (green) */}
+      <path d="M92 26 L106 33 L118 30 L130 36 L142 33 L154 38" stroke={GOOD} strokeWidth="1.8" fill="none"
+        strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M154 38 L196 12" stroke={GOOD} strokeWidth="2.2" fill="none" strokeLinecap="round" />
+      <path d="M196 12 l-1 -7 l7 3" stroke={GOOD} strokeWidth="2.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <text x="200" y="16" fontSize="7.5" fontWeight="700" fill={GOOD} fontFamily={MONO}>FLAG</text>
+      <text x="200" y="25" fontSize="6.5" fill={GOOD} fillOpacity="0.75" fontFamily={MONO}>dry-up</text>
+
+      {/* branch B — keeps accelerating, then rolls over (red) */}
+      <path d="M92 26 L108 16 L120 9" stroke={BAD} strokeWidth="2.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M120 9 C 138 8, 146 30, 158 48 C 168 63, 182 74, 196 82" stroke={BAD} strokeWidth="2.2" fill="none" strokeLinecap="round" />
+      <path d="M196 82 l-7 0 l3 -6" stroke={BAD} strokeWidth="2.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <text x="200" y="84" fontSize="7.5" fontWeight="700" fill={BAD} fontFamily={MONO}>CLIMAX</text>
+      <text x="200" y="93" fontSize="6.5" fill={BAD} fillOpacity="0.75" fontFamily={MONO}>then cracks</text>
     </svg>
   )
 }
@@ -259,6 +292,82 @@ export default function BasesAndPivots({ collapsible = false, collapsed = false,
               )
             })}
           </div>
+        </div>
+
+        {/* Same pole, two outcomes — the HTF-vs-parabolic fork. The most common
+            confusion on this page: they aren't inverses, they're two exits from
+            the same doorway. Volume is the tell. */}
+        <div className="mt-5">
+          <div className="flex items-center gap-2 flex-wrap mb-2">
+            <span className="text-[9.5px] font-bold tracking-widest text-surface-500 uppercase">Same pole, two outcomes</span>
+            <span className="text-[11px] text-surface-500">the HTF and the parabolic short start identically</span>
+          </div>
+
+          <div className="rounded-2xl border border-surface-700/40 bg-surface-900/40 p-4">
+            <ForkScene />
+            <p className="mt-3 text-[12px] text-surface-400 leading-snug">
+              A huge, fast advance is <span className="text-surface-200">not a directional signal</span> — the pole is
+              common to both trades. What decides the direction is how it <span className="text-surface-200">resolves</span>,
+              and volume is the cleanest tell: <span className="text-accent">dry-up = rest</span>,{' '}
+              <span className="text-danger">climax = exhaustion</span> — the same pair the Volume panel teaches.
+            </p>
+
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {POLE_FORK.map(f => {
+                const tone = TONE[f.tone]
+                return (
+                  <div key={f.key} className={`rounded-xl border ${tone.border} ${tone.bgSoft} px-4 py-3`}>
+                    <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase">{f.label}</div>
+                    <div className={`mt-0.5 text-[13.5px] font-bold tracking-tight ${tone.text}`}>{f.outcome}</div>
+                    <p className="mt-2 text-[12px] text-surface-300 leading-snug">{f.what}</p>
+                    <div className="mt-2 flex items-baseline gap-1.5">
+                      <span className="text-[9px] font-bold tracking-widest text-surface-500 uppercase shrink-0">Volume</span>
+                      <span className={`text-[12px] font-semibold ${tone.text}`}>{f.volume}</span>
+                    </div>
+                    <p className="mt-1.5 text-[11.5px] text-surface-500 leading-snug italic">{f.means}</p>
+                    <p className="mt-2 text-[12px] text-surface-200 leading-snug">{f.action}</p>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* The four setups as one map — shows at a glance that the HTF's mirror
+            is the bear flag, not the parabolic. */}
+        <div className="mt-4">
+          <div className="flex items-center gap-2 flex-wrap mb-2">
+            <span className="text-[9.5px] font-bold tracking-widest text-surface-500 uppercase">The four setups, mapped</span>
+            <span className="text-[11px] text-surface-500">trading with the move, or fading its exhaustion</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {SETUP_MATRIX.map(s => {
+              const tone = TONE[s.tone]
+              return (
+                <Link
+                  key={s.key}
+                  to={s.to}
+                  className={`block rounded-xl border ${tone.border} ${tone.bgSoft} px-4 py-3 hover:brightness-125 transition-all`}
+                >
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-surface-800/60 text-surface-400 border-surface-700 uppercase">
+                      {s.axis}
+                    </span>
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border ${tone.chip}`}>
+                      {s.side}
+                    </span>
+                    <span className={`text-[13px] font-bold tracking-tight ${tone.text}`}>{s.name}</span>
+                  </div>
+                  <p className="mt-1.5 text-[11.5px] text-surface-400 leading-snug">{s.note}</p>
+                </Link>
+              )
+            })}
+          </div>
+          <p className="mt-2 text-[11.5px] text-surface-500 leading-snug">
+            Read across the rows: the HTF's mirror is the <span className="text-surface-300">bear flag</span> (Breakdown
+            Short), not the parabolic. The parabolic's mirror is the{' '}
+            <span className="text-surface-300">Reversal Setup</span> — both fade exhaustion, just at opposite ends.
+          </p>
         </div>
 
         {/* Pivot quality — where the entry actually goes */}

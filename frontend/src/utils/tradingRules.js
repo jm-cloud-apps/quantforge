@@ -946,6 +946,60 @@ export const BASE_COUNT_LADDER = [
 // resolution as a day-by-day protocol, plus the progressive-exposure ladder.
 // side: 'early' = the first days decide; 'campaign' = adds, earnings, gaps.
 
+// ── Same pole, two outcomes ─────────────────────────────────────────────────
+// The most common confusion on this page: the parabolic short is NOT the
+// inverse of the HTF. They begin identically — a huge, fast advance — and the
+// pole itself carries no directional information. What separates them is how it
+// RESOLVES, and volume is the cleanest tell (dry-up = rest, climax = exhaustion,
+// the same pair the Volume panel teaches).
+export const POLE_FORK = [
+  {
+    key: 'flag', tone: 'good',
+    label: 'It stops and goes quiet',
+    outcome: 'HTF — buy the flag break',
+    what: 'Drifts sideways-to-down for 3–15 sessions, holding the upper third of the pole.',
+    volume: 'Collapses — the dry-up',
+    means: 'Holders refuse to sell even after a huge run. Rest without retracement is the strongest statement a chart makes.',
+    action: 'Buy the break of the flag high; stop under the flag low.',
+  },
+  {
+    key: 'climax', tone: 'bad',
+    label: 'It keeps going vertical',
+    outcome: 'Parabolic — short the crack',
+    what: 'Up 3–5+ days in a row, stretching 20%+ above the 10-day, never pausing to build a flag.',
+    volume: 'Expands into a climax',
+    means: 'The last buyers are paying up while early money sells into them — the rubber band at full stretch.',
+    action: 'Never short the front side. Wait for the crack — first red day / loss of the day’s low — and stop above the high.',
+  },
+]
+
+// The four setups as one map. Two axes: are you trading WITH the move
+// (continuation) or against its exhaustion, and which side. It's the fastest way
+// to see that HTF's mirror is the bear flag — not the parabolic short, whose
+// real mirror is the long-side reversal.
+export const SETUP_MATRIX = [
+  {
+    key: 'cont-long', axis: 'Continuation', side: 'Long', tone: 'good',
+    name: 'HTF / flag', to: '/rules#bases',
+    note: 'Pole up → tight flag holding the upper third → buy the break.',
+  },
+  {
+    key: 'cont-short', axis: 'Continuation', side: 'Short', tone: 'bad',
+    name: 'Breakdown Short', to: '/breakdown-short',
+    note: 'Pole down → rally into a declining rail → short the failure. The true mirror of the HTF.',
+  },
+  {
+    key: 'exh-long', axis: 'Exhaustion fade', side: 'Long', tone: 'good',
+    name: 'Reversal Setup', to: '/reversal-setup',
+    note: 'Fresh low that closes near the high — fading selling exhaustion.',
+  },
+  {
+    key: 'exh-short', axis: 'Exhaustion fade', side: 'Short', tone: 'bad',
+    name: 'Parabolic Short', to: '/parabolic-short',
+    note: 'Climax run, then the crack — fading buying exhaustion. Mirrors the Reversal, not the HTF.',
+  },
+]
+
 export const LIFECYCLE = [
   {
     key: 'entry', side: 'early', glyph: 'entry', tone: 'info', signal: 'context',
