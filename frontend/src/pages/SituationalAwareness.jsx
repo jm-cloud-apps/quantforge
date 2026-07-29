@@ -1315,7 +1315,7 @@ export default function SituationalAwareness() {
 
       {/* Pre-trade discipline gate — plan (setup + stop + target) before the fill;
           size is derived off the stop. Always available, independent of breadth. */}
-      <TradePlanGate regime={stance?.label ?? null} />
+      <TradePlanGate regime={stance?.label ?? null} verdict={sa?.verdict ?? null} />
 
       {loading && !sa && (
         <div className="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-12 text-center">

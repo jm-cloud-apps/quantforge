@@ -366,12 +366,23 @@ function SituationalSnippet({ sa }) {
         <div className="flex items-center gap-3 min-w-0">
           <span className={`shrink-0 w-3 h-3 rounded-full ${tone.bar} ${loading ? 'animate-pulse' : ''}`} aria-hidden="true" />
           <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-wider text-surface-500 font-semibold">Trade Today · Posture</div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] uppercase tracking-wider text-surface-500 font-semibold">Trade Today · Posture</span>
+              {/* The no-trade flag is the most actionable thing the read produces —
+                  it belongs on the one-glance page, not one click away. */}
+              {!error && data?.verdict?.avoid && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-rose-500/10 text-rose-300 border-rose-400/30 uppercase">
+                  No-trade day
+                </span>
+              )}
+            </div>
             <div className={`font-display font-bold text-lg ${tone.text} leading-tight`}>
               {error ? 'Unavailable' : stance ? `${stance.label} — ${stance.headline}` : loading ? 'Reading the tape…' : 'No data'}
             </div>
-            {!error && data?.breakout_takeaway && (
-              <div className="text-[12px] text-surface-400 mt-0.5 leading-snug">{data.breakout_takeaway}</div>
+            {!error && (data?.verdict?.label || data?.breakout_takeaway) && (
+              <div className="text-[12px] text-surface-400 mt-0.5 leading-snug">
+                {data?.verdict?.label || data.breakout_takeaway}
+              </div>
             )}
           </div>
         </div>

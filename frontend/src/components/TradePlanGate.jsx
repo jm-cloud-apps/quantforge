@@ -25,13 +25,51 @@ const rrTone = (rr) => rr == null ? 'text-surface-400'
 
 const BLANK = { symbol: '', setup: '', direction: 'long', entry: '', stop: '', target: '', conviction: '' }
 
-export default function TradePlanGate({ regime = null }) {
+// Does the direction being planned contradict today's breadth read?
+//
+// This is a friction step, not a block. There are legitimate reasons to trade
+// against the read (an exceptional setup, managing an existing position), so the
+// gate never refuses — it makes the disagreement explicit, requires a deliberate
+// acknowledgement, and records the override on the plan so the cost of trading
+// against the tape becomes measurable instead of anecdotal.
+function conflictFor(verdict, direction) {
+  if (!verdict) return null
+  const state = direction === 'short' ? verdict.new_short : verdict.new_long
+  const side = direction === 'short' ? 'shorts' : 'longs'
+  if (state === 'no') {
+    return {
+      level: 'block',
+      title: verdict.avoid
+        ? `Today reads as a no-trade day — ${verdict.label}`
+        : `Today's read says no new ${side} — ${verdict.label}`,
+      body: verdict.why,
+    }
+  }
+  if (state === 'stalk') {
+    return {
+      level: 'caution',
+      title: `${side[0].toUpperCase()}${side.slice(1)} are stalk-only today`,
+      body: 'Conditions are building but unconfirmed — wait for the trigger rather than anticipating it.',
+    }
+  }
+  if (state === 'selective') {
+    return {
+      level: 'caution',
+      title: 'A+ setups only today',
+      body: 'Mixed tape — demand best-in-class structure, cut size, and take partials quickly.',
+    }
+  }
+  return null
+}
+
+export default function TradePlanGate({ regime = null, verdict = null }) {
   const [config, setConfig] = useState(null)
   const [plans, setPlans] = useState([])
   const [form, setForm] = useState(BLANK)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [showSettings, setShowSettings] = useState(false)
+  const [override, setOverride] = useState(false)
   const [cfgDraft, setCfgDraft] = useState({ account_size: '', risk_pct: '' })
 
   const refresh = async () => {
@@ -67,7 +105,17 @@ export default function TradePlanGate({ regime = null }) {
     return form.direction === 'long' ? (s < e && t > e) : (s > e && t < e)
   }, [form])
 
+  // Today's read vs the direction being planned. A 'block' conflict needs an
+  // explicit acknowledgement before the plan can be logged.
+  const conflict = useMemo(() => conflictFor(verdict, form.direction), [verdict, form.direction])
+  const needsOverride = conflict?.level === 'block'
+
+  // Any change of direction retracts a prior acknowledgement — the trader has to
+  // agree to the *current* disagreement, not a stale one.
+  useEffect(() => { setOverride(false) }, [form.direction, verdict?.code])
+
   const canSave = form.symbol.trim() && form.setup && sideOk && risk && risk.shares > 0
+    && (!needsOverride || override)
 
   const onSave = async () => {
     setError(''); setSaving(true)
@@ -77,8 +125,11 @@ export default function TradePlanGate({ regime = null }) {
         entry: Number(form.entry), stop: Number(form.stop), target: Number(form.target),
         conviction: form.conviction ? Number(form.conviction) : null,
         regime: regime || null,
+        verdict_code: verdict?.code || null,
+        override: Boolean(needsOverride && override),
       })
       setForm(BLANK)
+      setOverride(false)
       await refresh()
     } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
@@ -190,6 +241,45 @@ export default function TradePlanGate({ regime = null }) {
         <Metric label="Reward : risk" value={risk?.rr != null ? `${risk.rr.toFixed(2)}R` : '—'} tone={rrTone(risk?.rr)}
           hint={risk?.rr != null ? (risk.rr >= 2 ? 'good' : risk.rr >= 1.5 ? 'thin' : 'below 1.5 — skip') : ''} />
       </div>
+
+      {/* Today's read vs the direction being planned. Deliberate friction: it
+          never blocks outright, but a direct contradiction has to be
+          acknowledged, and the acknowledgement is stored on the plan. */}
+      {conflict && (
+        <div className={`mt-3 rounded-lg px-3 py-2.5 border ${
+          conflict.level === 'block'
+            ? 'bg-rose-500/10 border-rose-400/30'
+            : 'bg-amber-500/10 border-amber-400/30'
+        }`}>
+          <div className="flex items-start gap-2">
+            <svg className={`w-3.5 h-3.5 mt-px shrink-0 ${conflict.level === 'block' ? 'text-rose-300' : 'text-amber-300'}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            </svg>
+            <div className="min-w-0">
+              <div className={`text-[12px] font-semibold ${conflict.level === 'block' ? 'text-rose-200' : 'text-amber-200'}`}>
+                {conflict.title}
+              </div>
+              {conflict.body && <p className="text-[11.5px] text-surface-300 mt-0.5 leading-snug">{conflict.body}</p>}
+
+              {needsOverride && (
+                <label className="mt-2 flex items-start gap-2 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={override}
+                    onChange={(e) => setOverride(e.target.checked)}
+                    className="mt-0.5 accent-rose-400"
+                  />
+                  <span className="text-[11.5px] text-surface-300 group-hover:text-surface-200 leading-snug">
+                    I'm trading against today's read on purpose — log this as an override.
+                    <span className="text-surface-500"> Recorded on the plan so its outcome can be measured later.</span>
+                  </span>
+                </label>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && <div className="mt-3 rounded-lg bg-red-500/10 border border-red-400/30 px-3 py-2 text-xs text-red-200">{error}</div>}
 

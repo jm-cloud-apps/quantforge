@@ -140,6 +140,12 @@ class PlanPayload(BaseModel):
     target: float
     conviction: Optional[float] = None  # 1-5, optional
     regime: Optional[str] = None        # regime label at plan time, if known
+    # Today's day-verdict code (breadth.situational.day_verdict) at plan time,
+    # and whether the trader logged this plan against that read. Recorded so the
+    # cost of overrides is measurable later instead of anecdotal — "what did my
+    # no-trade-day trades actually return?" is answerable only if we store it.
+    verdict_code: Optional[str] = None
+    override: bool = False
     notes: Optional[str] = None
     # Optional per-plan overrides; fall back to saved config.
     account_size: Optional[float] = None
@@ -216,6 +222,8 @@ def create_plan(payload: PlanPayload) -> dict:
             "target": payload.target,
             "conviction": payload.conviction,
             "regime": payload.regime,
+            "verdict_code": payload.verdict_code,
+            "override": bool(payload.override),
             "notes": payload.notes,
             "account_size": account_size,
             "risk_pct": risk_pct,
