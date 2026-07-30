@@ -31,6 +31,7 @@ export default function Flashcards() {
   const [mastered, setMastered] = useState(loadMastered)
   const [hideMastered, setHideMastered] = useState(false)
   const [queue, setQueue] = useState([])
+  const [roundTotal, setRoundTotal] = useState(0)
   const [flipped, setFlipped] = useState(false)
   const [roundStats, setRoundStats] = useState({ done: 0, again: 0 })
 
@@ -48,7 +49,9 @@ export default function Flashcards() {
   poolRef.current = pool
 
   const startRound = useCallback(() => {
-    setQueue(shuffle(poolRef.current.map(c => c.id)))
+    const ids = shuffle(poolRef.current.map(c => c.id))
+    setQueue(ids)
+    setRoundTotal(ids.length)
     setFlipped(false)
     setRoundStats({ done: 0, again: 0 })
   }, [])
@@ -106,7 +109,9 @@ export default function Flashcards() {
   const pct = selectedTotal ? Math.round((masteredInPool / selectedTotal) * 100) : 0
 
   return (
-    <div className="space-y-5">
+    // Study column — constrained and centered so the card reads as an object on
+    // a page rather than a full-bleed panel.
+    <div className="space-y-5 max-w-3xl mx-auto w-full">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
@@ -178,50 +183,56 @@ export default function Flashcards() {
         </div>
       </div>
 
-      {/* The card */}
+      {/* The card — a centered, fixed-size study surface rather than a page-wide
+          panel. Both faces are absolutely stacked and the container rotates in
+          3D, so the flip reads as one object turning over. Long answers scroll
+          inside the face instead of resizing the card. */}
       {current ? (
-        <div className="rounded-2xl bg-surface-900/80 border border-surface-700/50 overflow-hidden">
-          {/* Card meta */}
-          <div className="px-5 py-2.5 border-b border-surface-700/40 flex items-center gap-2 flex-wrap">
-            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border ${deckTone(current.deck).chip}`}>
-              {deckLabel(current.deck)}
-            </span>
-            <span className="text-[10.5px] text-surface-500">{current.kicker}</span>
-            <span className="flex-1" />
-            <span className="text-[10.5px] font-mono text-surface-500 tabular-nums">{queue.length} left in round</span>
-          </div>
-
-          {/* Prompt — click anywhere to flip */}
-          <button
-            type="button"
+        <div className="max-w-3xl mx-auto w-full">
+          {/* One fixed-size surface that swaps its contents. A CSS 3D flip was
+              tried first and silently resolved to an identity transform, which
+              would have left the prompt facing the user while the app believed
+              it was showing the answer — a wrong answer is worse than no
+              animation, so this swaps explicitly instead. */}
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Flashcard — activate to flip"
+            aria-pressed={flipped}
             onClick={() => setFlipped(f => !f)}
-            className="w-full text-left px-5 sm:px-7 py-6 hover:bg-surface-800/20 transition-colors"
-            aria-expanded={flipped}
+            /* No local key handler: the window-level Space/Enter listener
+               already flips, and a second one here would double-toggle. */
+            className={`w-full h-[400px] sm:h-[440px] cursor-pointer select-none rounded-2xl border flex flex-col transition-colors ${
+              flipped
+                ? 'border-surface-600 bg-surface-900'
+                : 'border-surface-700/50 bg-surface-900/80 hover:border-surface-600'
+            }`}
           >
-            <p className="text-[16px] sm:text-[18px] text-surface-100 font-display leading-snug">
-              {current.front}
-            </p>
-            {!flipped && (
-              <p className="mt-3 text-[11px] text-surface-500">
-                Click, or press <kbd className="font-mono text-surface-400">Space</kbd>, to reveal
-              </p>
-            )}
-          </button>
+            <div className="px-5 py-3 flex items-center gap-2 flex-wrap shrink-0 border-b border-surface-700/40">
+              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border ${deckTone(current.deck).chip}`}>
+                {deckLabel(current.deck)}
+              </span>
+              <span className="text-[10.5px] text-surface-500">{current.kicker}</span>
+              <span className="flex-1" />
+              <span className="text-[9px] font-bold tracking-widest text-surface-500 uppercase">
+                {flipped ? 'Answer' : 'Prompt'}
+              </span>
+            </div>
 
-          {/* Answer */}
-          {flipped && (
-            <div className="px-5 sm:px-7 pb-5 animate-fade-in">
-              <div className="border-t border-surface-700/40 pt-4">
-                <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-1">Answer</div>
-                <p className={`text-[15px] font-semibold leading-snug ${deckTone(current.deck).text}`}>
+            {flipped ? (
+              /* my-auto on the inner block centres short answers in the card
+                 while long ones still scroll from the top. */
+              <div key="back" className="flex-1 min-h-0 overflow-y-auto px-6 sm:px-10 py-5 animate-fade-in flex flex-col">
+                <div className="my-auto w-full">
+                <p className={`text-[17px] sm:text-[19px] font-semibold leading-snug text-center ${deckTone(current.deck).text}`}>
                   {current.answer}
                 </p>
                 {current.tagline && (
-                  <p className="mt-0.5 text-[11.5px] text-surface-500 italic">{current.tagline}</p>
+                  <p className="mt-1 text-[12px] text-surface-500 italic text-center">{current.tagline}</p>
                 )}
 
                 {current.bullets?.length > 0 && (
-                  <ul className="mt-3 space-y-1.5">
+                  <ul className="mt-4 space-y-1.5">
                     {current.bullets.map((b, i) => (
                       <li key={i} className="flex gap-2 text-[12.5px] text-surface-300 leading-snug">
                         <span className={`mt-[6px] w-1 h-1 rounded-full shrink-0 ${deckTone(current.deck).bar}`} />
@@ -232,37 +243,66 @@ export default function Flashcards() {
                 )}
 
                 {current.detail && (
-                  <p className="mt-3 text-[12.5px] text-surface-400 leading-snug">{current.detail}</p>
+                  <p className="mt-4 text-[12.5px] text-surface-400 leading-snug">{current.detail}</p>
                 )}
 
                 {current.rule && (
-                  <div className="mt-3 rounded-lg border border-surface-700/50 bg-surface-950/40 px-3 py-2">
+                  <div className="mt-4 rounded-lg border border-surface-700/50 bg-surface-950/50 px-3 py-2">
                     <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-0.5">The rule</div>
                     <p className="text-[12.5px] text-surface-200 leading-snug">{current.rule}</p>
                   </div>
                 )}
+                </div>
               </div>
+            ) : (
+              <>
+                <div key="front" className="flex-1 min-h-0 overflow-y-auto flex items-center justify-center px-7 sm:px-12 animate-fade-in">
+                  <p className="text-[19px] sm:text-[23px] text-surface-100 font-display leading-snug text-center">
+                    {current.front}
+                  </p>
+                </div>
+                <div className="px-5 py-3 text-center shrink-0">
+                  <span className="text-[11px] text-surface-500">
+                    Click or press <kbd className="font-mono text-surface-400">Space</kbd> to reveal
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
 
-              {/* Grade */}
-              <div className="mt-4 flex items-center gap-2 flex-wrap">
+          {/* Controls below the card, Quizlet-style: position counter, then the
+              grade buttons — which only appear once the answer is showing. */}
+          <div className="mt-4 flex items-center justify-center gap-3">
+            <span className="text-[12px] font-mono text-surface-500 tabular-nums">
+              {Math.min(roundTotal - queue.length + 1, roundTotal)} / {roundTotal}
+            </span>
+            {roundStats.again > 0 && (
+              <span className="text-[11px] text-surface-600">· {roundStats.again} repeat{roundStats.again === 1 ? '' : 's'}</span>
+            )}
+          </div>
+
+          <div className="mt-3 flex items-center justify-center gap-3">
+            {flipped ? (
+              <>
                 <button
                   onClick={() => grade(false)}
-                  className="px-4 py-2 rounded-lg text-[12.5px] font-semibold border bg-danger/10 text-danger border-danger/30 hover:bg-danger/15 transition-colors"
+                  className="px-6 py-2.5 rounded-xl text-[13px] font-semibold border bg-danger/10 text-danger border-danger/30 hover:bg-danger/20 transition-colors"
                 >
                   Again <span className="font-mono opacity-60 ml-1">1</span>
                 </button>
                 <button
                   onClick={() => grade(true)}
-                  className="px-4 py-2 rounded-lg text-[12.5px] font-semibold border bg-accent/10 text-accent border-accent/30 hover:bg-accent/15 transition-colors"
+                  className="px-6 py-2.5 rounded-xl text-[13px] font-semibold border bg-accent/10 text-accent border-accent/30 hover:bg-accent/20 transition-colors"
                 >
                   Got it <span className="font-mono opacity-60 ml-1">2</span>
                 </button>
-                <span className="text-[11px] text-surface-500 ml-1">
-                  “Again” sends it to the back of the round.
-                </span>
-              </div>
-            </div>
-          )}
+              </>
+            ) : (
+              <span className="text-[11px] text-surface-600 h-[42px] flex items-center">
+                Answer first — then grade yourself honestly.
+              </span>
+            )}
+          </div>
         </div>
       ) : (
         /* Round complete */

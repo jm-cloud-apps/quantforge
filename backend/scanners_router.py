@@ -20,6 +20,7 @@ _REVERSAL_CACHE = ScanCache(5 * 60)
 _STAGE_CACHE = ScanCache(5 * 60)
 _MA_RECLAIM_CACHE = ScanCache(5 * 60)
 _PARABOLIC_CACHE = ScanCache(5 * 60)
+_BREAKDOWN_CACHE = ScanCache(5 * 60)
 
 
 # ─── $9 Million Method Scanner ───────────────────────────────────────────────
@@ -246,3 +247,47 @@ def get_parabolic_scan(
            float(min_gain_small_pct), float(large_cap_price), int(min_up_days),
            int(run_lookback), bool(require_extended), bool(require_accelerating))
     return _PARABOLIC_CACHE.fetch(key, _compute, force=bool(force))
+
+
+# ─── Breakdown Short Scanner ─────────────────────────────────────────────────
+#
+# The stage-4 trend short — the other half of the short book. Where the
+# parabolic scanner fades an over-extension, this one sells a broken trend:
+# price beneath an inverted 10 < 20 < 50 with the rails rolling over. Rules live
+# in scanners/breakdown.py; this is the HTTP shell + the response cache.
+
+@router.get("/api/scanner/breakdown")
+def get_breakdown_scan(
+    min_price: float = 5.0,
+    min_dollar_volume: float = 5_000_000,
+    require_at_rail: int = 0,
+    require_below_200: int = 0,
+    force: int = 0,
+) -> dict:
+    """Scan the breadth cache for stage-4 breakdown short candidates.
+
+    Hard filters (liquidity, price below an inverted 10/20/50, and both the 20
+    and 50 declining) are always applied. "Rallied back to a declining rail"
+    (the preferred entry) and "below the 200-day" are computed as soft signals;
+    pass `require_at_rail=1` or `require_below_200=1` to promote them to gates.
+
+    Cached per parameter tuple (market-aware TTL). force=1 bypasses. Returns 500
+    if the breadth cache hasn't been seeded — point the user at Market Monitor →
+    Refresh to build it.
+    """
+    from scanners import breakdown as _breakdown
+
+    def _compute() -> dict:
+        try:
+            return _breakdown.run(
+                min_price=float(min_price),
+                min_dollar_volume=float(min_dollar_volume),
+                require_at_rail=bool(require_at_rail),
+                require_below_200=bool(require_below_200),
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Breakdown scan failed: {e}")
+
+    key = (float(min_price), float(min_dollar_volume),
+           bool(require_at_rail), bool(require_below_200))
+    return _BREAKDOWN_CACHE.fetch(key, _compute, force=bool(force))

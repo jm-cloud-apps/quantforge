@@ -33,6 +33,7 @@ const AITrader        = lazy(() => import('./pages/AITrader'))
 const ThemeRadar      = lazy(() => import('./pages/ThemeRadar'))
 const ReversalSetup   = lazy(() => import('./pages/ReversalSetup'))
 const ParabolicShort  = lazy(() => import('./pages/ParabolicShort'))
+const BreakdownShort  = lazy(() => import('./pages/BreakdownShort'))
 const StageAnalysis   = lazy(() => import('./pages/StageAnalysis'))
 const MAReclaim       = lazy(() => import('./pages/MAReclaim'))
 const SetupsBoard     = lazy(() => import('./pages/SetupsBoard'))
@@ -75,6 +76,7 @@ function AppRoutes() {
         <Route path="scanner-9m" element={<Scanner9M />} />
         <Route path="reversal-setup" element={<ReversalSetup />} />
         <Route path="parabolic-short" element={<ParabolicShort />} />
+        <Route path="breakdown-short" element={<BreakdownShort />} />
         <Route path="stage-analysis" element={<StageAnalysis />} />
         <Route path="ma-reclaim" element={<MAReclaim />} />
         <Route path="setups" element={<SetupsBoard />} />
