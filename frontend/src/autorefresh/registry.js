@@ -11,6 +11,7 @@ import { getStageScan } from '../api/stageAnalysis'
 import { getMAReclaimScan } from '../api/maReclaim'
 import { getSetupsBoard } from '../api/setupsBoard'
 import { getBreakouts } from '../api/breakoutScreener'
+import { BREAKOUT_PRESETS } from '../api/breakoutPresets'
 import { getThemeRadarAnalysis } from '../api/themeRadar'
 import { getSectorPerformance } from '../api/screener'
 
@@ -120,6 +121,29 @@ export const AUTO_REFRESH_JOBS = [
       mode: 'unusual_volume', limit: 24, minAdr: 0.015, minRvol: 2.0, dayFilter: 0,
       wide: true, enrichBlocks: true, enrichInstitutional: true, fresh: true,
     }),
+  },
+  {
+    // The three screener scans the Dashboard cards read. They import the SAME
+    // presets the cards do (api/breakoutPresets.js) — the screener caches per
+    // full parameter tuple, so warming anything else silently populates a key
+    // nobody reads. Cheap after the chart-wall job above: the expensive part is
+    // refresh_universe, whose per-symbol frames they all share.
+    id: 'dash-volume-surge',
+    label: 'Volume surge (dashboard)',
+    hint: 'Warms the Volume Surge card over the wide universe.',
+    run: () => getBreakouts({ ...BREAKOUT_PRESETS.volumeSurge, fresh: true }),
+  },
+  {
+    id: 'dash-unusual-volume',
+    label: 'Unusual volume (dashboard)',
+    hint: 'Warms the Unusual Volume card over the wide universe.',
+    run: () => getBreakouts({ ...BREAKOUT_PRESETS.unusualVolume, fresh: true }),
+  },
+  {
+    id: 'dash-breakout',
+    label: 'Breakouts (dashboard)',
+    hint: 'Warms the Breakouts card.',
+    run: () => getBreakouts({ ...BREAKOUT_PRESETS.breakout, fresh: true }),
   },
   {
     // Last on purpose: the board aggregates the scanner caches above, so it warms

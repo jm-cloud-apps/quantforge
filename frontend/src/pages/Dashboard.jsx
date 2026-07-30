@@ -7,6 +7,7 @@ import InfoTip from '../components/InfoTip'
 import { getBreadthSnapshot, getSituationalAwareness } from '../api/breadth'
 import { getSectorPerformance } from '../api/screener'
 import { getBreakouts } from '../api/breakoutScreener'
+import { BREAKOUT_PRESETS } from '../api/breakoutPresets'
 import { get9MScan } from '../api/scanner9m'
 import { getEarnings } from '../api/calendar'
 import { getMovers, getExtendedMovers, getGapMovers } from '../api/movers'
@@ -993,7 +994,7 @@ function BreakoutsCard({ breakouts }) {
 
 function VolumeSurgeCard({ refreshKey }) {
   const { data, loading, error } = useCardData(
-    () => getBreakouts({ mode: 'volume', limit: 24, minAdr: 0.05, minRvol: 1.5, fresh: refreshKey > 0 }),
+    () => getBreakouts({ ...BREAKOUT_PRESETS.volumeSurge, fresh: refreshKey > 0 }),
     refreshKey,
     'Volume surge',
   )
@@ -1294,12 +1295,12 @@ function DashboardInner() {
   const breadth = useCardData(() => getBreadthSnapshot(), refreshKey, 'Breadth')
   const situational = useCardData(() => getSituationalAwareness(30), refreshKey, 'Situational awareness')
   const breakouts = useCardData(
-    () => getBreakouts({ mode: 'breakout', limit: 24, minAdr: 0.05, minRvol: 1.5, fresh: refreshKey > 0 }),
+    () => getBreakouts({ ...BREAKOUT_PRESETS.breakout, fresh: refreshKey > 0 }),
     refreshKey,
     'Breakouts',
   )
   const unusual = useCardData(
-    () => getBreakouts({ mode: 'unusual_volume', limit: 24, minAdr: 0.05, minRvol: 2.0, dayFilter: 0, fresh: refreshKey > 0 }),
+    () => getBreakouts({ ...BREAKOUT_PRESETS.unusualVolume, fresh: refreshKey > 0 }),
     refreshKey,
     'Unusual volume',
   )
