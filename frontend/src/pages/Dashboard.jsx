@@ -4,7 +4,7 @@ import TickerLink from '../components/TickerLink'
 import TradingViewLink from '../components/TradingViewLink'
 import EarningsSessionIcon from '../components/EarningsSessionIcon'
 import InfoTip from '../components/InfoTip'
-import { getBreadthSnapshot, getSituationalAwareness } from '../api/breadth'
+import { getBreadthSnapshot, getSituationalAwareness, refreshBreadth } from '../api/breadth'
 import { getSectorPerformance } from '../api/screener'
 import { getBreakouts } from '../api/breakoutScreener'
 import { BREAKOUT_PRESETS } from '../api/breakoutPresets'
@@ -15,6 +15,7 @@ import { getWatchlist } from '../api/watchlists'
 import { fetchNews, refreshNewsCachePrices } from '../api/news'
 import { loadRules, getRuleOfDay } from '../utils/tradingRules'
 import { marketStatusLabel } from '../utils/marketClock'
+import { useAutoRefresh } from '../autorefresh/AutoRefreshProvider'
 
 // ---------------------------------------------------------------------------
 // Market Overview — the app's front door.
@@ -1312,10 +1313,38 @@ function DashboardInner() {
     return [...new Set([...b, ...u])].slice(0, 10)
   }, [breakouts.data, unusual.data])
 
-  const refresh = useCallback(() => {
+  // Master refresh.
+  //
+  // Bumping refreshKey alone is NOT enough. Breadth is the shared data layer:
+  // the situational read and every breadth-cache-reading scanner compute off the
+  // same grouped-daily pickles, so forcing them without pulling new days just
+  // recomputes the identical numbers. So we refresh breadth FIRST and only then
+  // re-fetch the cards — the same ordering the autorefresh queue uses, where the
+  // breadth job runs ahead of everything else.
+  //
+  // If breadth fails we still refresh the cards: a partial refresh beats none,
+  // and the error surfaces on the button.
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshError, setRefreshError] = useState(null)
+  const { markRefreshed } = useAutoRefresh()
+
+  const refresh = useCallback(async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    setRefreshError(null)
+    try {
+      await refreshBreadth({ lookbackDays: 130 })
+    } catch (e) {
+      setRefreshError(e.message || 'Breadth refresh failed')
+    }
     setRefreshKey((k) => k + 1)
     setRefreshedAt(new Date())
-  }, [])
+    // These scans are now warm for today, so the daily queue shouldn't re-run
+    // them on the next boot.
+    ;['breadth', 'dash-volume-surge', 'dash-unusual-volume', 'dash-breakout',
+      'scanner-9m', 'screener', 'earnings'].forEach((id) => markRefreshed(id))
+    setRefreshing(false)
+  }, [refreshing, markRefreshed])
 
   return (
     <div className="space-y-5">
@@ -1343,11 +1372,20 @@ function DashboardInner() {
           </span>
           <button
             onClick={refresh}
-            className="text-[12px] font-medium px-3 py-1.5 rounded-lg border border-surface-600 text-surface-200 hover:bg-surface-800/60 hover:text-surface-50 transition-colors"
-            title="Re-fetch every card"
+            disabled={refreshing}
+            className="text-[12px] font-medium px-3 py-1.5 rounded-lg border border-surface-600 text-surface-200 hover:bg-surface-800/60 hover:text-surface-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+            title="Pull new breadth days, then force every scan on this page to recompute"
           >
-            ↻ Refresh
+            {refreshing ? (
+              <>
+                <span className="inline-block w-3 h-3 rounded-full border-2 border-surface-600 border-t-accent animate-spin" />
+                Refreshing…
+              </>
+            ) : '↻ Refresh all'}
           </button>
+          {refreshError && (
+            <span className="text-[11px] text-warning/90" title={refreshError}>breadth refresh failed</span>
+          )}
         </div>
       </div>
 
