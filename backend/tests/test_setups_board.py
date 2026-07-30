@@ -72,9 +72,66 @@ def test_asof_is_normalized_to_calendar_date():
     assert lane["asOf"] == "2026-07-15"    # datetime trimmed to date
 
 
-def test_all_five_lanes_present_even_with_empty_sources():
+def test_all_lanes_present_even_with_empty_sources():
     b = build_board({})
     assert [l["key"] for l in b["lanes"]] == [
-        "ma-reclaim", "stage-analysis", "breakouts", "scanner-9m", "reversal-setup"]
+        "ma-reclaim", "stage-analysis", "breakouts", "scanner-9m", "reversal-setup",
+        "parabolic-short", "breakdown-short"]
     assert b["confluence"] == []
+    assert b["conflicts"] == []
     assert b["regime"] is None
+
+
+# ── direction awareness (added with the short lanes) ────────────────────────
+
+def _short_sources(**over):
+    """Base long sources plus the two short lanes."""
+    src = _sources()
+    src["parabolic"] = {"as_of": "2026-07-15", "candidates": [
+        {"symbol": "PARA", "close": 40, "gain_pct": 120.0, "up_days": 4, "ext_pct": 33.0}]}
+    src["breakdown"] = {"as_of": "2026-07-15", "candidates": [
+        {"symbol": "PARA", "close": 40, "at_rail": True, "to_ma10_pct": 1.5,
+         "slope20_per_week": -3.0, "days_below_50": 20},
+        # not at a rail — already flushed, must be filtered out of the lane
+        {"symbol": "FLUSHED", "close": 9, "at_rail": False, "to_ma10_pct": 26.0,
+         "slope20_per_week": -6.0, "days_below_50": 40}]}
+    src.update(over)
+    return src
+
+
+def test_short_lanes_are_present_and_tagged():
+    b = build_board(_short_sources())
+    by_key = {l["key"]: l for l in b["lanes"]}
+    assert by_key["parabolic-short"]["direction"] == "short"
+    assert by_key["breakdown-short"]["direction"] == "short"
+    assert by_key["ma-reclaim"]["direction"] == "long"
+
+
+def test_breakdown_lane_keeps_only_at_rail_names():
+    b = build_board(_short_sources())
+    lane = next(l for l in b["lanes"] if l["key"] == "breakdown-short")
+    assert {i["symbol"] for i in lane["items"]} == {"PARA"}, "already-flushed names are squeeze risk"
+
+
+def test_agreement_within_a_direction_is_confluence():
+    b = build_board(_short_sources())
+    para = next((c for c in b["confluence"] if c["symbol"] == "PARA"), None)
+    assert para is not None and para["direction"] == "short"
+    assert len(para["hits"]) == 2
+
+
+def test_long_and_short_on_the_same_symbol_is_a_conflict_not_conviction():
+    # SHARED already hits two LONG lanes; add it to a short lane too.
+    src = _short_sources()
+    src["parabolic"]["candidates"].append(
+        {"symbol": "SHARED", "close": 10, "gain_pct": 90.0, "up_days": 3, "ext_pct": 25.0})
+    b = build_board(src)
+
+    assert "SHARED" not in {c["symbol"] for c in b["confluence"]}, \
+        "a name both long and short must never read as high conviction"
+    conflict = next(c for c in b["conflicts"] if c["symbol"] == "SHARED")
+    assert conflict["long"] and conflict["short"]
+
+
+def test_conflicts_is_empty_when_nothing_contradicts():
+    assert build_board(_short_sources())["conflicts"] == []

@@ -116,6 +116,8 @@ from scanners_router import (
     get_stage_scan,
     get_reversal_scan,
     get_ma_reclaim_scan,
+    get_parabolic_scan,
+    get_breakdown_scan,
 )
 app.include_router(scanners_router)
 
@@ -720,6 +722,8 @@ def get_setups_board(force: int = 0) -> dict:
         enrich_institutional=False, wide=False, persist=False, fresh=bool(f)))
     _safe("ep9m", lambda: get_9m_scan(force=f))
     _safe("reversal", lambda: get_reversal_scan(force=f))
+    _safe("parabolic", lambda: get_parabolic_scan(force=f))
+    _safe("breakdown", lambda: get_breakdown_scan(force=f))
     _safe("regime", lambda: get_breadth_situational(trend_days=30))
 
     board = build_board(sources)

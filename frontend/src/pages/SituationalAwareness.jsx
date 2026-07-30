@@ -185,6 +185,20 @@ function CriteriaRow({ c }) {
   )
 }
 
+// Each breadth setup family maps to the scanner page that actually trades it.
+// Without this the lights are a read with no next step — especially the short
+// family, whose two scanners are the only place its candidates live.
+const SETUP_SCANNERS = {
+  breakout: [{ to: '/breakouts', label: 'Breakouts' }],
+  ep: [{ to: '/scanner-9m', label: '$9M Scanner' }],
+  pullback: [{ to: '/stage-analysis', label: 'Stage Analysis' }],
+  mean_reversion: [{ to: '/reversal-setup', label: 'Reversal Setup' }],
+  short: [
+    { to: '/parabolic-short', label: 'Parabolic Short' },
+    { to: '/breakdown-short', label: 'Breakdown Short' },
+  ],
+}
+
 function SetupCard({ s }) {
   const [open, setOpen] = useState(false)
   const l = LIGHT[s.light] || LIGHT.amber
@@ -199,6 +213,21 @@ function SetupCard({ s }) {
       </div>
       <p className="text-[11px] text-surface-500 mt-1 leading-snug">{s.blurb}</p>
       <p className="text-[12.5px] text-surface-300 mt-2.5 leading-snug">{s.why}</p>
+
+      {/* Where to actually go from this light */}
+      {(SETUP_SCANNERS[s.key] || []).length > 0 && (
+        <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
+          {SETUP_SCANNERS[s.key].map((sc) => (
+            <Link
+              key={sc.to}
+              to={sc.to}
+              className="text-[10.5px] px-2 py-0.5 rounded-full border border-surface-700 bg-surface-900/60 text-surface-400 hover:text-surface-100 hover:border-surface-600 transition-colors"
+            >
+              {sc.label} →
+            </Link>
+          ))}
+        </div>
+      )}
 
       {crit && (
         <>
