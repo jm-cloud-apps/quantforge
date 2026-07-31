@@ -11,9 +11,12 @@ and imports `get_breadth_situational` for the Setups Board. Covered by
 tests/test_breadth.py.
 """
 
+import logging
 import time
 
 from fastapi import APIRouter, Body, HTTPException, Query
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -115,6 +118,26 @@ def _sa_compute(trend_days: int = 30) -> dict:
     )
     ledger = sa_history.load(days=365)
     read["stats"] = sa_history.stats(ledger, read.get("score"), (read.get("stance") or {}).get("level"))
+
+    # Turn watch — the inflection read. Computed here rather than inside assess()
+    # because it needs the index bars (price + volume) alongside the score, and
+    # assess() is a pure function over breadth rows only.
+    from breadth import index_trend
+    from breadth.turn import assess_turn, index_divergence
+    try:
+        idx = index_trend()
+        indices = idx.get("indices") or []
+        read["turn"] = assess_turn(
+            read.get("score"),
+            (read.get("stats") or {}).get("percentile"),
+            read.get("trend") or [],
+            indices,
+        )
+        read["divergence"] = index_divergence(read.get("score"), indices)
+    except Exception as e:      # never let the turn read sink the whole page
+        logger.warning("turn watch failed: %s", e)
+        read["turn"] = {"signals": [], "watching": False}
+        read["divergence"] = None
     return read
 
 

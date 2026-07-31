@@ -185,6 +185,56 @@ function CriteriaRow({ c }) {
   )
 }
 
+// ─── Turn watch — is the tape inflecting? ───────────────────────────────────
+//
+// The exposure score says where the tape IS; these say it may be about to stop
+// being there. Sits directly under the verdict on purpose: a momentum trader's
+// most expensive mistake is sitting in cash through the first leg of a new
+// advance because the gauge is still red. Backend: breadth/turn.py.
+
+const TURN_TONE = {
+  good: { border: 'border-accent/40', bg: 'bg-accent/[0.06]', text: 'text-accent', dot: 'bg-accent' },
+  info: { border: 'border-cyan/40', bg: 'bg-cyan/[0.06]', text: 'text-cyan', dot: 'bg-cyan' },
+  warn: { border: 'border-amber-400/40', bg: 'bg-amber-500/[0.07]', text: 'text-amber-300', dot: 'bg-amber-400' },
+}
+
+function TurnWatch({ turn }) {
+  const signals = turn?.signals || []
+  if (!signals.length) return null
+  return (
+    <div className="rounded-2xl border border-surface-700/50 bg-surface-900/60 p-4">
+      <div className="flex items-center gap-2 flex-wrap mb-2.5">
+        <span className="text-[9.5px] font-bold tracking-widest text-surface-400 uppercase">Turn watch</span>
+        <span className="text-[11px] text-surface-500">
+          the exposure score says where you are — these say it may be changing
+        </span>
+      </div>
+      <div className="space-y-2.5">
+        {signals.map((sig) => {
+          const t = TURN_TONE[sig.tone] || TURN_TONE.info
+          return (
+            <div key={sig.key} className={`rounded-xl border ${t.border} ${t.bg} px-4 py-3`}>
+              <div className="flex items-center gap-2">
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${t.dot}`} />
+                <span className={`text-[13px] font-bold tracking-tight ${t.text}`}>{sig.label}</span>
+              </div>
+              <p className="mt-1.5 text-[12px] text-surface-300 leading-snug">{sig.detail}</p>
+              <p className="mt-1.5 text-[12px] text-surface-200 leading-snug">
+                <span className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mr-1.5">Do</span>
+                {sig.action}
+              </p>
+            </div>
+          )
+        })}
+      </div>
+      <p className="mt-2.5 text-[11px] text-surface-500 leading-snug">
+        These are early reads, not the all-clear — the follow-through day is the only one of them that's a trigger.
+        Size the first entries as probes.
+      </p>
+    </div>
+  )
+}
+
 // Each breadth setup family maps to the scanner page that actually trades it.
 // Without this the lights are a read with no next step — especially the short
 // family, whose two scanners are the only place its candidates live.
@@ -1045,18 +1095,14 @@ function IndexRow({ ix }) {
   )
 }
 
-function IndexCheck({ data, loading, error, score }) {
+// `divergence` comes from the backend (breadth/turn.py::index_divergence), which
+// reads all three indices and their 50-day slopes. The two hardcoded SPY rules
+// this used to carry couldn't tell a shallow pullback inside an uptrend from a
+// broken market, and never looked at QQQ/IWM disagreement at all.
+function IndexCheck({ data, loading, error, score, divergence }) {
   if ((loading && !data) || error || !data?.available) return null
   const indices = data.indices || []
   const spy = indices.find((i) => i.symbol === 'SPY')
-  let divergence = null
-  if (spy?.available && score != null) {
-    if (score >= 60 && spy.trend === 'down') {
-      divergence = { tone: 'warn', text: `breadth reads risk-on (${score}) but SPY is below its 20- and 50-day — price isn't confirming. Treat longs as guilty until proven and keep stops tight.` }
-    } else if (score < 45 && spy.trend === 'up') {
-      divergence = { tone: 'info', text: `breadth is cautious (${score}) while SPY holds its trend — likely a narrow, megacap-led tape. Wait for breadth to confirm, or trade only the leaders.` }
-    }
-  }
   return (
     <div className="rounded-2xl bg-surface-900/80 border border-surface-700/50 p-4">
       <div className="text-[11px] uppercase tracking-wide text-surface-500 font-semibold mb-1">
@@ -1072,7 +1118,7 @@ function IndexCheck({ data, loading, error, score }) {
         <div className={`mt-3 flex items-start gap-2 rounded-lg border px-3 py-2 ${divergence.tone === 'warn' ? 'border-amber-400/30 bg-amber-500/[0.07]' : 'border-accent/30 bg-accent/[0.06]'}`}>
           <span className={`shrink-0 mt-px ${divergence.tone === 'warn' ? 'text-amber-300' : 'text-accent'}`} aria-hidden="true">{divergence.tone === 'warn' ? '⚠' : 'ℹ'}</span>
           <p className={`text-[12px] leading-snug ${divergence.tone === 'warn' ? 'text-amber-200/90' : 'text-surface-300'}`}>
-            <span className="font-semibold">Divergence — </span>{divergence.text}
+            <span className="font-semibold">{divergence.label} — </span>{divergence.text}
           </p>
         </div>
       ) : (
@@ -1370,6 +1416,7 @@ export default function SituationalAwareness() {
       )}
 
       {sa?.verdict && <DayVerdict v={sa.verdict} setups={sa.setups} />}
+      {sa?.turn?.signals?.length > 0 && <TurnWatch turn={sa.turn} />}
 
       {sa && stance && sa.score != null && (
         <>
@@ -1392,7 +1439,7 @@ export default function SituationalAwareness() {
           />
 
           {/* Index check — is cap-weighted price confirming the breadth read? */}
-          <IndexCheck data={indexTrend} loading={indexLoading} error={indexError} score={sa.score} />
+          <IndexCheck data={indexTrend} loading={indexLoading} error={indexError} score={sa.score} divergence={sa.divergence} />
 
           {/* How & why + exposure history */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
