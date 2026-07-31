@@ -185,6 +185,47 @@ function CriteriaRow({ c }) {
   )
 }
 
+// ─── Quiet mode ─────────────────────────────────────────────────────────────
+//
+// The page had grown to ~22 screens, with the decision competing at equal visual
+// weight against eleven blocks of evidence FOR that decision. For a trader whose
+// recorded weakness is unplanned trades, a wall of articulate justification is
+// not neutral — you can always find a panel that supports what you already
+// wanted. So evidence and audit collapse by default and the call stays on top.
+//
+// State persists per section; "Show everything" opens the lot for a deep dive.
+
+const SA_COLLAPSE_KEY = 'qf:sa:collapsed:v1'
+
+function loadCollapsed() {
+  try {
+    const raw = localStorage.getItem(SA_COLLAPSE_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* fall through to defaults */ }
+  return null
+}
+
+function Section({ id, title, hint, collapsed, onToggle, children }) {
+  return (
+    <div className="rounded-2xl bg-surface-900/60 border border-surface-700/50 overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        className="w-full px-4 py-2.5 flex items-center gap-2.5 text-left hover:bg-surface-800/40 transition-colors"
+      >
+        <span className="text-[11px] uppercase tracking-wide text-surface-400 font-semibold">{title}</span>
+        {hint && <span className="text-[11px] text-surface-600 truncate">{hint}</span>}
+        <svg className={`ml-auto w-4 h-4 shrink-0 text-surface-500 transition-transform ${collapsed ? '' : 'rotate-180'}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {!collapsed && <div className="px-4 pb-4">{children}</div>}
+    </div>
+  )
+}
+
 // ─── Signal scorecard — has any of this actually predicted anything? ────────
 //
 // Everything else on this page is a *claim*. This is the audit: each signal's
@@ -310,9 +351,50 @@ const TURN_TONE = {
   warn: { border: 'border-amber-400/40', bg: 'bg-amber-500/[0.07]', text: 'text-amber-300', dot: 'bg-amber-400' },
 }
 
-function TurnWatch({ turn }) {
-  const signals = turn?.signals || []
-  if (!signals.length) return null
+// Scorecard-driven ordering. A signal's placement is decided by its MEASURED
+// forward-return lift, not by how convincing the copy sounds — including for the
+// ones I wrote and believed. Anything unproven still renders, but demoted and
+// carrying its own stats, so the page can't quietly imply an edge it doesn't
+// have. As the ledger deepens the ranking corrects itself.
+function scoreOf(scorecard, key) {
+  const row = (scorecard?.signals || []).find((r) => r.key === `turn:${key}`)
+  if (!row) return null
+  const b = row.by_horizon?.[10] || {}
+  return { lift: b.lift, episodes: row.episodes, reliability: row.reliability }
+}
+
+function StatChip({ st }) {
+  if (!st) return null
+  const proven = st.reliability === 'measured' && st.lift != null && st.lift > 0
+  const cls = proven
+    ? 'bg-accent/10 text-accent border-accent/30'
+    : st.reliability === 'measured'
+      ? 'bg-rose-500/10 text-rose-300 border-rose-400/30'
+      : 'bg-surface-800/60 text-surface-500 border-surface-700'
+  const txt = st.reliability !== 'measured'
+    ? `unproven · ${st.episodes} ep`
+    : `${st.lift > 0 ? '+' : ''}${(st.lift * 100).toFixed(2)}% lift · ${st.episodes} ep`
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border ${cls}`}
+      title="10-day forward return vs the unconditional base rate, over distinct firing episodes">
+      {txt}
+    </span>
+  )
+}
+
+function TurnWatch({ turn, scorecard }) {
+  const [showUnproven, setShowUnproven] = useState(false)
+  const all = turn?.signals || []
+  if (!all.length) return null
+  const withStats = all.map((sig) => ({ sig, st: scoreOf(scorecard, sig.key) }))
+  // Proven = measured with positive lift. Everything else is demoted, but the
+  // follow-through day is never demoted: it's the only genuine trigger here, and
+  // it has too few episodes to measure precisely because it fires rarely.
+  const isProven = ({ sig, st }) =>
+    sig.key === 'follow_through' || !st || (st.reliability === 'measured' && st.lift > 0)
+  const proven = withStats.filter(isProven)
+  const unproven = withStats.filter((x) => !isProven(x))
+  const signals = proven.map((x) => x.sig)
   return (
     <div className="rounded-2xl border border-surface-700/50 bg-surface-900/60 p-4">
       <div className="flex items-center gap-2 flex-wrap mb-2.5">
@@ -322,13 +404,14 @@ function TurnWatch({ turn }) {
         </span>
       </div>
       <div className="space-y-2.5">
-        {signals.map((sig) => {
+        {proven.map(({ sig, st }) => {
           const t = TURN_TONE[sig.tone] || TURN_TONE.info
           return (
             <div key={sig.key} className={`rounded-xl border ${t.border} ${t.bg} px-4 py-3`}>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${t.dot}`} />
                 <span className={`text-[13px] font-bold tracking-tight ${t.text}`}>{sig.label}</span>
+                <StatChip st={st} />
               </div>
               <p className="mt-1.5 text-[12px] text-surface-300 leading-snug">{sig.detail}</p>
               <p className="mt-1.5 text-[12px] text-surface-200 leading-snug">
@@ -339,6 +422,35 @@ function TurnWatch({ turn }) {
           )
         })}
       </div>
+      {unproven.length > 0 && (
+        <div className="mt-2.5">
+          <button
+            type="button"
+            onClick={() => setShowUnproven((v) => !v)}
+            className="text-[11px] text-surface-500 hover:text-surface-300 inline-flex items-center gap-1"
+          >
+            <span className={`transition-transform ${showUnproven ? 'rotate-90' : ''}`}>▸</span>
+            {unproven.length} signal{unproven.length === 1 ? '' : 's'} firing with no measured edge
+          </button>
+          {showUnproven && (
+            <div className="mt-2 space-y-2">
+              {unproven.map(({ sig, st }) => (
+                <div key={sig.key} className="rounded-xl border border-surface-700/50 bg-surface-950/40 px-4 py-2.5 opacity-70">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[12.5px] font-semibold text-surface-300">{sig.label}</span>
+                    <StatChip st={st} />
+                  </div>
+                  <p className="mt-1 text-[11.5px] text-surface-500 leading-snug">{sig.detail}</p>
+                </div>
+              ))}
+              <p className="text-[11px] text-surface-600 leading-snug">
+                Demoted by the scorecard, not by taste: over the ledger so far these haven't beaten the base rate.
+                They're shown so you can see what fired — not as a reason to act.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
       <p className="mt-2.5 text-[11px] text-surface-500 leading-snug">
         These are early reads, not the all-clear — the follow-through day is the only one of them that's a trigger.
         Size the first entries as probes.
@@ -1361,6 +1473,22 @@ export default function SituationalAwareness() {
   const [backtestError, setBacktestError] = useState(null)
   const [horizon, setHorizon] = useState(10)
 
+  // Quiet mode: evidence + audit collapsed until asked for. The call stays up
+  // top; everything justifying it is one click away.
+  const [collapsed, setCollapsed] = useState(() => loadCollapsed() || {
+    index: true, how: true, setups: true,
+    drivers: true, regime: true, system: true,
+  })
+  useEffect(() => {
+    try { localStorage.setItem(SA_COLLAPSE_KEY, JSON.stringify(collapsed)) } catch { /* non-fatal */ }
+  }, [collapsed])
+  const toggleSec = (k) => setCollapsed((p) => ({ ...p, [k]: !p[k] }))
+  const allOpen = Object.values(collapsed).every((v) => !v)
+  const toggleAll = () => {
+    const keys = ['index', 'how', 'setups', 'drivers', 'regime', 'system']
+    setCollapsed(Object.fromEntries(keys.map((k) => [k, allOpen])))
+  }
+
   // Theme rotation for the "Where?" gate — loaded non-blocking off the cached
   // Theme Radar endpoint so it never holds up the primary breadth read.
   const [themes, setThemes] = useState(null)
@@ -1510,6 +1638,14 @@ export default function SituationalAwareness() {
         </div>
         <div className="flex items-center gap-3">
           {sa?.as_of && <span className="text-xs text-surface-500 font-mono">{sa.as_of}</span>}
+          <button
+            type="button"
+            onClick={toggleAll}
+            className="text-[12px] font-medium px-3 py-1.5 rounded-lg border border-surface-700 text-surface-300 hover:text-surface-100 hover:border-surface-600 bg-surface-900/60 transition-colors"
+            title={allOpen ? 'Collapse the evidence sections' : 'Open every evidence section'}
+          >
+            {allOpen ? 'Quiet mode' : 'Show everything'}
+          </button>
           <RefreshControl jobId="breadth" onRefresh={handleRefresh} refreshing={refreshing} />
         </div>
       </div>
@@ -1569,15 +1705,20 @@ export default function SituationalAwareness() {
           />
 
           {/* Turn watch — sits under the command header, not sandwiched inside it */}
-          {sa?.turn?.signals?.length > 0 && <TurnWatch turn={sa.turn} />}
+          {sa?.turn?.signals?.length > 0 && <TurnWatch turn={sa.turn} scorecard={scorecard} />}
 
           {/* Index check — is cap-weighted price confirming the breadth read? */}
-          <IndexCheck data={indexTrend} loading={indexLoading} error={indexError} score={sa.score} divergence={sa.divergence} />
+          <Section id="index" title="Index check" hint="is cap-weighted price confirming breadth?"
+            collapsed={collapsed.index} onToggle={() => toggleSec('index')}>
+            <IndexCheck data={indexTrend} loading={indexLoading} error={indexError} score={sa.score} divergence={sa.divergence} />
+          </Section>
 
-          {/* The audit of everything above — collapsed by default */}
+          {/* The audit of everything above */}
           <SignalScorecard data={scorecard} loading={scorecardLoading} error={scorecardError} />
 
           {/* How & why + exposure history */}
+          <Section id="how" title="How the stance is decided" hint="score build-up, bands, and the exposure history"
+            collapsed={collapsed.how} onToggle={() => toggleSec('how')}>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <HowAndWhy explanation={sa.explanation} bands={sa.criteria?.stance_bands || []} score={sa.score} />
             <HistoryChart
@@ -1588,18 +1729,20 @@ export default function SituationalAwareness() {
               median={stats?.median}
             />
           </div>
+          </Section>
 
           {/* Setup lights grid */}
-          <div>
-            <div className="text-[11px] uppercase tracking-wide text-surface-500 font-semibold mb-2">
-              Setups in season <span className="text-surface-600 normal-case tracking-normal">· expand any card for its live ✓/✗ criteria</span>
-            </div>
+          <Section id="setups" title="Setups in season"
+            hint={`${(sa.setups || []).filter((x) => x.light === 'green').length} green · expand a card for its live ✓/✗ criteria`}
+            collapsed={collapsed.setups} onToggle={() => toggleSec('setups')}>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {sa.setups.map((s) => <SetupCard key={s.key} s={s} />)}
             </div>
-          </div>
+          </Section>
 
           {/* Drivers (+ scoring criteria) */}
+          <Section id="drivers" title="What's driving the read" hint="which breadth signals moved the score off neutral"
+            collapsed={collapsed.drivers} onToggle={() => toggleSec('drivers')}>
           <div className="rounded-2xl bg-surface-900/80 border border-surface-700/50 p-4">
             <div className="flex items-center justify-between gap-2 mb-1">
               <div className="text-[11px] uppercase tracking-wide text-surface-500 font-semibold">What's driving the read</div>
@@ -1630,21 +1773,28 @@ export default function SituationalAwareness() {
               </div>
             )}
           </div>
+          </Section>
 
           {/* Regime edge — empirical validation of the filter */}
-          <RegimeEdge
-            data={backtest}
-            loading={backtestLoading}
-            error={backtestError}
-            horizon={horizon}
-            setHorizon={setHorizon}
-          />
+          <Section id="regime" title="Regime edge" hint="does the filter actually work? forward returns by stance"
+            collapsed={collapsed.regime} onToggle={() => toggleSec('regime')}>
+            <RegimeEdge
+              data={backtest}
+              loading={backtestLoading}
+              error={backtestError}
+              horizon={horizon}
+              setHorizon={setHorizon}
+            />
+          </Section>
 
-          {/* Whole-system backtest — does sizing by the dial beat buy-and-hold? */}
-          <SystemBacktest data={sysBacktest} loading={sysLoading} error={sysError} />
-
-          {/* Data & methodology — provenance, lag caveat, live verifier */}
-          <DataMethodology sa={sa} stats={stats} />
+          {/* Whole-system backtest + provenance — the deepest audit tier */}
+          <Section id="system" title="System backtest & methodology" hint="does sizing by the dial beat buy-and-hold? · data provenance"
+            collapsed={collapsed.system} onToggle={() => toggleSec('system')}>
+            <div className="space-y-4">
+              <SystemBacktest data={sysBacktest} loading={sysLoading} error={sysError} />
+              <DataMethodology sa={sa} stats={stats} />
+            </div>
+          </Section>
         </>
       )}
     </div>
