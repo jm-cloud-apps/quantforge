@@ -14,7 +14,7 @@ import {
   ReferenceLine,
 } from 'recharts'
 import { Link } from 'react-router-dom'
-import { getSituationalAwareness, getSituationalHistory, getRegimeBacktest, getBreadthIndexTrend, getBreadthSystemBacktest, getBreadthVerify, refreshBreadth } from '../api/breadth'
+import { getSituationalAwareness, getSituationalHistory, getRegimeBacktest, getBreadthIndexTrend, getBreadthSystemBacktest, getBreadthVerify, refreshBreadth, getSignalScorecard } from '../api/breadth'
 import { getThemeRadarAnalysis } from '../api/themeRadar'
 import RefreshControl from '../components/RefreshControl'
 
@@ -181,6 +181,118 @@ function CriteriaRow({ c }) {
       </span>
       <span className={`text-[11.5px] ${c.met ? 'text-surface-200' : 'text-surface-500'}`}>{c.label}</span>
       <span className="ml-auto font-mono text-[11px] text-surface-400 shrink-0">{c.value}</span>
+    </div>
+  )
+}
+
+// ─── Signal scorecard — has any of this actually predicted anything? ────────
+//
+// Everything else on this page is a *claim*. This is the audit: each signal's
+// forward return versus the unconditional base rate, so a signal that looks
+// clever in a tape where every day worked shows no lift and says so.
+//
+// EPISODES, not days, drive the reliability label — regime days are heavily
+// autocorrelated, so a signal firing for 30 straight sessions is a handful of
+// observations, not 30. Presenting day counts as sample size is the main way a
+// scorecard like this misleads.
+
+const REL = {
+  measured:     { cls: 'bg-accent/10 text-accent border-accent/30', label: 'measured' },
+  tentative:    { cls: 'bg-amber-500/10 text-amber-300 border-amber-400/30', label: 'tentative' },
+  insufficient: { cls: 'bg-surface-800/60 text-surface-500 border-surface-700', label: 'too few' },
+}
+const pct1 = (v) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)}%`)
+
+function SignalScorecard({ data, loading, error }) {
+  const [open, setOpen] = useState(false)
+  if (error || (!data && !loading)) return null
+  const H = 10
+  const base = data?.base_rate?.[H]
+  const rows = (data?.signals || []).filter((r) => r.days > 0)
+  return (
+    <div className="rounded-2xl bg-surface-900/80 border border-surface-700/50 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full px-5 py-3.5 flex items-center gap-2.5 hover:bg-surface-800/40 transition-colors text-left"
+        aria-expanded={open}
+      >
+        <span className="text-[14px] font-semibold text-surface-100">Signal scorecard</span>
+        <span className="text-[11px] text-surface-500">
+          — has any of this actually preceded anything? {H}-day forward return vs the base rate
+        </span>
+        <span className="ml-auto text-[11px] font-mono text-surface-500">
+          {base?.avg != null ? `base ${pct1(base.avg)}` : ''}
+        </span>
+        <svg className={`w-4 h-4 text-surface-500 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="px-5 pb-5 border-t border-surface-700/40">
+          {loading && !data ? (
+            <div className="py-6 text-center text-surface-500 text-[13px]">Replaying the ledger…</div>
+          ) : (
+            <>
+              <p className="text-[11.5px] text-surface-500 leading-snug py-3">
+                Each signal replayed over {data?.ledger_days} ledger days and joined to the forward return of the
+                average stock. <span className="text-surface-300">Lift</span> is the part that matters: performance minus
+                the unconditional base rate ({pct1(base?.avg)} over {H} days, {base?.n} obs). Reliability is judged on{' '}
+                <span className="text-surface-300">episodes</span> — runs of consecutive firings — because regime days
+                cluster, so day counts badly overstate the real sample.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-[12px]">
+                  <thead className="text-[10px] uppercase tracking-wide text-surface-500">
+                    <tr>
+                      <th className="text-left font-semibold py-1.5">Signal</th>
+                      <th className="text-right font-semibold py-1.5" title="Distinct runs of consecutive firings — the honest sample size">Episodes</th>
+                      <th className="text-right font-semibold py-1.5">Days</th>
+                      <th className="text-right font-semibold py-1.5">Avg {H}d</th>
+                      <th className="text-right font-semibold py-1.5" title="Average minus the unconditional base rate">Lift</th>
+                      <th className="text-right font-semibold py-1.5">Hit</th>
+                      <th className="text-left font-semibold py-1.5 pl-3">Confidence</th>
+                    </tr>
+                  </thead>
+                  <tbody className="font-mono">
+                    {rows.map((r) => {
+                      const b = r.by_horizon?.[H] || {}
+                      const rel = REL[r.reliability] || REL.insufficient
+                      const dim = r.reliability === 'insufficient'
+                      return (
+                        <tr key={r.key} className={`border-t border-surface-800/60 ${dim ? 'opacity-50' : ''}`}>
+                          <td className="py-1.5 pr-3 font-sans text-surface-200">{r.label}</td>
+                          <td className="py-1.5 text-right text-surface-300">{r.episodes}</td>
+                          <td className="py-1.5 text-right text-surface-500">{r.days}</td>
+                          <td className="py-1.5 text-right text-surface-300">{pct1(b.avg)}</td>
+                          <td className={`py-1.5 text-right font-semibold ${
+                            b.lift == null ? 'text-surface-500' : b.lift > 0 ? 'text-emerald-300' : 'text-rose-300'
+                          }`}>{pct1(b.lift)}</td>
+                          <td className="py-1.5 text-right text-surface-400">
+                            {b.hit_rate == null ? '—' : `${Math.round(b.hit_rate * 100)}%`}
+                          </td>
+                          <td className="py-1.5 pl-3">
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border ${rel.cls}`}>
+                              {rel.label}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-3 text-[11px] text-surface-500 leading-snug">
+                Read this sceptically in both directions. The ledger currently spans one broadly rising period, so any
+                signal that counsels caution will show negative lift almost by construction — that's the sample talking,
+                not proof the signal is wrong. Equally, a positive lift on 2 episodes is a coincidence with good
+                presentation. Trust the <span className="text-surface-300">measured</span> rows; treat the rest as
+                unproven and let the ledger deepen.
+              </p>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1260,6 +1372,11 @@ export default function SituationalAwareness() {
   const [indexLoading, setIndexLoading] = useState(true)
   const [indexError, setIndexError] = useState(null)
 
+  // Signal scorecard — non-blocking; it replays the whole ledger.
+  const [scorecard, setScorecard] = useState(null)
+  const [scorecardLoading, setScorecardLoading] = useState(true)
+  const [scorecardError, setScorecardError] = useState(null)
+
   const [sysBacktest, setSysBacktest] = useState(null)
   const [sysLoading, setSysLoading] = useState(true)
   const [sysError, setSysError] = useState(null)
@@ -1325,6 +1442,18 @@ export default function SituationalAwareness() {
     }
   }, [])
 
+  const loadScorecard = useCallback(async () => {
+    setScorecardLoading(true)
+    setScorecardError(null)
+    try {
+      setScorecard(await getSignalScorecard())
+    } catch (e) {
+      setScorecardError(e.message)
+    } finally {
+      setScorecardLoading(false)
+    }
+  }, [])
+
   const loadSysBacktest = useCallback(async () => {
     setSysLoading(true)
     setSysError(null)
@@ -1342,6 +1471,7 @@ export default function SituationalAwareness() {
   useEffect(() => { loadBacktest() }, [loadBacktest])
   useEffect(() => { loadThemes() }, [loadThemes])
   useEffect(() => { loadIndex() }, [loadIndex])
+  useEffect(() => { loadScorecard() }, [loadScorecard])
   useEffect(() => { loadSysBacktest() }, [loadSysBacktest])
 
   // Pull any missing trading days into the breadth cache (same as Market
@@ -1352,7 +1482,7 @@ export default function SituationalAwareness() {
     try {
       await refreshBreadth({ lookbackDays: 130 })
       setSa(await getSituationalAwareness(30))
-      await Promise.all([loadHistory(lookback), loadBacktest(), loadThemes(), loadIndex(), loadSysBacktest()])
+      await Promise.all([loadHistory(lookback), loadBacktest(), loadThemes(), loadIndex(), loadSysBacktest(), loadScorecard()])
     } catch (e) {
       setError(e.message)
     } finally {
@@ -1443,6 +1573,9 @@ export default function SituationalAwareness() {
 
           {/* Index check — is cap-weighted price confirming the breadth read? */}
           <IndexCheck data={indexTrend} loading={indexLoading} error={indexError} score={sa.score} divergence={sa.divergence} />
+
+          {/* The audit of everything above — collapsed by default */}
+          <SignalScorecard data={scorecard} loading={scorecardLoading} error={scorecardError} />
 
           {/* How & why + exposure history */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

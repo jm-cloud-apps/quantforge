@@ -165,6 +165,21 @@ def get_breadth_regime_backtest():
     return _breadth_cached("regime-backtest", _compute)
 
 
+@router.get("/api/breadth/signal-scorecard")
+def get_breadth_signal_scorecard():
+    """Forward-return scorecard for the Trade Today signals (verdict, turn-watch,
+    divergence), measured against the unconditional base rate on the same
+    equal-weight index the regime backtest uses. Reports EPISODES alongside day
+    counts — regime days are autocorrelated, so runs are the honest sample size.
+    Seeds the ledger first so the join has rows. Memoized on the cache
+    fingerprint."""
+    def _compute():
+        _sa_compute(30)
+        from breadth.signal_scorecard import run as run_scorecard
+        return run_scorecard()
+    return _breadth_cached("signal-scorecard", _compute)
+
+
 @router.get("/api/breadth/index-trend")
 def get_breadth_index_trend():
     """Headline index ETFs (SPY/QQQ/IWM) trend posture from the grouped cache —

@@ -43,6 +43,9 @@ logger = logging.getLogger(__name__)
 
 INDEX_ETFS = ("SPY", "QQQ", "IWM")
 
+SMA_FAST = 20
+SMA_SLOW = 50
+
 # --- Follow-through day -----------------------------------------------------
 # O'Neil's original spec is ~1.7% on the Nasdaq; that was calibrated on a more
 # volatile index in a different era, and modern practice on SPY-like ETFs uses
@@ -85,6 +88,41 @@ def _load_bars(lookback: int = 120) -> dict[str, pd.DataFrame]:
         frame = pd.DataFrame(rows[sym], columns=["close", "volume"], index=dates).dropna()
         if len(frame) >= FTD_MIN_DAY + 2:
             out[sym] = frame
+    return out
+
+
+def load_bars(lookback: int = 600) -> dict[str, pd.DataFrame]:
+    """Public wrapper — the scorecard needs the same bars to replay history."""
+    return _load_bars(lookback)
+
+
+def posture_at(frames: dict[str, pd.DataFrame], upto: int) -> list[dict]:
+    """Index posture AS OF a historical bar index, in index_trend's row shape.
+
+    `index_trend()` only ever describes today. Measuring whether a divergence
+    call actually predicted anything means reconstructing what it would have
+    said on each past date, which is what this does — same fields, computed off
+    a truncated series.
+    """
+    out = []
+    for sym, frame in frames.items():
+        s = frame["close"].iloc[: upto + 1]
+        if len(s) < SMA_SLOW + 11:
+            out.append({"symbol": sym, "available": False})
+            continue
+        last = float(s.iloc[-1])
+        sma20 = float(s.rolling(SMA_FAST).mean().iloc[-1])
+        sma50_series = s.rolling(SMA_SLOW).mean()
+        sma50 = float(sma50_series.iloc[-1])
+        above20, above50 = last > sma20, last > sma50
+        trend = "up" if (above20 and above50) else ("down" if not (above20 or above50) else "mixed")
+        hi = float(s.max())
+        out.append({
+            "symbol": sym, "available": True, "trend": trend,
+            "above_sma20": above20, "above_sma50": above50,
+            "sma50_rising": bool(sma50_series.iloc[-1] > sma50_series.iloc[-11]),
+            "pct_from_high": (last / hi - 1.0) if hi else None,
+        })
     return out
 
 

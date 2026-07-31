@@ -58,6 +58,7 @@ def test_critical_routes_are_registered():
         # A few load-bearing endpoints from elsewhere in the app
         "/api/breadth/situational",
         "/api/breadth/snapshot",
+        "/api/breadth/signal-scorecard",
         "/api/screener/qullamaggie",
         "/api/trade-plans",
     ]
