@@ -771,58 +771,6 @@ function RiskPill({ label, state }) {
   )
 }
 
-function DayVerdict({ v, setups }) {
-  const t = V_TONE[v.tone] || V_TONE.neutral
-  const shortLight = (setups || []).find(s => s.key === 'short')?.light
-
-  return (
-    <div className={`rounded-2xl border ${t.border} ${t.bg} px-5 py-4`}>
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[9.5px] font-bold tracking-widest text-surface-500 uppercase">Today</span>
-            {v.avoid && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-surface-800/60 text-surface-400 border-surface-700 uppercase">
-                No-trade day
-              </span>
-            )}
-          </div>
-          <div className={`mt-0.5 text-[19px] font-display font-bold tracking-tight leading-tight ${t.text}`}>
-            {v.label}
-          </div>
-        </div>
-
-        {/* The two axes, answered explicitly */}
-        <div className="flex flex-col gap-1.5 shrink-0">
-          <RiskPill label="New long" state={v.new_long} />
-          <RiskPill label="New short" state={v.new_short} />
-        </div>
-      </div>
-
-      <p className="mt-2.5 text-[12.5px] text-surface-300 leading-snug">{v.why}</p>
-
-      <div className="mt-3 rounded-lg border border-surface-700/50 bg-surface-950/40 px-3 py-2">
-        <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-0.5">Positions you already hold</div>
-        <p className="text-[12px] text-surface-200 leading-snug">{v.existing}</p>
-      </div>
-
-      {/* The asymmetry note — why a weak long tape is not a short signal. Shown
-          whenever shorts aren't authorised but the tape is soft, which is
-          exactly when the temptation to flip direction shows up. */}
-      {v.new_short !== 'yes' && (v.tone === 'bad' || v.tone === 'warn' || v.tone === 'neutral') && (
-        <p className="mt-2 text-[11.5px] text-surface-500 leading-snug">
-          <span className="font-semibold text-surface-400">Why no shorts:</span> exposure is a
-          <span className="text-surface-300"> long-side</span> gauge — a weak long tape isn't a short signal, it's an
-          absence of one. Shorts need their own green
-          {shortLight ? <> (Shorts / Hedges is currently <span className="text-surface-300">{shortLight}</span>)</> : null}
-          , and the risk is worst at the <span className="text-surface-300">bottom</span> of the range, where squeezes
-          live. See the <Link to="/rules#short-side" className="text-cyan hover:underline underline-offset-2">Short Side</Link> framework before any short.
-        </p>
-      )}
-    </div>
-  )
-}
-
 // at the top: Gate 1 (breakout light) · Gate 2 (exposure score → % long) · Gate 3
 // (in-season themes, pulled from Theme Radar). Everything below is the supporting
 // detail behind these three calls.
@@ -975,7 +923,7 @@ function ExtendedGuard({ score, metrics, stanceLabel }) {
   )
 }
 
-function DecisionHeader({ stance, theme, score, breakoutSetup, breakoutTakeaway, delta, flip, stats, metrics, themes, themesLoading, themesError, backtest }) {
+function DecisionHeader({ stance, theme, score, breakoutSetup, breakoutTakeaway, delta, flip, stats, metrics, themes, themesLoading, themesError, backtest, verdict, setups }) {
   const gate = GATE_BREAKOUT[breakoutSetup?.light] || GATE_BREAKOUT.amber
   const gl = gate.light
   const hasThemes = themes && (themes.inSeason.length || themes.avoid.length)
@@ -1008,11 +956,37 @@ function DecisionHeader({ stance, theme, score, breakoutSetup, breakoutTakeaway,
       {/* The three gates */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <GateCard n="1" title="Should I trade?">
-          <div className="flex items-center gap-2">
-            <span className={`shrink-0 w-2.5 h-2.5 rounded-full ${gl.dot}`} aria-hidden="true" />
-            <span className={`text-[17px] font-bold leading-tight ${gl.text}`}>{gate.verb}</span>
-          </div>
-          <p className="text-[12px] text-surface-400 mt-1.5 leading-snug">{breakoutTakeaway}</p>
+          {/* The day verdict lives here rather than in its own block above: it
+              answers exactly this gate, and reading the whole tape (plus
+              direction) it strictly supersedes the breakout-light-only verb
+              this card used to show. */}
+          {verdict ? (
+            <>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`shrink-0 w-2.5 h-2.5 rounded-full ${(V_TONE[verdict.tone] || V_TONE.neutral).dot}`} aria-hidden="true" />
+                <span className={`text-[15px] font-bold leading-tight ${(V_TONE[verdict.tone] || V_TONE.neutral).text}`}>
+                  {verdict.label}
+                </span>
+                {verdict.avoid && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-surface-800/60 text-surface-400 border-surface-700 uppercase">
+                    No-trade day
+                  </span>
+                )}
+              </div>
+              <div className="mt-2 flex flex-col gap-1">
+                <RiskPill label="New long" state={verdict.new_long} />
+                <RiskPill label="New short" state={verdict.new_short} />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <span className={`shrink-0 w-2.5 h-2.5 rounded-full ${gl.dot}`} aria-hidden="true" />
+                <span className={`text-[17px] font-bold leading-tight ${gl.text}`}>{gate.verb}</span>
+              </div>
+              <p className="text-[12px] text-surface-400 mt-1.5 leading-snug">{breakoutTakeaway}</p>
+            </>
+          )}
         </GateCard>
 
         <GateCard n="2" title="How big?">
@@ -1046,6 +1020,32 @@ function DecisionHeader({ stance, theme, score, breakoutSetup, breakoutTakeaway,
           )}
         </GateCard>
       </div>
+
+      {/* Verdict detail — the reasoning and the existing-position instruction.
+          Kept out of the gate cards because they answer "what about what I
+          already hold", which is a different question from all three gates. */}
+      {verdict && (
+        <div className="mt-3 space-y-2">
+          <p className="text-[12.5px] text-surface-300 leading-snug">{verdict.why}</p>
+          <div className="rounded-lg border border-surface-700/50 bg-surface-950/40 px-3 py-2">
+            <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-0.5">Positions you already hold</div>
+            <p className="text-[12px] text-surface-200 leading-snug">{verdict.existing}</p>
+          </div>
+          {verdict.new_short !== 'yes' && ['bad', 'warn', 'neutral'].includes(verdict.tone) && (
+            <p className="text-[11.5px] text-surface-500 leading-snug">
+              <span className="font-semibold text-surface-400">Why no shorts:</span> exposure is a
+              <span className="text-surface-300"> long-side</span> gauge — a weak long tape isn't a short signal, it's an
+              absence of one. Shorts need their own green
+              {(() => {
+                const sl = (setups || []).find((x) => x.key === 'short')?.light
+                return sl ? <> (Shorts / Hedges is currently <span className="text-surface-300">{sl}</span>)</> : null
+              })()}
+              , and the risk is worst at the <span className="text-surface-300">bottom</span> of the range, where
+              squeezes live. See the <Link to="/rules#short-side" className="text-cyan hover:underline underline-offset-2">Short Side</Link> framework before any short.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Action line + extended guard + empirical track record + exposure ladder */}
       <p className={`mt-3.5 text-[13.5px] ${theme.text} leading-snug`}>{stance.action}</p>
@@ -1415,14 +1415,14 @@ export default function SituationalAwareness() {
         </div>
       )}
 
-      {sa?.verdict && <DayVerdict v={sa.verdict} setups={sa.setups} />}
-      {sa?.turn?.signals?.length > 0 && <TurnWatch turn={sa.turn} />}
 
       {sa && stance && sa.score != null && (
         <>
           {/* Trade-today command header — the 3-gate answer (supersedes the old
               stance banner + breakout call-out). Detail lives in the sections below. */}
           <DecisionHeader
+            verdict={sa.verdict}
+            setups={sa.setups}
             stance={stance}
             theme={theme}
             score={sa.score}
@@ -1437,6 +1437,9 @@ export default function SituationalAwareness() {
             themesError={themesError}
             backtest={backtest}
           />
+
+          {/* Turn watch — sits under the command header, not sandwiched inside it */}
+          {sa?.turn?.signals?.length > 0 && <TurnWatch turn={sa.turn} />}
 
           {/* Index check — is cap-weighted price confirming the breadth read? */}
           <IndexCheck data={indexTrend} loading={indexLoading} error={indexError} score={sa.score} divergence={sa.divergence} />
