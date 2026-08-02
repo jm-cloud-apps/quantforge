@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import TickerLink from '../components/TickerLink'
 import TradePlanGate from '../components/TradePlanGate'
+import { useCircuitBreaker, BreakerLock, RandomTax } from '../components/CircuitBreaker'
 import {
   AreaChart,
   Area,
@@ -14,7 +15,7 @@ import {
   ReferenceLine,
 } from 'recharts'
 import { Link } from 'react-router-dom'
-import { getSituationalAwareness, getSituationalHistory, getRegimeBacktest, getBreadthIndexTrend, getBreadthSystemBacktest, getBreadthVerify, refreshBreadth } from '../api/breadth'
+import { getSituationalAwareness, getSituationalHistory, getRegimeBacktest, getBreadthIndexTrend, getBreadthSystemBacktest, getBreadthVerify, refreshBreadth, getSignalScorecard } from '../api/breadth'
 import { getThemeRadarAnalysis } from '../api/themeRadar'
 import RefreshControl from '../components/RefreshControl'
 
@@ -185,6 +186,294 @@ function CriteriaRow({ c }) {
   )
 }
 
+// ─── Quiet mode ─────────────────────────────────────────────────────────────
+//
+// The page had grown to ~22 screens, with the decision competing at equal visual
+// weight against eleven blocks of evidence FOR that decision. For a trader whose
+// recorded weakness is unplanned trades, a wall of articulate justification is
+// not neutral — you can always find a panel that supports what you already
+// wanted. So evidence and audit collapse by default and the call stays on top.
+//
+// State persists per section; "Show everything" opens the lot for a deep dive.
+
+const SA_COLLAPSE_KEY = 'qf:sa:collapsed:v1'
+
+function loadCollapsed() {
+  try {
+    const raw = localStorage.getItem(SA_COLLAPSE_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* fall through to defaults */ }
+  return null
+}
+
+function Section({ id, title, hint, collapsed, onToggle, children }) {
+  return (
+    <div className="rounded-2xl bg-surface-900/60 border border-surface-700/50 overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        className="w-full px-4 py-2.5 flex items-center gap-2.5 text-left hover:bg-surface-800/40 transition-colors"
+      >
+        <span className="text-[11px] uppercase tracking-wide text-surface-400 font-semibold">{title}</span>
+        {hint && <span className="text-[11px] text-surface-600 truncate">{hint}</span>}
+        <svg className={`ml-auto w-4 h-4 shrink-0 text-surface-500 transition-transform ${collapsed ? '' : 'rotate-180'}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {!collapsed && <div className="px-4 pb-4">{children}</div>}
+    </div>
+  )
+}
+
+// ─── Signal scorecard — has any of this actually predicted anything? ────────
+//
+// Everything else on this page is a *claim*. This is the audit: each signal's
+// forward return versus the unconditional base rate, so a signal that looks
+// clever in a tape where every day worked shows no lift and says so.
+//
+// EPISODES, not days, drive the reliability label — regime days are heavily
+// autocorrelated, so a signal firing for 30 straight sessions is a handful of
+// observations, not 30. Presenting day counts as sample size is the main way a
+// scorecard like this misleads.
+
+const REL = {
+  measured:     { cls: 'bg-accent/10 text-accent border-accent/30', label: 'measured' },
+  tentative:    { cls: 'bg-amber-500/10 text-amber-300 border-amber-400/30', label: 'tentative' },
+  insufficient: { cls: 'bg-surface-800/60 text-surface-500 border-surface-700', label: 'too few' },
+}
+const pct1 = (v) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)}%`)
+
+function SignalScorecard({ data, loading, error }) {
+  const [open, setOpen] = useState(false)
+  if (error || (!data && !loading)) return null
+  const H = 10
+  const base = data?.base_rate?.[H]
+  const rows = (data?.signals || []).filter((r) => r.days > 0)
+  return (
+    <div className="rounded-2xl bg-surface-900/80 border border-surface-700/50 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full px-5 py-3.5 flex items-center gap-2.5 hover:bg-surface-800/40 transition-colors text-left"
+        aria-expanded={open}
+      >
+        <span className="text-[14px] font-semibold text-surface-100">Signal scorecard</span>
+        <span className="text-[11px] text-surface-500">
+          — has any of this actually preceded anything? {H}-day forward return vs the base rate
+        </span>
+        <span className="ml-auto text-[11px] font-mono text-surface-500">
+          {base?.avg != null ? `base ${pct1(base.avg)}` : ''}
+        </span>
+        <svg className={`w-4 h-4 text-surface-500 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="px-5 pb-5 border-t border-surface-700/40">
+          {loading && !data ? (
+            <div className="py-6 text-center text-surface-500 text-[13px]">Replaying the ledger…</div>
+          ) : (
+            <>
+              <p className="text-[11.5px] text-surface-500 leading-snug py-3">
+                Each signal replayed over {data?.ledger_days} ledger days and joined to the forward return of the
+                average stock. <span className="text-surface-300">Lift</span> is the part that matters: performance minus
+                the unconditional base rate ({pct1(base?.avg)} over {H} days, {base?.n} obs). Reliability is judged on{' '}
+                <span className="text-surface-300">episodes</span> — runs of consecutive firings — because regime days
+                cluster, so day counts badly overstate the real sample.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-[12px]">
+                  <thead className="text-[10px] uppercase tracking-wide text-surface-500">
+                    <tr>
+                      <th className="text-left font-semibold py-1.5">Signal</th>
+                      <th className="text-right font-semibold py-1.5" title="Distinct runs of consecutive firings — the honest sample size">Episodes</th>
+                      <th className="text-right font-semibold py-1.5">Days</th>
+                      <th className="text-right font-semibold py-1.5">Avg {H}d</th>
+                      <th className="text-right font-semibold py-1.5" title="Average minus the unconditional base rate">Lift</th>
+                      <th className="text-right font-semibold py-1.5">Hit</th>
+                      <th className="text-left font-semibold py-1.5 pl-3">Confidence</th>
+                    </tr>
+                  </thead>
+                  <tbody className="font-mono">
+                    {rows.map((r) => {
+                      const b = r.by_horizon?.[H] || {}
+                      const rel = REL[r.reliability] || REL.insufficient
+                      const dim = r.reliability === 'insufficient'
+                      return (
+                        <tr key={r.key} className={`border-t border-surface-800/60 ${dim ? 'opacity-50' : ''}`}>
+                          <td className="py-1.5 pr-3 font-sans text-surface-200">{r.label}</td>
+                          <td className="py-1.5 text-right text-surface-300">{r.episodes}</td>
+                          <td className="py-1.5 text-right text-surface-500">{r.days}</td>
+                          <td className="py-1.5 text-right text-surface-300">{pct1(b.avg)}</td>
+                          <td className={`py-1.5 text-right font-semibold ${
+                            b.lift == null ? 'text-surface-500' : b.lift > 0 ? 'text-emerald-300' : 'text-rose-300'
+                          }`}>{pct1(b.lift)}</td>
+                          <td className="py-1.5 text-right text-surface-400">
+                            {b.hit_rate == null ? '—' : `${Math.round(b.hit_rate * 100)}%`}
+                          </td>
+                          <td className="py-1.5 pl-3">
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border ${rel.cls}`}>
+                              {rel.label}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-3 text-[11px] text-surface-500 leading-snug">
+                Read this sceptically in both directions. The ledger currently spans one broadly rising period, so any
+                signal that counsels caution will show negative lift almost by construction — that's the sample talking,
+                not proof the signal is wrong. Equally, a positive lift on 2 episodes is a coincidence with good
+                presentation. Trust the <span className="text-surface-300">measured</span> rows; treat the rest as
+                unproven and let the ledger deepen.
+              </p>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Turn watch — is the tape inflecting? ───────────────────────────────────
+//
+// The exposure score says where the tape IS; these say it may be about to stop
+// being there. Sits directly under the verdict on purpose: a momentum trader's
+// most expensive mistake is sitting in cash through the first leg of a new
+// advance because the gauge is still red. Backend: breadth/turn.py.
+
+const TURN_TONE = {
+  good: { border: 'border-accent/40', bg: 'bg-accent/[0.06]', text: 'text-accent', dot: 'bg-accent' },
+  info: { border: 'border-cyan/40', bg: 'bg-cyan/[0.06]', text: 'text-cyan', dot: 'bg-cyan' },
+  warn: { border: 'border-amber-400/40', bg: 'bg-amber-500/[0.07]', text: 'text-amber-300', dot: 'bg-amber-400' },
+}
+
+// Scorecard-driven ordering. A signal's placement is decided by its MEASURED
+// forward-return lift, not by how convincing the copy sounds — including for the
+// ones I wrote and believed. Anything unproven still renders, but demoted and
+// carrying its own stats, so the page can't quietly imply an edge it doesn't
+// have. As the ledger deepens the ranking corrects itself.
+function scoreOf(scorecard, key) {
+  const row = (scorecard?.signals || []).find((r) => r.key === `turn:${key}`)
+  if (!row) return null
+  const b = row.by_horizon?.[10] || {}
+  return { lift: b.lift, episodes: row.episodes, reliability: row.reliability }
+}
+
+function StatChip({ st }) {
+  if (!st) return null
+  const proven = st.reliability === 'measured' && st.lift != null && st.lift > 0
+  const cls = proven
+    ? 'bg-accent/10 text-accent border-accent/30'
+    : st.reliability === 'measured'
+      ? 'bg-rose-500/10 text-rose-300 border-rose-400/30'
+      : 'bg-surface-800/60 text-surface-500 border-surface-700'
+  const txt = st.reliability !== 'measured'
+    ? `unproven · ${st.episodes} ep`
+    : `${st.lift > 0 ? '+' : ''}${(st.lift * 100).toFixed(2)}% lift · ${st.episodes} ep`
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border ${cls}`}
+      title="10-day forward return vs the unconditional base rate, over distinct firing episodes">
+      {txt}
+    </span>
+  )
+}
+
+function TurnWatch({ turn, scorecard }) {
+  const [showUnproven, setShowUnproven] = useState(false)
+  const all = turn?.signals || []
+  if (!all.length) return null
+  const withStats = all.map((sig) => ({ sig, st: scoreOf(scorecard, sig.key) }))
+  // Proven = measured with positive lift. Everything else is demoted, but the
+  // follow-through day is never demoted: it's the only genuine trigger here, and
+  // it has too few episodes to measure precisely because it fires rarely.
+  const isProven = ({ sig, st }) =>
+    sig.key === 'follow_through' || !st || (st.reliability === 'measured' && st.lift > 0)
+  const proven = withStats.filter(isProven)
+  const unproven = withStats.filter((x) => !isProven(x))
+  const signals = proven.map((x) => x.sig)
+  return (
+    <div className="rounded-2xl border border-surface-700/50 bg-surface-900/60 p-4">
+      <div className="flex items-center gap-2 flex-wrap mb-2.5">
+        <span className="text-[9.5px] font-bold tracking-widest text-surface-400 uppercase">Turn watch</span>
+        <span className="text-[11px] text-surface-500">
+          the exposure score says where you are — these say it may be changing
+        </span>
+      </div>
+      <div className="space-y-2.5">
+        {proven.map(({ sig, st }) => {
+          const t = TURN_TONE[sig.tone] || TURN_TONE.info
+          return (
+            <div key={sig.key} className={`rounded-xl border ${t.border} ${t.bg} px-4 py-3`}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${t.dot}`} />
+                <span className={`text-[13px] font-bold tracking-tight ${t.text}`}>{sig.label}</span>
+                <StatChip st={st} />
+              </div>
+              <p className="mt-1.5 text-[12px] text-surface-300 leading-snug">{sig.detail}</p>
+              <p className="mt-1.5 text-[12px] text-surface-200 leading-snug">
+                <span className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mr-1.5">Do</span>
+                {sig.action}
+              </p>
+            </div>
+          )
+        })}
+      </div>
+      {unproven.length > 0 && (
+        <div className="mt-2.5">
+          <button
+            type="button"
+            onClick={() => setShowUnproven((v) => !v)}
+            className="text-[11px] text-surface-500 hover:text-surface-300 inline-flex items-center gap-1"
+          >
+            <span className={`transition-transform ${showUnproven ? 'rotate-90' : ''}`}>▸</span>
+            {unproven.length} signal{unproven.length === 1 ? '' : 's'} firing with no measured edge
+          </button>
+          {showUnproven && (
+            <div className="mt-2 space-y-2">
+              {unproven.map(({ sig, st }) => (
+                <div key={sig.key} className="rounded-xl border border-surface-700/50 bg-surface-950/40 px-4 py-2.5 opacity-70">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[12.5px] font-semibold text-surface-300">{sig.label}</span>
+                    <StatChip st={st} />
+                  </div>
+                  <p className="mt-1 text-[11.5px] text-surface-500 leading-snug">{sig.detail}</p>
+                </div>
+              ))}
+              <p className="text-[11px] text-surface-600 leading-snug">
+                Demoted by the scorecard, not by taste: over the ledger so far these haven't beaten the base rate.
+                They're shown so you can see what fired — not as a reason to act.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+      <p className="mt-2.5 text-[11px] text-surface-500 leading-snug">
+        These are early reads, not the all-clear — the follow-through day is the only one of them that's a trigger.
+        Size the first entries as probes.
+      </p>
+    </div>
+  )
+}
+
+// Each breadth setup family maps to the scanner page that actually trades it.
+// Without this the lights are a read with no next step — especially the short
+// family, whose two scanners are the only place its candidates live.
+const SETUP_SCANNERS = {
+  breakout: [{ to: '/breakouts', label: 'Breakouts' }],
+  ep: [{ to: '/scanner-9m', label: '$9M Scanner' }],
+  pullback: [{ to: '/stage-analysis', label: 'Stage Analysis' }],
+  mean_reversion: [{ to: '/reversal-setup', label: 'Reversal Setup' }],
+  short: [
+    { to: '/parabolic-short', label: 'Parabolic Short' },
+    { to: '/breakdown-short', label: 'Breakdown Short' },
+  ],
+}
+
 function SetupCard({ s }) {
   const [open, setOpen] = useState(false)
   const l = LIGHT[s.light] || LIGHT.amber
@@ -199,6 +488,21 @@ function SetupCard({ s }) {
       </div>
       <p className="text-[11px] text-surface-500 mt-1 leading-snug">{s.blurb}</p>
       <p className="text-[12.5px] text-surface-300 mt-2.5 leading-snug">{s.why}</p>
+
+      {/* Where to actually go from this light */}
+      {(SETUP_SCANNERS[s.key] || []).length > 0 && (
+        <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
+          {SETUP_SCANNERS[s.key].map((sc) => (
+            <Link
+              key={sc.to}
+              to={sc.to}
+              className="text-[10.5px] px-2 py-0.5 rounded-full border border-surface-700 bg-surface-900/60 text-surface-400 hover:text-surface-100 hover:border-surface-600 transition-colors"
+            >
+              {sc.label} →
+            </Link>
+          ))}
+        </div>
+      )}
 
       {crit && (
         <>
@@ -692,58 +996,6 @@ function RiskPill({ label, state }) {
   )
 }
 
-function DayVerdict({ v, setups }) {
-  const t = V_TONE[v.tone] || V_TONE.neutral
-  const shortLight = (setups || []).find(s => s.key === 'short')?.light
-
-  return (
-    <div className={`rounded-2xl border ${t.border} ${t.bg} px-5 py-4`}>
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[9.5px] font-bold tracking-widest text-surface-500 uppercase">Today</span>
-            {v.avoid && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-surface-800/60 text-surface-400 border-surface-700 uppercase">
-                No-trade day
-              </span>
-            )}
-          </div>
-          <div className={`mt-0.5 text-[19px] font-display font-bold tracking-tight leading-tight ${t.text}`}>
-            {v.label}
-          </div>
-        </div>
-
-        {/* The two axes, answered explicitly */}
-        <div className="flex flex-col gap-1.5 shrink-0">
-          <RiskPill label="New long" state={v.new_long} />
-          <RiskPill label="New short" state={v.new_short} />
-        </div>
-      </div>
-
-      <p className="mt-2.5 text-[12.5px] text-surface-300 leading-snug">{v.why}</p>
-
-      <div className="mt-3 rounded-lg border border-surface-700/50 bg-surface-950/40 px-3 py-2">
-        <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-0.5">Positions you already hold</div>
-        <p className="text-[12px] text-surface-200 leading-snug">{v.existing}</p>
-      </div>
-
-      {/* The asymmetry note — why a weak long tape is not a short signal. Shown
-          whenever shorts aren't authorised but the tape is soft, which is
-          exactly when the temptation to flip direction shows up. */}
-      {v.new_short !== 'yes' && (v.tone === 'bad' || v.tone === 'warn' || v.tone === 'neutral') && (
-        <p className="mt-2 text-[11.5px] text-surface-500 leading-snug">
-          <span className="font-semibold text-surface-400">Why no shorts:</span> exposure is a
-          <span className="text-surface-300"> long-side</span> gauge — a weak long tape isn't a short signal, it's an
-          absence of one. Shorts need their own green
-          {shortLight ? <> (Shorts / Hedges is currently <span className="text-surface-300">{shortLight}</span>)</> : null}
-          , and the risk is worst at the <span className="text-surface-300">bottom</span> of the range, where squeezes
-          live. See the <Link to="/rules#short-side" className="text-cyan hover:underline underline-offset-2">Short Side</Link> framework before any short.
-        </p>
-      )}
-    </div>
-  )
-}
-
 // at the top: Gate 1 (breakout light) · Gate 2 (exposure score → % long) · Gate 3
 // (in-season themes, pulled from Theme Radar). Everything below is the supporting
 // detail behind these three calls.
@@ -896,7 +1148,7 @@ function ExtendedGuard({ score, metrics, stanceLabel }) {
   )
 }
 
-function DecisionHeader({ stance, theme, score, breakoutSetup, breakoutTakeaway, delta, flip, stats, metrics, themes, themesLoading, themesError, backtest }) {
+function DecisionHeader({ stance, theme, score, breakoutSetup, breakoutTakeaway, delta, flip, stats, metrics, themes, themesLoading, themesError, backtest, verdict, setups, breaker }) {
   const gate = GATE_BREAKOUT[breakoutSetup?.light] || GATE_BREAKOUT.amber
   const gl = gate.light
   const hasThemes = themes && (themes.inSeason.length || themes.avoid.length)
@@ -929,11 +1181,43 @@ function DecisionHeader({ stance, theme, score, breakoutSetup, breakoutTakeaway,
       {/* The three gates */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <GateCard n="1" title="Should I trade?">
-          <div className="flex items-center gap-2">
-            <span className={`shrink-0 w-2.5 h-2.5 rounded-full ${gl.dot}`} aria-hidden="true" />
-            <span className={`text-[17px] font-bold leading-tight ${gl.text}`}>{gate.verb}</span>
-          </div>
-          <p className="text-[12px] text-surface-400 mt-1.5 leading-snug">{breakoutTakeaway}</p>
+          {/* The day verdict lives here rather than in its own block above: it
+              answers exactly this gate, and reading the whole tape (plus
+              direction) it strictly supersedes the breakout-light-only verb
+              this card used to show. */}
+          {/* Circuit breaker: the new-entry light is withheld until a plan
+              exists for the day (see components/CircuitBreaker.jsx). The
+              verdict's reasoning and existing-position instruction below are
+              deliberately NOT gated — those are risk information. */}
+          {breaker && !breaker.clear ? (
+            <BreakerLock breaker={breaker} />
+          ) : verdict ? (
+            <>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`shrink-0 w-2.5 h-2.5 rounded-full ${(V_TONE[verdict.tone] || V_TONE.neutral).dot}`} aria-hidden="true" />
+                <span className={`text-[15px] font-bold leading-tight ${(V_TONE[verdict.tone] || V_TONE.neutral).text}`}>
+                  {verdict.label}
+                </span>
+                {verdict.avoid && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider border bg-surface-800/60 text-surface-400 border-surface-700 uppercase">
+                    No-trade day
+                  </span>
+                )}
+              </div>
+              <div className="mt-2 flex flex-col gap-1">
+                <RiskPill label="New long" state={verdict.new_long} />
+                <RiskPill label="New short" state={verdict.new_short} />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <span className={`shrink-0 w-2.5 h-2.5 rounded-full ${gl.dot}`} aria-hidden="true" />
+                <span className={`text-[17px] font-bold leading-tight ${gl.text}`}>{gate.verb}</span>
+              </div>
+              <p className="text-[12px] text-surface-400 mt-1.5 leading-snug">{breakoutTakeaway}</p>
+            </>
+          )}
         </GateCard>
 
         <GateCard n="2" title="How big?">
@@ -967,6 +1251,32 @@ function DecisionHeader({ stance, theme, score, breakoutSetup, breakoutTakeaway,
           )}
         </GateCard>
       </div>
+
+      {/* Verdict detail — the reasoning and the existing-position instruction.
+          Kept out of the gate cards because they answer "what about what I
+          already hold", which is a different question from all three gates. */}
+      {verdict && (
+        <div className="mt-3 space-y-2">
+          <p className="text-[12.5px] text-surface-300 leading-snug">{verdict.why}</p>
+          <div className="rounded-lg border border-surface-700/50 bg-surface-950/40 px-3 py-2">
+            <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-0.5">Positions you already hold</div>
+            <p className="text-[12px] text-surface-200 leading-snug">{verdict.existing}</p>
+          </div>
+          {verdict.new_short !== 'yes' && ['bad', 'warn', 'neutral'].includes(verdict.tone) && (
+            <p className="text-[11.5px] text-surface-500 leading-snug">
+              <span className="font-semibold text-surface-400">Why no shorts:</span> exposure is a
+              <span className="text-surface-300"> long-side</span> gauge — a weak long tape isn't a short signal, it's an
+              absence of one. Shorts need their own green
+              {(() => {
+                const sl = (setups || []).find((x) => x.key === 'short')?.light
+                return sl ? <> (Shorts / Hedges is currently <span className="text-surface-300">{sl}</span>)</> : null
+              })()}
+              , and the risk is worst at the <span className="text-surface-300">bottom</span> of the range, where
+              squeezes live. See the <Link to="/rules#short-side" className="text-cyan hover:underline underline-offset-2">Short Side</Link> framework before any short.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Action line + extended guard + empirical track record + exposure ladder */}
       <p className={`mt-3.5 text-[13.5px] ${theme.text} leading-snug`}>{stance.action}</p>
@@ -1016,18 +1326,14 @@ function IndexRow({ ix }) {
   )
 }
 
-function IndexCheck({ data, loading, error, score }) {
+// `divergence` comes from the backend (breadth/turn.py::index_divergence), which
+// reads all three indices and their 50-day slopes. The two hardcoded SPY rules
+// this used to carry couldn't tell a shallow pullback inside an uptrend from a
+// broken market, and never looked at QQQ/IWM disagreement at all.
+function IndexCheck({ data, loading, error, score, divergence }) {
   if ((loading && !data) || error || !data?.available) return null
   const indices = data.indices || []
   const spy = indices.find((i) => i.symbol === 'SPY')
-  let divergence = null
-  if (spy?.available && score != null) {
-    if (score >= 60 && spy.trend === 'down') {
-      divergence = { tone: 'warn', text: `breadth reads risk-on (${score}) but SPY is below its 20- and 50-day — price isn't confirming. Treat longs as guilty until proven and keep stops tight.` }
-    } else if (score < 45 && spy.trend === 'up') {
-      divergence = { tone: 'info', text: `breadth is cautious (${score}) while SPY holds its trend — likely a narrow, megacap-led tape. Wait for breadth to confirm, or trade only the leaders.` }
-    }
-  }
   return (
     <div className="rounded-2xl bg-surface-900/80 border border-surface-700/50 p-4">
       <div className="text-[11px] uppercase tracking-wide text-surface-500 font-semibold mb-1">
@@ -1043,7 +1349,7 @@ function IndexCheck({ data, loading, error, score }) {
         <div className={`mt-3 flex items-start gap-2 rounded-lg border px-3 py-2 ${divergence.tone === 'warn' ? 'border-amber-400/30 bg-amber-500/[0.07]' : 'border-accent/30 bg-accent/[0.06]'}`}>
           <span className={`shrink-0 mt-px ${divergence.tone === 'warn' ? 'text-amber-300' : 'text-accent'}`} aria-hidden="true">{divergence.tone === 'warn' ? '⚠' : 'ℹ'}</span>
           <p className={`text-[12px] leading-snug ${divergence.tone === 'warn' ? 'text-amber-200/90' : 'text-surface-300'}`}>
-            <span className="font-semibold">Divergence — </span>{divergence.text}
+            <span className="font-semibold">{divergence.label} — </span>{divergence.text}
           </p>
         </div>
       ) : (
@@ -1174,6 +1480,22 @@ export default function SituationalAwareness() {
   const [backtestError, setBacktestError] = useState(null)
   const [horizon, setHorizon] = useState(10)
 
+  // Quiet mode: evidence + audit collapsed until asked for. The call stays up
+  // top; everything justifying it is one click away.
+  const [collapsed, setCollapsed] = useState(() => loadCollapsed() || {
+    index: true, how: true, setups: true,
+    drivers: true, regime: true, system: true,
+  })
+  useEffect(() => {
+    try { localStorage.setItem(SA_COLLAPSE_KEY, JSON.stringify(collapsed)) } catch { /* non-fatal */ }
+  }, [collapsed])
+  const toggleSec = (k) => setCollapsed((p) => ({ ...p, [k]: !p[k] }))
+  const allOpen = Object.values(collapsed).every((v) => !v)
+  const toggleAll = () => {
+    const keys = ['index', 'how', 'setups', 'drivers', 'regime', 'system']
+    setCollapsed(Object.fromEntries(keys.map((k) => [k, allOpen])))
+  }
+
   // Theme rotation for the "Where?" gate — loaded non-blocking off the cached
   // Theme Radar endpoint so it never holds up the primary breadth read.
   const [themes, setThemes] = useState(null)
@@ -1184,6 +1506,11 @@ export default function SituationalAwareness() {
   const [indexTrend, setIndexTrend] = useState(null)
   const [indexLoading, setIndexLoading] = useState(true)
   const [indexError, setIndexError] = useState(null)
+
+  // Signal scorecard — non-blocking; it replays the whole ledger.
+  const [scorecard, setScorecard] = useState(null)
+  const [scorecardLoading, setScorecardLoading] = useState(true)
+  const [scorecardError, setScorecardError] = useState(null)
 
   const [sysBacktest, setSysBacktest] = useState(null)
   const [sysLoading, setSysLoading] = useState(true)
@@ -1250,6 +1577,18 @@ export default function SituationalAwareness() {
     }
   }, [])
 
+  const loadScorecard = useCallback(async () => {
+    setScorecardLoading(true)
+    setScorecardError(null)
+    try {
+      setScorecard(await getSignalScorecard())
+    } catch (e) {
+      setScorecardError(e.message)
+    } finally {
+      setScorecardLoading(false)
+    }
+  }, [])
+
   const loadSysBacktest = useCallback(async () => {
     setSysLoading(true)
     setSysError(null)
@@ -1267,6 +1606,7 @@ export default function SituationalAwareness() {
   useEffect(() => { loadBacktest() }, [loadBacktest])
   useEffect(() => { loadThemes() }, [loadThemes])
   useEffect(() => { loadIndex() }, [loadIndex])
+  useEffect(() => { loadScorecard() }, [loadScorecard])
   useEffect(() => { loadSysBacktest() }, [loadSysBacktest])
 
   // Pull any missing trading days into the breadth cache (same as Market
@@ -1277,7 +1617,7 @@ export default function SituationalAwareness() {
     try {
       await refreshBreadth({ lookbackDays: 130 })
       setSa(await getSituationalAwareness(30))
-      await Promise.all([loadHistory(lookback), loadBacktest(), loadThemes(), loadIndex(), loadSysBacktest()])
+      await Promise.all([loadHistory(lookback), loadBacktest(), loadThemes(), loadIndex(), loadSysBacktest(), loadScorecard()])
     } catch (e) {
       setError(e.message)
     } finally {
@@ -1285,6 +1625,7 @@ export default function SituationalAwareness() {
     }
   }, [loadHistory, lookback, loadBacktest, loadThemes, loadIndex, loadSysBacktest])
 
+  const { breaker, refreshBreaker } = useCircuitBreaker()
   const stance = sa?.stance
   const theme = STANCE_THEME[stance?.level] || STANCE_THEME.neutral
   const breakoutSetup = sa?.setups?.find((s) => s.key === 'breakout')
@@ -1305,6 +1646,14 @@ export default function SituationalAwareness() {
         </div>
         <div className="flex items-center gap-3">
           {sa?.as_of && <span className="text-xs text-surface-500 font-mono">{sa.as_of}</span>}
+          <button
+            type="button"
+            onClick={toggleAll}
+            className="text-[12px] font-medium px-3 py-1.5 rounded-lg border border-surface-700 text-surface-300 hover:text-surface-100 hover:border-surface-600 bg-surface-900/60 transition-colors"
+            title={allOpen ? 'Collapse the evidence sections' : 'Open every evidence section'}
+          >
+            {allOpen ? 'Quiet mode' : 'Show everything'}
+          </button>
           <RefreshControl jobId="breadth" onRefresh={handleRefresh} refreshing={refreshing} />
         </div>
       </div>
@@ -1314,8 +1663,17 @@ export default function SituationalAwareness() {
       )}
 
       {/* Pre-trade discipline gate — plan (setup + stop + target) before the fill;
-          size is derived off the stop. Always available, independent of breadth. */}
-      <TradePlanGate regime={stance?.label ?? null} verdict={sa?.verdict ?? null} />
+          size is derived off the stop. Always available, independent of breadth.
+          The breaker strip above it carries the month-to-date cost of the trades
+          that skipped this step. */}
+      <div className="space-y-2">
+        <RandomTax breaker={breaker} />
+        <TradePlanGate
+          regime={stance?.label ?? null}
+          verdict={sa?.verdict ?? null}
+          onPlanLogged={refreshBreaker}
+        />
+      </div>
 
       {loading && !sa && (
         <div className="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-12 text-center">
@@ -1340,13 +1698,14 @@ export default function SituationalAwareness() {
         </div>
       )}
 
-      {sa?.verdict && <DayVerdict v={sa.verdict} setups={sa.setups} />}
 
       {sa && stance && sa.score != null && (
         <>
           {/* Trade-today command header — the 3-gate answer (supersedes the old
               stance banner + breakout call-out). Detail lives in the sections below. */}
           <DecisionHeader
+            verdict={sa.verdict}
+            setups={sa.setups}
             stance={stance}
             theme={theme}
             score={sa.score}
@@ -1360,12 +1719,24 @@ export default function SituationalAwareness() {
             themesLoading={themesLoading}
             themesError={themesError}
             backtest={backtest}
+            breaker={breaker}
           />
 
+          {/* Turn watch — sits under the command header, not sandwiched inside it */}
+          {sa?.turn?.signals?.length > 0 && <TurnWatch turn={sa.turn} scorecard={scorecard} />}
+
           {/* Index check — is cap-weighted price confirming the breadth read? */}
-          <IndexCheck data={indexTrend} loading={indexLoading} error={indexError} score={sa.score} />
+          <Section id="index" title="Index check" hint="is cap-weighted price confirming breadth?"
+            collapsed={collapsed.index} onToggle={() => toggleSec('index')}>
+            <IndexCheck data={indexTrend} loading={indexLoading} error={indexError} score={sa.score} divergence={sa.divergence} />
+          </Section>
+
+          {/* The audit of everything above */}
+          <SignalScorecard data={scorecard} loading={scorecardLoading} error={scorecardError} />
 
           {/* How & why + exposure history */}
+          <Section id="how" title="How the stance is decided" hint="score build-up, bands, and the exposure history"
+            collapsed={collapsed.how} onToggle={() => toggleSec('how')}>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <HowAndWhy explanation={sa.explanation} bands={sa.criteria?.stance_bands || []} score={sa.score} />
             <HistoryChart
@@ -1376,18 +1747,20 @@ export default function SituationalAwareness() {
               median={stats?.median}
             />
           </div>
+          </Section>
 
           {/* Setup lights grid */}
-          <div>
-            <div className="text-[11px] uppercase tracking-wide text-surface-500 font-semibold mb-2">
-              Setups in season <span className="text-surface-600 normal-case tracking-normal">· expand any card for its live ✓/✗ criteria</span>
-            </div>
+          <Section id="setups" title="Setups in season"
+            hint={`${(sa.setups || []).filter((x) => x.light === 'green').length} green · expand a card for its live ✓/✗ criteria`}
+            collapsed={collapsed.setups} onToggle={() => toggleSec('setups')}>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {sa.setups.map((s) => <SetupCard key={s.key} s={s} />)}
             </div>
-          </div>
+          </Section>
 
           {/* Drivers (+ scoring criteria) */}
+          <Section id="drivers" title="What's driving the read" hint="which breadth signals moved the score off neutral"
+            collapsed={collapsed.drivers} onToggle={() => toggleSec('drivers')}>
           <div className="rounded-2xl bg-surface-900/80 border border-surface-700/50 p-4">
             <div className="flex items-center justify-between gap-2 mb-1">
               <div className="text-[11px] uppercase tracking-wide text-surface-500 font-semibold">What's driving the read</div>
@@ -1418,21 +1791,28 @@ export default function SituationalAwareness() {
               </div>
             )}
           </div>
+          </Section>
 
           {/* Regime edge — empirical validation of the filter */}
-          <RegimeEdge
-            data={backtest}
-            loading={backtestLoading}
-            error={backtestError}
-            horizon={horizon}
-            setHorizon={setHorizon}
-          />
+          <Section id="regime" title="Regime edge" hint="does the filter actually work? forward returns by stance"
+            collapsed={collapsed.regime} onToggle={() => toggleSec('regime')}>
+            <RegimeEdge
+              data={backtest}
+              loading={backtestLoading}
+              error={backtestError}
+              horizon={horizon}
+              setHorizon={setHorizon}
+            />
+          </Section>
 
-          {/* Whole-system backtest — does sizing by the dial beat buy-and-hold? */}
-          <SystemBacktest data={sysBacktest} loading={sysLoading} error={sysError} />
-
-          {/* Data & methodology — provenance, lag caveat, live verifier */}
-          <DataMethodology sa={sa} stats={stats} />
+          {/* Whole-system backtest + provenance — the deepest audit tier */}
+          <Section id="system" title="System backtest & methodology" hint="does sizing by the dial beat buy-and-hold? · data provenance"
+            collapsed={collapsed.system} onToggle={() => toggleSec('system')}>
+            <div className="space-y-4">
+              <SystemBacktest data={sysBacktest} loading={sysLoading} error={sysError} />
+              <DataMethodology sa={sa} stats={stats} />
+            </div>
+          </Section>
         </>
       )}
     </div>

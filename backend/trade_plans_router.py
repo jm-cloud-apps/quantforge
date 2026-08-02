@@ -140,6 +140,11 @@ class PlanPayload(BaseModel):
     target: float
     conviction: Optional[float] = None  # 1-5, optional
     regime: Optional[str] = None        # regime label at plan time, if known
+    # Minimum intended holding period. Swing edges are horizon-dependent — a
+    # setup that needs a week to work cannot be judged on day one — so the plan
+    # commits to a floor, and `discipline._deviations` flags exits taken before
+    # it as a departure from the plan rather than a neutral outcome.
+    min_hold_days: Optional[int] = Field(None, ge=0, le=90)
     # Today's day-verdict code (breadth.situational.day_verdict) at plan time,
     # and whether the trader logged this plan against that read. Recorded so the
     # cost of overrides is measurable later instead of anecdotal — "what did my
@@ -221,6 +226,7 @@ def create_plan(payload: PlanPayload) -> dict:
             "stop": payload.stop,
             "target": payload.target,
             "conviction": payload.conviction,
+            "min_hold_days": payload.min_hold_days,
             "regime": payload.regime,
             "verdict_code": payload.verdict_code,
             "override": bool(payload.override),

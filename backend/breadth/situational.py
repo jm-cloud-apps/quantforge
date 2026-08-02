@@ -468,12 +468,24 @@ def compact_record(row: dict) -> dict:
     evs = evaluate_factors(row)
     score = int(round(_score_from_factors(evs)))
     setups = evaluate_setups(row)
+    level = _stance_level(score)
+    # The verdict is persisted because it's what the trader actually acts on —
+    # and because it's derivable from this row alone, adding it here backfills
+    # the whole ledger the next time it's seeded, rather than starting a fresh
+    # n=1 series from today.
+    v = day_verdict(score, level, setups, row)
     return {
         "date": row["date"],
         "score": score,
-        "level": _stance_level(score),
+        "level": level,
         "lights": {s["key"]: s["light"] for s in setups},
         "metrics": {k: row.get(k) for k in _RECORD_METRICS},
+        "verdict": {
+            "code": v["code"],
+            "new_long": v["new_long"],
+            "new_short": v["new_short"],
+            "avoid": v["avoid"],
+        },
     }
 
 

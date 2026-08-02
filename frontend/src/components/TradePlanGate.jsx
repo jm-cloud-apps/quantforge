@@ -23,7 +23,22 @@ const today = () => new Date().toISOString().slice(0, 10)
 const rrTone = (rr) => rr == null ? 'text-surface-400'
   : rr >= 2 ? 'text-emerald-300' : rr >= 1.5 ? 'text-amber-300' : 'text-red-300'
 
-const BLANK = { symbol: '', setup: '', direction: 'long', entry: '', stop: '', target: '', conviction: '' }
+const BLANK = {
+  symbol: '', setup: '', direction: 'long', entry: '', stop: '', target: '',
+  conviction: '', minHold: '',
+}
+
+// Minimum-hold presets. A swing edge is horizon-dependent — a setup that needs
+// a week to resolve can't be judged on day one — so the plan commits to a floor
+// and the discipline scorecard flags exits taken before it. "Same day" is
+// offered but named for what it is.
+const MIN_HOLD_OPTIONS = [
+  { value: '', label: 'No floor' },
+  { value: '0', label: 'Day trade' },
+  { value: '2', label: '2 days' },
+  { value: '5', label: '5 days' },
+  { value: '10', label: '10 days' },
+]
 
 // Does the direction being planned contradict today's breadth read?
 //
@@ -62,7 +77,7 @@ function conflictFor(verdict, direction) {
   return null
 }
 
-export default function TradePlanGate({ regime = null, verdict = null }) {
+export default function TradePlanGate({ regime = null, verdict = null, onPlanLogged = null }) {
   const [config, setConfig] = useState(null)
   const [plans, setPlans] = useState([])
   const [form, setForm] = useState(BLANK)
@@ -124,6 +139,7 @@ export default function TradePlanGate({ regime = null, verdict = null }) {
         symbol: form.symbol, setup: form.setup, direction: form.direction,
         entry: Number(form.entry), stop: Number(form.stop), target: Number(form.target),
         conviction: form.conviction ? Number(form.conviction) : null,
+        min_hold_days: form.minHold === '' ? null : Number(form.minHold),
         regime: regime || null,
         verdict_code: verdict?.code || null,
         override: Boolean(needsOverride && override),
@@ -131,6 +147,9 @@ export default function TradePlanGate({ regime = null, verdict = null }) {
       setForm(BLANK)
       setOverride(false)
       await refresh()
+      // Logging a plan clears the day's circuit breaker — tell the page so the
+      // withheld verdict unlocks without a reload.
+      await onPlanLogged?.()
     } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
@@ -229,6 +248,15 @@ export default function TradePlanGate({ regime = null, verdict = null }) {
           <input type="number" step="0.01" className={inputCls} value={form.target}
             onChange={(e) => setForm({ ...form, target: e.target.value })} />
         </div>
+        <div>
+          <label className={labelCls} title="Exits before this floor are flagged as a deviation">
+            Min hold
+          </label>
+          <select className={inputCls} value={form.minHold}
+            onChange={(e) => setForm({ ...form, minHold: e.target.value })}>
+            {MIN_HOLD_OPTIONS.map((o) => <option key={o.label} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* Live risk readout */}
@@ -305,7 +333,10 @@ export default function TradePlanGate({ regime = null, verdict = null }) {
                 <span className="text-[11px] text-surface-400 flex-1 min-w-[120px]">{p.setup}</span>
                 <span className="text-xs text-surface-500 font-mono">{p.entry} → <span className="text-emerald-300/80">{p.target}</span> / <span className="text-red-300/80">{p.stop}</span></span>
                 <span className={`text-xs font-medium ${rrTone(p.rr_ratio)}`}>{p.rr_ratio != null ? `${p.rr_ratio}R` : ''}</span>
-                <span className="text-xs text-surface-400">{p.shares}sh · {money(p.dollar_risk)} risk</span>
+                <span className="text-xs text-surface-400">
+                  {p.shares}sh · {money(p.dollar_risk)} risk
+                  {p.min_hold_days != null && <span className="text-surface-500"> · hold {p.min_hold_days}d+</span>}
+                </span>
                 {p.status === 'planned' ? (
                   <span className="flex items-center gap-1">
                     <button onClick={() => onStatus(p.id, 'taken')} className="text-[11px] px-2 py-0.5 rounded border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10">Taken</button>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { loadDefaultTrades } from '../api/tradingAnalysis'
 import { getReviewNotes, saveReviewNote, buildTradeKey } from '../api/reviewNotes'
 import LightweightTradeChart from '../components/review/LightweightTradeChart'
@@ -12,6 +13,16 @@ const QUEUE_FILTERS = [
 
 const GRADES = ['A', 'B', 'C', 'D', 'F']
 const EMOTIONS = ['calm', 'confident', 'fomo', 'fearful', 'frustrated', 'tilted', 'patient']
+
+// Exit-reason vocabulary — mirrors review_notes_router.EXIT_REASONS. Grouped so
+// the planned exits (the process fired) read separately from the discretionary
+// ones (a decision was made mid-trade). The discipline scorecard aggregates
+// post-exit excursion by this field, which is what turns "I exit too early"
+// into a number attached to a specific kind of exit.
+const EXIT_REASON_GROUPS = [
+  { group: 'Planned', items: ['stop hit', 'target hit', 'time stop', 'trailed out'] },
+  { group: 'Discretionary', items: ['thesis broken', 'took profit early', 'cut early', 'panic / emotional', 'needed the capital'] },
+]
 
 function fmtDate(d) {
   if (!d) return '—'
@@ -167,6 +178,7 @@ function NotesForm({ trade, onSaved, setupOptions = [] }) {
   const [draft, setDraft] = useState(() => ({
     entry_notes: trade.entry_notes ?? trade.notes ?? '',
     exit_notes: trade.exit_notes ?? '',
+    exit_reason: trade.exit_reason ?? '',
     lessons: trade.lessons ?? '',
     setup: trade.setup ?? '',
     emotion: trade.emotion ?? '',
@@ -184,6 +196,7 @@ function NotesForm({ trade, onSaved, setupOptions = [] }) {
     setDraft({
       entry_notes: trade.entry_notes ?? trade.notes ?? '',
       exit_notes: trade.exit_notes ?? '',
+      exit_reason: trade.exit_reason ?? '',
       lessons: trade.lessons ?? '',
       setup: trade.setup ?? '',
       emotion: trade.emotion ?? '',
@@ -284,6 +297,27 @@ function NotesForm({ trade, onSaved, setupOptions = [] }) {
             <option value="">—</option>
             {EMOTIONS.map(e => <option key={e} value={e}>{e}</option>)}
           </select>
+        </div>
+        <div className="col-span-2">
+          <label className="block text-[11px] uppercase tracking-wider text-surface-400 font-semibold mb-1">
+            Why did you exit?
+          </label>
+          <select
+            value={draft.exit_reason}
+            onChange={(e) => update('exit_reason', e.target.value)}
+            className="w-full rounded-lg bg-surface-900 border border-surface-700/50 px-3 py-2 text-[13px] text-surface-100 focus:border-accent focus:outline-none"
+          >
+            <option value="">—</option>
+            {EXIT_REASON_GROUPS.map(g => (
+              <optgroup key={g.group} label={g.group}>
+                {g.items.map(r => <option key={r} value={r}>{r}</option>)}
+              </optgroup>
+            ))}
+          </select>
+          <p className="text-[10.5px] text-surface-600 mt-1">
+            Feeds the exit breakdown on <Link to="/discipline" className="text-accent hover:underline">Discipline</Link> —
+            which kinds of exit give up the most.
+          </p>
         </div>
         <div>
           <label className="block text-[11px] uppercase tracking-wider text-surface-400 font-semibold mb-1">Grade</label>

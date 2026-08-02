@@ -87,3 +87,12 @@ export async function refreshBreadth({ lookbackDays = 130, refreshUniverse = fal
   }
   return res.json()
 }
+
+export async function getSignalScorecard() {
+  const res = await fetch(`${API_BASE}/breadth/signal-scorecard`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to load signal scorecard')
+  }
+  return res.json()
+}

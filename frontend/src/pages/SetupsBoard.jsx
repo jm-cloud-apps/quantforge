@@ -68,6 +68,7 @@ export default function SetupsBoard() {
 
   const lanes = data?.lanes || []
   const confluence = data?.confluence || []
+  const conflicts = data?.conflicts || []
   const regime = data?.regime
   const totalIdeas = lanes.reduce((sum, l) => sum + (l.count || 0), 0)
 
@@ -140,7 +141,7 @@ export default function SetupsBoard() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
           </svg>
           <span className="text-[14px] font-semibold text-surface-100">Confluence</span>
-          <span className="text-[11px] text-surface-500">— flagged by 2 or more scanners today (highest conviction)</span>
+          <span className="text-[11px] text-surface-500">— 2+ scanners agreeing on the same direction (highest conviction)</span>
           {confluence.length > 0 && (
             <span className="ml-auto text-[11px] font-mono text-accent">{confluence.length}</span>
           )}
@@ -159,6 +160,11 @@ export default function SetupsBoard() {
                   {c.hits.length}
                 </span>
                 <TickerLink symbol={c.symbol} className="text-surface-100 font-semibold font-mono text-[13px] w-16" />
+                <span className={`text-[9px] font-bold tracking-wider px-1.5 py-0.5 rounded border uppercase shrink-0 ${
+                  c.direction === 'short'
+                    ? 'bg-rose-500/10 text-rose-300 border-rose-400/30'
+                    : 'bg-emerald-500/10 text-emerald-300 border-emerald-400/30'
+                }`}>{c.direction || 'long'}</span>
                 <span className="text-surface-400 font-mono text-[12px] w-16">{fmtMoney(c.close)}</span>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {c.hits.map((h) => (
@@ -173,9 +179,58 @@ export default function SetupsBoard() {
         )}
       </div>
 
-      {/* Lanes grid */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {(lanes.length ? lanes : LANE_SKELETON).map((lane) => {
+      {/* Conflicts — a symbol flagged BOTH long and short. Not conviction: two
+          scanners disagreeing, usually a violently extended name. Surfaced so it
+          is visible, never mixed into the confluence list. */}
+      {conflicts.length > 0 && (
+        <div className="rounded-2xl bg-amber-500/[0.06] border border-amber-400/30 overflow-hidden">
+          <div className="px-5 py-3 border-b border-amber-400/20 flex items-center gap-2.5">
+            <svg className="w-4 h-4 text-amber-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            </svg>
+            <span className="text-[14px] font-semibold text-surface-100">Conflicted</span>
+            <span className="text-[11px] text-surface-400">— flagged long <em>and</em> short. Disagreement, not conviction — skip unless you know which side you're on.</span>
+            <span className="ml-auto text-[11px] font-mono text-amber-300">{conflicts.length}</span>
+          </div>
+          <div className="divide-y divide-amber-400/10">
+            {conflicts.slice(0, 8).map((c) => (
+              <div key={c.symbol} className="px-5 py-2.5 flex items-center gap-3 flex-wrap">
+                <TickerLink symbol={c.symbol} className="text-surface-100 font-semibold font-mono text-[13px] w-16" />
+                <span className="text-surface-400 font-mono text-[12px] w-16">{fmtMoney(c.close)}</span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {[...c.long, ...c.short].map((h) => (
+                    <span key={h.key} className={`text-[10.5px] px-2 py-0.5 rounded-full border ${
+                      h.direction === 'short'
+                        ? 'bg-rose-500/10 text-rose-300 border-rose-400/30'
+                        : 'bg-emerald-500/10 text-emerald-300 border-emerald-400/30'
+                    }`}>{h.label}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Lanes grid — grouped by direction so the board reads as two books */}
+      {['long', 'short'].map((dir) => {
+        const group = (lanes.length ? lanes : LANE_SKELETON).filter(
+          (l) => (l.direction || 'long') === dir)
+        if (!group.length) return null
+        return (
+          <div key={dir}>
+            <div className="flex items-center gap-2 flex-wrap mb-2">
+              <span className="text-[9.5px] font-bold tracking-widest text-surface-400 uppercase">
+                {dir === 'short' ? 'Short setups' : 'Long setups'}
+              </span>
+              <span className="text-[11px] text-surface-500">
+                {dir === 'short'
+                  ? 'regime-gated — check the Trade Today read before shorting anything here'
+                  : 'the default book'}
+              </span>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {group.map((lane) => {
           const accent = ACCENT[lane.accent] || ACCENT.emerald
           return (
             <div key={lane.key} className="rounded-2xl bg-surface-900/80 border border-surface-700/50 overflow-hidden flex flex-col">
@@ -220,9 +275,12 @@ export default function SetupsBoard() {
                 </div>
               )}
             </div>
-          )
-        })}
-      </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
 
       <div className="text-[10.5px] text-surface-500 flex items-center gap-2 px-1">
         <svg className="w-3 h-3 text-surface-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

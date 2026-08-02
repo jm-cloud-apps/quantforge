@@ -116,6 +116,8 @@ from scanners_router import (
     get_stage_scan,
     get_reversal_scan,
     get_ma_reclaim_scan,
+    get_parabolic_scan,
+    get_breakdown_scan,
 )
 app.include_router(scanners_router)
 
@@ -190,6 +192,11 @@ app.include_router(wealthsimple_router)
 
 from trade_plans_router import router as trade_plans_router
 app.include_router(trade_plans_router)
+
+# Process analytics over the plan store + the trade workbook: plan-vs-fill
+# compliance, holding-period edge, post-exit excursion, and setup decay.
+from discipline_router import router as discipline_router
+app.include_router(discipline_router)
 
 # Sector-rotation intelligence (internals / RRG / leaders) — computes from the
 # breadth grouped cache + a cached symbol→sector map, so it's API-free once warm
@@ -720,6 +727,8 @@ def get_setups_board(force: int = 0) -> dict:
         enrich_institutional=False, wide=False, persist=False, fresh=bool(f)))
     _safe("ep9m", lambda: get_9m_scan(force=f))
     _safe("reversal", lambda: get_reversal_scan(force=f))
+    _safe("parabolic", lambda: get_parabolic_scan(force=f))
+    _safe("breakdown", lambda: get_breakdown_scan(force=f))
     _safe("regime", lambda: get_breadth_situational(trend_days=30))
 
     board = build_board(sources)

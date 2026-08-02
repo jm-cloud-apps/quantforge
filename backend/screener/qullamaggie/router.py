@@ -114,7 +114,12 @@ def _run_breakout_scan(*, mode, limit, min_dollar_vol, min_adr, min_rvol, day_fi
     Callers hold the per-key single-flight lock (see get_breakouts)."""
     started = datetime.now()
     universe_error = None
-    use_wide = wide and mode == "unusual_volume"
+    # Both volume-flavored modes need the wide universe for the same reason: they
+    # gate on an RVOL surge *today*, and the curated universe (~226 names) rarely
+    # contains more than a handful of names surging on any given day — the wide
+    # grouped universe is ~2300. Restricting `wide` to unusual_volume meant
+    # `mode=volume` could never return a useful list however it was called.
+    use_wide = wide and mode in ("volume", "unusual_volume")
     if use_wide:
         try:
             symbols = wide_universe(min_dollar_vol=min_dollar_vol)

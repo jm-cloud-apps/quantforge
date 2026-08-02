@@ -4,16 +4,19 @@ import TickerLink from '../components/TickerLink'
 import TradingViewLink from '../components/TradingViewLink'
 import EarningsSessionIcon from '../components/EarningsSessionIcon'
 import InfoTip from '../components/InfoTip'
-import { getBreadthSnapshot, getSituationalAwareness } from '../api/breadth'
+import { getBreadthSnapshot, getSituationalAwareness, refreshBreadth } from '../api/breadth'
 import { getSectorPerformance } from '../api/screener'
 import { getBreakouts } from '../api/breakoutScreener'
+import { BREAKOUT_PRESETS } from '../api/breakoutPresets'
 import { get9MScan } from '../api/scanner9m'
 import { getEarnings } from '../api/calendar'
 import { getMovers, getExtendedMovers, getGapMovers } from '../api/movers'
 import { getWatchlist } from '../api/watchlists'
 import { fetchNews, refreshNewsCachePrices } from '../api/news'
+import { getScorecard } from '../api/discipline'
 import { loadRules, getRuleOfDay } from '../utils/tradingRules'
 import { marketStatusLabel } from '../utils/marketClock'
+import { useAutoRefresh } from '../autorefresh/AutoRefreshProvider'
 
 // ---------------------------------------------------------------------------
 // Market Overview — the app's front door.
@@ -246,6 +249,53 @@ function RuleOfDay() {
       <p className="text-[13px] text-surface-200 leading-snug min-w-0 flex-1">{rule.text}</p>
       <Link to="/rules" className="shrink-0 text-[11px] font-medium text-accent hover:text-accent/80 whitespace-nowrap hidden sm:inline">
         All rules →
+      </Link>
+    </section>
+  )
+}
+
+// ─── Discipline strip (process, not market) ─────────────────────────────────
+//
+// Sits with the Rule of the Day rather than with the market cards on purpose:
+// both answer "how am I trading", which is a separate question from "what is
+// the market doing". Requests the same window as the daily-warm job so it
+// almost always lands on a warm server cache.
+
+function DisciplineStrip({ refreshKey }) {
+  const { data } = useCardData(
+    () => getScorecard({ windowDays: 180, force: refreshKey > 0 }),
+    refreshKey,
+    'Discipline',
+  )
+  const s = data?.reconciliation?.summary
+  if (!s || !s.total_trades) return null
+
+  const pct = s.compliance_pct
+  const tone = pct >= 80 ? 'text-success' : pct >= 50 ? 'text-warning' : 'text-danger'
+  const unplanned = s.unplanned || {}
+
+  return (
+    <section className="rounded-xl border border-surface-700/50 bg-surface-900/40 px-5 py-3 flex items-center gap-4 flex-wrap">
+      <span className="text-[10px] uppercase tracking-wider text-surface-500 font-semibold shrink-0 hidden sm:inline">
+        Plan compliance
+      </span>
+      <span className={`text-[20px] font-semibold tabular-nums shrink-0 ${tone}`}>
+        {pct === null || pct === undefined ? '—' : `${pct.toFixed(0)}%`}
+      </span>
+      <p className="text-[13px] text-surface-300 leading-snug min-w-0">
+        <span className="font-semibold text-surface-100">{s.planned_trades}</span> of{' '}
+        <span className="font-semibold text-surface-100">{s.total_trades}</span> trades in the last 6 months had a plan
+        {unplanned.n > 0 && (
+          <span className="text-surface-500">
+            {' '}· the {unplanned.n} unplanned ran{' '}
+            <span className={unplanned.pnl >= 0 ? 'text-success' : 'text-danger'}>
+              {unplanned.pnl < 0 ? '-' : '+'}${Math.abs(unplanned.pnl).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+            </span>
+          </span>
+        )}
+      </p>
+      <Link to="/discipline" className="shrink-0 ml-auto text-[11px] font-medium text-accent hover:text-accent/80 whitespace-nowrap">
+        Scorecard →
       </Link>
     </section>
   )
@@ -993,7 +1043,7 @@ function BreakoutsCard({ breakouts }) {
 
 function VolumeSurgeCard({ refreshKey }) {
   const { data, loading, error } = useCardData(
-    () => getBreakouts({ mode: 'volume', limit: 24, minAdr: 0.05, minRvol: 1.5, fresh: refreshKey > 0 }),
+    () => getBreakouts({ ...BREAKOUT_PRESETS.volumeSurge, fresh: refreshKey > 0 }),
     refreshKey,
     'Volume surge',
   )
@@ -1294,12 +1344,12 @@ function DashboardInner() {
   const breadth = useCardData(() => getBreadthSnapshot(), refreshKey, 'Breadth')
   const situational = useCardData(() => getSituationalAwareness(30), refreshKey, 'Situational awareness')
   const breakouts = useCardData(
-    () => getBreakouts({ mode: 'breakout', limit: 24, minAdr: 0.05, minRvol: 1.5, fresh: refreshKey > 0 }),
+    () => getBreakouts({ ...BREAKOUT_PRESETS.breakout, fresh: refreshKey > 0 }),
     refreshKey,
     'Breakouts',
   )
   const unusual = useCardData(
-    () => getBreakouts({ mode: 'unusual_volume', limit: 24, minAdr: 0.05, minRvol: 2.0, dayFilter: 0, fresh: refreshKey > 0 }),
+    () => getBreakouts({ ...BREAKOUT_PRESETS.unusualVolume, fresh: refreshKey > 0 }),
     refreshKey,
     'Unusual volume',
   )
@@ -1311,10 +1361,38 @@ function DashboardInner() {
     return [...new Set([...b, ...u])].slice(0, 10)
   }, [breakouts.data, unusual.data])
 
-  const refresh = useCallback(() => {
+  // Master refresh.
+  //
+  // Bumping refreshKey alone is NOT enough. Breadth is the shared data layer:
+  // the situational read and every breadth-cache-reading scanner compute off the
+  // same grouped-daily pickles, so forcing them without pulling new days just
+  // recomputes the identical numbers. So we refresh breadth FIRST and only then
+  // re-fetch the cards — the same ordering the autorefresh queue uses, where the
+  // breadth job runs ahead of everything else.
+  //
+  // If breadth fails we still refresh the cards: a partial refresh beats none,
+  // and the error surfaces on the button.
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshError, setRefreshError] = useState(null)
+  const { markRefreshed } = useAutoRefresh()
+
+  const refresh = useCallback(async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    setRefreshError(null)
+    try {
+      await refreshBreadth({ lookbackDays: 130 })
+    } catch (e) {
+      setRefreshError(e.message || 'Breadth refresh failed')
+    }
     setRefreshKey((k) => k + 1)
     setRefreshedAt(new Date())
-  }, [])
+    // These scans are now warm for today, so the daily queue shouldn't re-run
+    // them on the next boot.
+    ;['breadth', 'dash-volume-surge', 'dash-unusual-volume', 'dash-breakout',
+      'scanner-9m', 'screener', 'earnings'].forEach((id) => markRefreshed(id))
+    setRefreshing(false)
+  }, [refreshing, markRefreshed])
 
   return (
     <div className="space-y-5">
@@ -1342,11 +1420,20 @@ function DashboardInner() {
           </span>
           <button
             onClick={refresh}
-            className="text-[12px] font-medium px-3 py-1.5 rounded-lg border border-surface-600 text-surface-200 hover:bg-surface-800/60 hover:text-surface-50 transition-colors"
-            title="Re-fetch every card"
+            disabled={refreshing}
+            className="text-[12px] font-medium px-3 py-1.5 rounded-lg border border-surface-600 text-surface-200 hover:bg-surface-800/60 hover:text-surface-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+            title="Pull new breadth days, then force every scan on this page to recompute"
           >
-            ↻ Refresh
+            {refreshing ? (
+              <>
+                <span className="inline-block w-3 h-3 rounded-full border-2 border-surface-600 border-t-accent animate-spin" />
+                Refreshing…
+              </>
+            ) : '↻ Refresh all'}
           </button>
+          {refreshError && (
+            <span className="text-[11px] text-warning/90" title={refreshError}>breadth refresh failed</span>
+          )}
         </div>
       </div>
 
@@ -1358,6 +1445,9 @@ function DashboardInner() {
 
       {/* Rule of the day */}
       <RuleOfDay />
+
+      {/* Process scorecard — how many trades actually had a plan */}
+      <DisciplineStrip refreshKey={refreshKey} />
 
       {/* Regime banner */}
       <RegimeBanner breadth={breadth} />

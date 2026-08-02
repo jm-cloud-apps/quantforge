@@ -45,6 +45,7 @@ EDITABLE_FIELDS = (
     "exit_notes",   # why this exit / what worked or didn't
     "notes",        # legacy free-form notes (kept for back-compat)
     "lessons",      # what to do differently next time
+    "exit_reason",  # why the position was closed (see EXIT_REASONS below)
     "setup",
     "emotion",
     "grade",
@@ -52,6 +53,23 @@ EDITABLE_FIELDS = (
     "stop_price",
     "target_price",
     "tags",
+)
+
+# Controlled vocabulary for `exit_reason`. Free text can't be aggregated, and
+# the whole point of tagging exits is to answer "which *kind* of exit costs me
+# money" — so the UI offers exactly these and the discipline scorecard groups
+# post-exit excursion by them. Split into the disciplined exits (the plan fired)
+# and the discretionary ones (a decision was made mid-trade).
+EXIT_REASONS = (
+    "stop hit",          # planned: the thesis was wrong, the stop did its job
+    "target hit",        # planned: the trade worked to plan
+    "time stop",         # planned: the horizon elapsed without follow-through
+    "trailed out",       # planned: gave back a defined amount of open profit
+    "thesis broken",     # discretionary but principled: the setup invalidated
+    "took profit early",  # discretionary: closed a winner ahead of target
+    "cut early",         # discretionary: closed a loser ahead of the stop
+    "panic / emotional",  # discretionary: no process reason
+    "needed the capital",  # discretionary: portfolio pressure, not the chart
 )
 
 
