@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import TickerLink from '../components/TickerLink'
 import TradePlanGate from '../components/TradePlanGate'
+import { useCircuitBreaker, BreakerLock, RandomTax } from '../components/CircuitBreaker'
 import {
   AreaChart,
   Area,
@@ -1147,7 +1148,7 @@ function ExtendedGuard({ score, metrics, stanceLabel }) {
   )
 }
 
-function DecisionHeader({ stance, theme, score, breakoutSetup, breakoutTakeaway, delta, flip, stats, metrics, themes, themesLoading, themesError, backtest, verdict, setups }) {
+function DecisionHeader({ stance, theme, score, breakoutSetup, breakoutTakeaway, delta, flip, stats, metrics, themes, themesLoading, themesError, backtest, verdict, setups, breaker }) {
   const gate = GATE_BREAKOUT[breakoutSetup?.light] || GATE_BREAKOUT.amber
   const gl = gate.light
   const hasThemes = themes && (themes.inSeason.length || themes.avoid.length)
@@ -1184,7 +1185,13 @@ function DecisionHeader({ stance, theme, score, breakoutSetup, breakoutTakeaway,
               answers exactly this gate, and reading the whole tape (plus
               direction) it strictly supersedes the breakout-light-only verb
               this card used to show. */}
-          {verdict ? (
+          {/* Circuit breaker: the new-entry light is withheld until a plan
+              exists for the day (see components/CircuitBreaker.jsx). The
+              verdict's reasoning and existing-position instruction below are
+              deliberately NOT gated — those are risk information. */}
+          {breaker && !breaker.clear ? (
+            <BreakerLock breaker={breaker} />
+          ) : verdict ? (
             <>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className={`shrink-0 w-2.5 h-2.5 rounded-full ${(V_TONE[verdict.tone] || V_TONE.neutral).dot}`} aria-hidden="true" />
@@ -1618,6 +1625,7 @@ export default function SituationalAwareness() {
     }
   }, [loadHistory, lookback, loadBacktest, loadThemes, loadIndex, loadSysBacktest])
 
+  const { breaker, refreshBreaker } = useCircuitBreaker()
   const stance = sa?.stance
   const theme = STANCE_THEME[stance?.level] || STANCE_THEME.neutral
   const breakoutSetup = sa?.setups?.find((s) => s.key === 'breakout')
@@ -1655,8 +1663,17 @@ export default function SituationalAwareness() {
       )}
 
       {/* Pre-trade discipline gate — plan (setup + stop + target) before the fill;
-          size is derived off the stop. Always available, independent of breadth. */}
-      <TradePlanGate regime={stance?.label ?? null} verdict={sa?.verdict ?? null} />
+          size is derived off the stop. Always available, independent of breadth.
+          The breaker strip above it carries the month-to-date cost of the trades
+          that skipped this step. */}
+      <div className="space-y-2">
+        <RandomTax breaker={breaker} />
+        <TradePlanGate
+          regime={stance?.label ?? null}
+          verdict={sa?.verdict ?? null}
+          onPlanLogged={refreshBreaker}
+        />
+      </div>
 
       {loading && !sa && (
         <div className="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-12 text-center">
@@ -1702,6 +1719,7 @@ export default function SituationalAwareness() {
             themesLoading={themesLoading}
             themesError={themesError}
             backtest={backtest}
+            breaker={breaker}
           />
 
           {/* Turn watch — sits under the command header, not sandwiched inside it */}

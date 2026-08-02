@@ -2,6 +2,7 @@ import { refreshBreadth } from '../api/breadth'
 import { refreshWatchlist } from '../api/watchlists'
 import { getEarnings } from '../api/calendar'
 import { getEdgeValidation } from '../api/edgeValidation'
+import { getScorecard } from '../api/discipline'
 import { getFactorModel } from '../api/factorModel'
 import { getReversalScan } from '../api/reversal'
 import { getParabolicScan } from '../api/parabolic'
@@ -52,6 +53,15 @@ export const AUTO_REFRESH_JOBS = [
     label: 'Edge validation',
     hint: 'Replays the setup edge over the default 10-day horizon.',
     run: () => getEdgeValidation({ horizon: 10, force: true }),
+  },
+  {
+    id: 'discipline',
+    label: 'Discipline scorecard',
+    // Reads the workbook + plan store + the local breadth cache — no provider
+    // calls, but the post-exit excursion pass is heavy enough to be worth
+    // having warm before the page is opened.
+    hint: 'Re-scores plan compliance, holding period, and setup decay.',
+    run: () => getScorecard({ windowDays: 180, force: true }),
   },
   {
     id: 'factor-model',

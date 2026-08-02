@@ -215,6 +215,7 @@ const navGroups = [
   {
     label: '4 · Review & Learn',
     items: [
+      { path: '/discipline',       label: 'Discipline',       icon: icons.edge },
       { path: '/review',           label: 'Review',           icon: icons.journal },
       { path: '/journal',          label: 'Journal',          icon: icons.journal },
       { path: '/trading-analysis', label: 'Trading Analysis', icon: icons.trading },

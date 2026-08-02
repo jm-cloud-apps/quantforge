@@ -502,6 +502,21 @@ const TradingAnalysis = () => {
         </div>
       )}
 
+      {/* Recency check — see RecencyBanner: an all-time headline can stay
+          positive straight through a long drawdown. */}
+      {!loading && allTrades.length > 0 && !filters.startDate && (
+        <RecencyBanner
+          allTrades={allTrades}
+          onScopeToRecent={(iso) => {
+            const next = { ...filters, startDate: iso };
+            setFilters(next);
+            const filtered = allTrades.filter(t => t.entry_date && new Date(t.entry_date) >= new Date(iso));
+            setTrades(filtered);
+            updateAnalytics(filtered);
+          }}
+        />
+      )}
+
       {/* Filters — inline with active filter chips */}
       {!loading && trades.length > 0 && (() => {
         const activeFilters = Object.entries(filters).filter(([, v]) => v !== '');
@@ -756,5 +771,72 @@ const TradingAnalysis = () => {
     </div>
   );
 };
+
+// ─── Recency banner ─────────────────────────────────────────────────────────
+//
+// This page loads the whole trade history and headlines the all-time totals.
+// That is the one framing in which a sustained drawdown can go unnoticed: a
+// strong early year keeps the lifetime figure positive while every recent month
+// loses money. The banner puts the trailing-6-month numbers next to the
+// lifetime ones and flags the case where they disagree in sign — and offers the
+// one click that re-scopes the whole page to the recent window.
+//
+// It computes client-side from the already-loaded trades, so it costs nothing.
+
+function RecencyBanner({ allTrades, onScopeToRecent }) {
+  const RECENT_DAYS = 180;
+  const cutoff = new Date(Date.now() - RECENT_DAYS * 86400000);
+  const cutoffIso = cutoff.toISOString().slice(0, 10);
+
+  const recent = allTrades.filter(t => t.exit_date && new Date(t.exit_date) >= cutoff);
+  if (recent.length < 10) return null;   // too thin to be worth a callout
+
+  const sum = (rows) => rows.reduce((a, t) => a + (Number(t.pnl) || 0), 0);
+  const winPct = (rows) => (rows.filter(t => (Number(t.pnl) || 0) > 0).length / rows.length) * 100;
+
+  const allPnl = sum(allTrades);
+  const recentPnl = sum(recent);
+  const diverges = allPnl > 0 && recentPnl < 0;
+
+  const money = (n) => `${n < 0 ? '-' : '+'}$${Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+
+  return (
+    <div className={`rounded-xl border px-4 py-3 flex items-center gap-4 flex-wrap ${
+      diverges ? 'bg-warning/10 border-warning/30' : 'bg-surface-900/40 border-surface-700/50'
+    }`}>
+      <div className="flex items-center gap-5 flex-wrap">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-surface-500 font-semibold">All time</div>
+          <div className={`text-[17px] font-semibold tabular-nums ${allPnl >= 0 ? 'text-success' : 'text-danger'}`}>
+            {money(allPnl)}
+          </div>
+          <div className="text-[11px] text-surface-500">{allTrades.length} trades · {winPct(allTrades).toFixed(0)}% win</div>
+        </div>
+        <div className="text-surface-600 text-lg">→</div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-surface-500 font-semibold">Last 6 months</div>
+          <div className={`text-[17px] font-semibold tabular-nums ${recentPnl >= 0 ? 'text-success' : 'text-danger'}`}>
+            {money(recentPnl)}
+          </div>
+          <div className="text-[11px] text-surface-500">{recent.length} trades · {winPct(recent).toFixed(0)}% win</div>
+        </div>
+      </div>
+
+      {diverges && (
+        <p className="text-[12px] text-warning/90 leading-snug min-w-0 flex-1">
+          The lifetime total is positive but the last six months are not — every figure below is being
+          held up by older trades.
+        </p>
+      )}
+
+      <button
+        onClick={() => onScopeToRecent(cutoffIso)}
+        className="ml-auto shrink-0 px-3 py-1.5 rounded-lg border border-surface-600/50 bg-surface-800 text-[12px] font-medium text-surface-200 hover:bg-surface-700 hover:text-surface-50 transition-colors"
+      >
+        Scope page to last 6 months
+      </button>
+    </div>
+  );
+}
 
 export default TradingAnalysis;

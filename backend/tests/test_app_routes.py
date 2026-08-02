@@ -61,6 +61,9 @@ def test_critical_routes_are_registered():
         "/api/breadth/signal-scorecard",
         "/api/screener/qullamaggie",
         "/api/trade-plans",
+        # Discipline / process analytics (discipline_router)
+        "/api/discipline/scorecard",
+        "/api/discipline/today",
     ]
     missing = [p for p in required if p not in paths]
     assert not missing, f"routes missing from the app: {missing}"

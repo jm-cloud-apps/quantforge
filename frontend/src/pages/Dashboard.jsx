@@ -13,6 +13,7 @@ import { getEarnings } from '../api/calendar'
 import { getMovers, getExtendedMovers, getGapMovers } from '../api/movers'
 import { getWatchlist } from '../api/watchlists'
 import { fetchNews, refreshNewsCachePrices } from '../api/news'
+import { getScorecard } from '../api/discipline'
 import { loadRules, getRuleOfDay } from '../utils/tradingRules'
 import { marketStatusLabel } from '../utils/marketClock'
 import { useAutoRefresh } from '../autorefresh/AutoRefreshProvider'
@@ -248,6 +249,53 @@ function RuleOfDay() {
       <p className="text-[13px] text-surface-200 leading-snug min-w-0 flex-1">{rule.text}</p>
       <Link to="/rules" className="shrink-0 text-[11px] font-medium text-accent hover:text-accent/80 whitespace-nowrap hidden sm:inline">
         All rules →
+      </Link>
+    </section>
+  )
+}
+
+// ─── Discipline strip (process, not market) ─────────────────────────────────
+//
+// Sits with the Rule of the Day rather than with the market cards on purpose:
+// both answer "how am I trading", which is a separate question from "what is
+// the market doing". Requests the same window as the daily-warm job so it
+// almost always lands on a warm server cache.
+
+function DisciplineStrip({ refreshKey }) {
+  const { data } = useCardData(
+    () => getScorecard({ windowDays: 180, force: refreshKey > 0 }),
+    refreshKey,
+    'Discipline',
+  )
+  const s = data?.reconciliation?.summary
+  if (!s || !s.total_trades) return null
+
+  const pct = s.compliance_pct
+  const tone = pct >= 80 ? 'text-success' : pct >= 50 ? 'text-warning' : 'text-danger'
+  const unplanned = s.unplanned || {}
+
+  return (
+    <section className="rounded-xl border border-surface-700/50 bg-surface-900/40 px-5 py-3 flex items-center gap-4 flex-wrap">
+      <span className="text-[10px] uppercase tracking-wider text-surface-500 font-semibold shrink-0 hidden sm:inline">
+        Plan compliance
+      </span>
+      <span className={`text-[20px] font-semibold tabular-nums shrink-0 ${tone}`}>
+        {pct === null || pct === undefined ? '—' : `${pct.toFixed(0)}%`}
+      </span>
+      <p className="text-[13px] text-surface-300 leading-snug min-w-0">
+        <span className="font-semibold text-surface-100">{s.planned_trades}</span> of{' '}
+        <span className="font-semibold text-surface-100">{s.total_trades}</span> trades in the last 6 months had a plan
+        {unplanned.n > 0 && (
+          <span className="text-surface-500">
+            {' '}· the {unplanned.n} unplanned ran{' '}
+            <span className={unplanned.pnl >= 0 ? 'text-success' : 'text-danger'}>
+              {unplanned.pnl < 0 ? '-' : '+'}${Math.abs(unplanned.pnl).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+            </span>
+          </span>
+        )}
+      </p>
+      <Link to="/discipline" className="shrink-0 ml-auto text-[11px] font-medium text-accent hover:text-accent/80 whitespace-nowrap">
+        Scorecard →
       </Link>
     </section>
   )
@@ -1397,6 +1445,9 @@ function DashboardInner() {
 
       {/* Rule of the day */}
       <RuleOfDay />
+
+      {/* Process scorecard — how many trades actually had a plan */}
+      <DisciplineStrip refreshKey={refreshKey} />
 
       {/* Regime banner */}
       <RegimeBanner breadth={breadth} />

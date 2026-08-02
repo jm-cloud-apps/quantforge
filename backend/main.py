@@ -193,6 +193,11 @@ app.include_router(wealthsimple_router)
 from trade_plans_router import router as trade_plans_router
 app.include_router(trade_plans_router)
 
+# Process analytics over the plan store + the trade workbook: plan-vs-fill
+# compliance, holding-period edge, post-exit excursion, and setup decay.
+from discipline_router import router as discipline_router
+app.include_router(discipline_router)
+
 # Sector-rotation intelligence (internals / RRG / leaders) — computes from the
 # breadth grouped cache + a cached symbol→sector map, so it's API-free once warm
 from sector_rotation.router import router as sector_rotation_router
