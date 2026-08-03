@@ -54,6 +54,27 @@ _SETUP_NAMES = {
 
 _LEVELS = ("aggressive", "constructive", "selective", "defensive", "cash")
 
+# Regime days are heavily autocorrelated — a "constructive" stretch is one
+# market event spread over fifteen rows, not fifteen independent observations.
+# Reliability is therefore judged on EPISODES (runs of consecutive days), the
+# same way signal_scorecard does it, and day counts are reported alongside so
+# the gap between the two is visible rather than implied.
+MIN_EPISODES_RELIABLE = 12
+MIN_EPISODES_TENTATIVE = 5
+
+
+def _episodes(flags: list[bool]) -> int:
+    """Count runs of consecutive True — the honest sample size."""
+    return sum(1 for j, f in enumerate(flags) if f and (j == 0 or not flags[j - 1]))
+
+
+def _reliability(episodes: int) -> str:
+    if episodes >= MIN_EPISODES_RELIABLE:
+        return "measured"
+    if episodes >= MIN_EPISODES_TENTATIVE:
+        return "tentative"
+    return "insufficient"
+
 
 def _forward_returns(max_days: int = 600) -> tuple[dict, str | None]:
     """date(iso) → {horizon: forward return} for the equal-weight universe index.
@@ -108,33 +129,66 @@ def _bucket(vals: list[float]) -> dict:
 
 def run() -> dict:
     """Build the full regime-edge payload by joining forward returns to the SA
-    ledger. Returns buckets per horizon for stance levels and setup lights."""
+    ledger. Returns buckets per horizon for stance levels and setup lights.
+
+    Every bucket carries `episodes` + `reliability` next to its day count: the
+    day count is what you have, the episode count is what it's worth.
+    """
     fwd, fwd_as_of = _forward_returns()
-    ledger = sa_history.load(days=800)
+    ledger = sorted(
+        (r for r in sa_history.load(days=800) if r.get("date")),
+        key=lambda r: r["date"],
+    )
     joined = [(r, fwd[r["date"]]) for r in ledger if r.get("date") in fwd]
+    rows = [r for (r, _f) in joined]
+
+    def _with_episodes(bucket: dict, flags: list[bool]) -> dict:
+        eps = _episodes(flags)
+        bucket["episodes"] = eps
+        bucket["reliability"] = _reliability(eps)
+        return bucket
 
     # Forward return by stance level (and overall) per horizon.
     by_level: dict = {}
+    level_flags = {lv: [r.get("level") == lv for r in rows] for lv in _LEVELS}
     for h in HORIZONS:
-        block = {lv: _bucket([f[h] for (r, f) in joined if r.get("level") == lv]) for lv in _LEVELS}
-        block["all"] = _bucket([f[h] for (r, f) in joined])
+        block = {
+            lv: _with_episodes(
+                _bucket([f[h] for (r, f) in joined if r.get("level") == lv]),
+                level_flags[lv],
+            )
+            for lv in _LEVELS
+        }
+        block["all"] = _with_episodes(_bucket([f[h] for (r, f) in joined]), [True] * len(rows))
         by_level[h] = block
 
     # Forward return by setup light per horizon (direction-adjusted) + edge.
     setups: dict = {}
     for key, dirn in _SETUP_DIR.items():
+        light_flags = {
+            lt: [(r.get("lights") or {}).get(key) == lt for r in rows]
+            for lt in ("green", "amber", "red")
+        }
         per_h = {}
         for h in HORIZONS:
             lights = {
-                lt: _bucket([
-                    dirn * f[h] for (r, f) in joined
-                    if (r.get("lights") or {}).get(key) == lt and f[h] is not None
-                ])
+                lt: _with_episodes(
+                    _bucket([
+                        dirn * f[h] for (r, f) in joined
+                        if (r.get("lights") or {}).get(key) == lt and f[h] is not None
+                    ]),
+                    light_flags[lt],
+                )
                 for lt in ("green", "amber", "red")
             }
             g, rd = lights["green"], lights["red"]
             edge = round(g["avg"] - rd["avg"], 5) if (g["avg"] is not None and rd["avg"] is not None) else None
-            per_h[h] = {"lights": lights, "edge": edge}
+            # An edge is only as trustworthy as its thinner side.
+            per_h[h] = {
+                "lights": lights,
+                "edge": edge,
+                "edge_reliability": _reliability(min(g["episodes"], rd["episodes"])),
+            }
         setups[key] = {
             "key": key,
             "name": _SETUP_NAMES[key],
@@ -151,6 +205,10 @@ def run() -> dict:
         "benchmark": "Equal-weight universe index (the average stock)",
         "by_level": by_level,
         "setups": setups,
+        "thresholds": {
+            "min_episodes_reliable": MIN_EPISODES_RELIABLE,
+            "min_episodes_tentative": MIN_EPISODES_TENTATIVE,
+        },
     }
 
 

@@ -15,6 +15,7 @@ from .cache import refresh_grouped_cache, list_cached_days
 from .regime import classify
 from . import sa_history
 from .regime_backtest import run as run_regime_backtest, run_system_backtest
+from .calibration import run as run_calibration
 from .index_trend import index_trend
 from .situational import assess as assess_situational, compact_record as sa_compact_record
 from .verify import recount_4pct
@@ -31,6 +32,7 @@ __all__ = [
     "sa_history",
     "run_regime_backtest",
     "run_system_backtest",
+    "run_calibration",
     "index_trend",
     "recount_4pct",
     "load_universe",

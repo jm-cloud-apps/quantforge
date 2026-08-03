@@ -59,6 +59,7 @@ def test_critical_routes_are_registered():
         "/api/breadth/situational",
         "/api/breadth/snapshot",
         "/api/breadth/signal-scorecard",
+        "/api/breadth/calibration",
         "/api/screener/qullamaggie",
         "/api/trade-plans",
         # Discipline / process analytics (discipline_router)
