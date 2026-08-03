@@ -45,6 +45,15 @@ export async function getRegimeBacktest() {
   return res.json()
 }
 
+export async function getBreadthCalibration() {
+  const res = await fetch(`${API_BASE}/breadth/calibration`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to load band calibration')
+  }
+  return res.json()
+}
+
 export async function getBreadthIndexTrend() {
   const res = await fetch(`${API_BASE}/breadth/index-trend`)
   if (!res.ok) {
