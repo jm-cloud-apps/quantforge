@@ -240,6 +240,51 @@ const flatNavItems = navGroups.flatMap(g => g.items)
 
 const COLLAPSE_KEY = 'qf:sidebar:collapsed'
 const ORDER_KEY = 'qf:sidebar:order'
+const FAV_KEY = 'qf:sidebar:favorites'
+
+// Star toggle that rides on a nav row. On desktop it stays invisible until the
+// row is hovered — unless the page is already a favourite, in which case the
+// filled star is a permanent mark, not a hover affordance.
+function FavToggle({ active, label, onToggle, mobile = false }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={`${active ? 'Remove' : 'Add'} ${label} ${active ? 'from' : 'to'} favorites`}
+      aria-pressed={active}
+      title={active ? 'Remove from favorites' : 'Add to favorites'}
+      className={`absolute top-1/2 -translate-y-1/2 rounded-md flex items-center justify-center transition-opacity ${
+        mobile ? 'right-2 w-9 h-9' : 'right-1.5 w-5 h-5'
+      } ${
+        active
+          ? 'text-amber-400 opacity-100'
+          : `text-surface-600 hover:text-amber-400 ${mobile ? 'opacity-70' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`
+      }`}
+    >
+      <svg className={mobile ? 'w-4 h-4' : 'w-[13px] h-[13px]'} viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3.75l2.42 4.9 5.41.79-3.92 3.81.93 5.39L12 16.09l-4.84 2.55.93-5.39-3.92-3.81 5.41-.79L12 3.75z" />
+      </svg>
+    </button>
+  )
+}
+
+// Row chrome for a sidebar link. Three states, each with one quiet signal —
+// no outlines, because a ring around a single row in a 33-row list reads as an
+// error box rather than a bookmark:
+//   active    → accent fill + a left rail (the strongest mark in the rail)
+//   favourite → raised surface + the brightest label; the gold star does the rest
+//   default   → muted label that lifts on hover
+function navRowClass({ isActive, fav, collapsed }) {
+  const base = `relative flex items-center ${collapsed ? 'justify-center' : 'gap-3 pr-7'} px-3 py-[7px] rounded-lg text-[13px] font-medium transition-colors duration-150`
+  if (isActive) {
+    const rail = collapsed
+      ? ''
+      : ' before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-[18px] before:w-[3px] before:rounded-r-full before:bg-accent'
+    return `${base} bg-accent/[0.12] text-accent${rail}`
+  }
+  if (fav) return `${base} bg-surface-800/50 text-surface-50 hover:bg-surface-800/80`
+  return `${base} text-surface-400 hover:text-surface-100 hover:bg-surface-800/50`
+}
 
 // Apply a saved per-group path order over the default nav groups. Items not in
 // the saved order (e.g. a newly-added page) fall back to their default slot, so
@@ -280,6 +325,20 @@ export default function Layout() {
 
   const orderedGroups = useMemo(() => applyOrder(order), [order])
   const hasCustomOrder = Object.keys(order).length > 0
+
+  // --- Favourites (star a page to emphasise its row) -----------------------
+  const [favorites, setFavorites] = useState(() => {
+    try { const v = JSON.parse(localStorage.getItem(FAV_KEY)); return Array.isArray(v) ? v : [] } catch { return [] }
+  })
+
+  useEffect(() => {
+    try { localStorage.setItem(FAV_KEY, JSON.stringify(favorites)) } catch {}
+  }, [favorites])
+
+  const favSet = useMemo(() => new Set(favorites), [favorites])
+  const toggleFavorite = (path) => setFavorites(prev => (
+    prev.includes(path) ? prev.filter(p => p !== path) : [...prev, path]
+  ))
 
   const dropOnItem = (groupLabel, targetPath) => {
     if (!dragItem || dragItem.group !== groupLabel || dragItem.path === targetPath) { setDragItem(null); return }
@@ -361,16 +420,16 @@ export default function Layout() {
         )}
 
         {/* Nav groups */}
-        <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
+        <nav className={`flex-1 overflow-y-auto py-4 ${collapsed ? 'px-2' : 'px-2.5'} space-y-5`}>
           {orderedGroups.map(group => (
             <div key={group.label}>
               {!collapsed && (
-                <div className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-surface-500">
+                <div className="px-3 pb-2 text-[9.5px] font-semibold uppercase tracking-[0.14em] text-surface-600">
                   {group.label}
                 </div>
               )}
-              {collapsed && <div className="mx-2 mb-1.5 h-px bg-surface-700/40" />}
-              <div className="space-y-0.5">
+              {collapsed && <div className="mx-2 mb-2 h-px bg-surface-700/40" />}
+              <div className="space-y-[3px]">
                 {group.items.map(({ path, label, icon, end }) => (
                   editOrder && !collapsed ? (
                     <div
@@ -395,22 +454,24 @@ export default function Layout() {
                       <span className="whitespace-nowrap">{label}</span>
                     </div>
                   ) : (
-                    <NavLink
-                      key={path}
-                      to={path}
-                      end={end}
-                      title={collapsed ? label : undefined}
-                      className={({ isActive }) =>
-                        `flex items-center ${collapsed ? 'justify-center' : 'gap-2.5'} px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors duration-150 ${
-                          isActive
-                            ? 'bg-accent/10 text-accent'
-                            : 'text-surface-400 hover:text-surface-100 hover:bg-surface-800/60'
-                        }`
-                      }
-                    >
-                      <span className="shrink-0">{icon}</span>
-                      {!collapsed && <span className="whitespace-nowrap">{label}</span>}
-                    </NavLink>
+                    <div key={path} className="relative group">
+                      <NavLink
+                        to={path}
+                        end={end}
+                        title={collapsed ? label : undefined}
+                        className={({ isActive }) => navRowClass({ isActive, fav: favSet.has(path), collapsed })}
+                      >
+                        <span className="shrink-0">{icon}</span>
+                        {!collapsed && <span className="whitespace-nowrap">{label}</span>}
+                      </NavLink>
+                      {!collapsed ? (
+                        <FavToggle active={favSet.has(path)} label={label} onToggle={() => toggleFavorite(path)} />
+                      ) : favSet.has(path) && (
+                        // No room for the star when collapsed — a gold pip keeps
+                        // the favourite legible against the icon-only rail.
+                        <span className="pointer-events-none absolute top-1 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-400" aria-hidden="true" />
+                      )}
+                    </div>
                   )
                 ))}
               </div>
@@ -524,22 +585,26 @@ export default function Layout() {
                 </div>
                 <nav className="space-y-1">
                   {group.items.map(({ path, label, icon, end }) => (
-                    <NavLink
-                      key={path}
-                      to={path}
-                      end={end}
-                      onClick={() => setMobileOpen(false)}
-                      className={({ isActive }) =>
-                        `flex items-center gap-3 px-4 py-3.5 rounded-xl text-[15px] font-medium transition-all ${
-                          isActive
-                            ? 'bg-accent/10 text-accent'
-                            : 'text-surface-300 hover:text-surface-100 hover:bg-surface-800/60'
-                        }`
-                      }
-                    >
-                      {icon}
-                      {label}
-                    </NavLink>
+                    <div key={path} className="relative">
+                      <NavLink
+                        to={path}
+                        end={end}
+                        onClick={() => setMobileOpen(false)}
+                        className={({ isActive }) =>
+                          `flex items-center gap-3 px-4 py-3.5 pr-12 rounded-xl text-[15px] font-medium transition-all ${
+                            isActive
+                              ? 'bg-accent/[0.12] text-accent'
+                              : favSet.has(path)
+                                ? 'bg-surface-800/60 text-surface-50'
+                                : 'text-surface-300 hover:text-surface-100 hover:bg-surface-800/50'
+                          }`
+                        }
+                      >
+                        {icon}
+                        {label}
+                      </NavLink>
+                      <FavToggle mobile active={favSet.has(path)} label={label} onToggle={() => toggleFavorite(path)} />
+                    </div>
                   ))}
                 </nav>
               </div>
