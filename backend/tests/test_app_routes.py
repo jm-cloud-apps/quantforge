@@ -60,6 +60,9 @@ def test_critical_routes_are_registered():
         "/api/breadth/snapshot",
         "/api/breadth/signal-scorecard",
         "/api/breadth/calibration",
+        # Pre-market prep (prep_router)
+        "/api/prep/leaders",
+        "/api/prep/session",
         "/api/screener/qullamaggie",
         "/api/trade-plans",
         # Discipline / process analytics (discipline_router)

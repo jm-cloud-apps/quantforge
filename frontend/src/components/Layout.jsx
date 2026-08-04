@@ -165,6 +165,14 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M4 4h7v7H4V4zm0 9h7v7H4v-7zm9-9h7v4h-7V4zm0 6h7v10h-7V10z" />
     </svg>
   ),
+  prep: (
+    // A clipboard with a checked line — the routine you work through.
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" />
+      <rect x="9" y="3" width="6" height="4" rx="1" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.5 13l2 2 4-4" />
+    </svg>
+  ),
 }
 
 // Grouped navigation — ordered as the daily trading workflow: read the tape,
@@ -180,6 +188,9 @@ const navGroups = [
   {
     label: '1 · Market Context',
     items: [
+      // Prep comes first because it happens first — the night before / the
+      // weekend. Trade Today is the morning-of decision that follows it.
+      { path: '/prep',            label: 'Prep',             icon: icons.prep },
       { path: '/situational-awareness', label: 'Trade Today', icon: icons.awareness },
       { path: '/market-monitor',  label: 'Market Monitor',   icon: icons.monitor },
       { path: '/theme-radar',     label: 'Theme Radar',      icon: icons.signal },
