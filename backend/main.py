@@ -203,6 +203,11 @@ app.include_router(discipline_router)
 from sector_rotation.router import router as sector_rotation_router
 app.include_router(sector_rotation_router)
 
+# Pre-market prep: the 6M/3M/1M relative-strength scan (off the breadth cache)
+# plus the persisted record of each weekend/evening prep run.
+from prep_router import router as prep_router
+app.include_router(prep_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

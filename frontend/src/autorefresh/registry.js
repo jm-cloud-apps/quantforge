@@ -11,6 +11,7 @@ import { get9MScan } from '../api/scanner9m'
 import { getStageScan } from '../api/stageAnalysis'
 import { getMAReclaimScan } from '../api/maReclaim'
 import { getSetupsBoard } from '../api/setupsBoard'
+import { getPrepLeaders } from '../api/prep'
 import { getBreakouts } from '../api/breakoutScreener'
 import { BREAKOUT_PRESETS } from '../api/breakoutPresets'
 import { getThemeRadarAnalysis } from '../api/themeRadar'
@@ -165,6 +166,14 @@ export const AUTO_REFRESH_JOBS = [
     label: 'Setups board',
     hint: 'Re-aggregates the Find-Setups board from each scanner’s cache.',
     run: () => getSetupsBoard({ force: false }),
+  },
+  {
+    // Prep is done off-hours, so this wants to be warm by the evening rather
+    // than at the open — but the daily-warm queue is the same mechanism.
+    id: 'prep-leaders',
+    label: 'Prep · RS leaders',
+    hint: 'Re-ranks the 6M / 3M / 1M leader lists off the breadth cache.',
+    run: () => getPrepLeaders({ fresh: true }),
   },
 ]
 
