@@ -165,6 +165,20 @@ def get_breadth_regime_backtest():
     return _breadth_cached("regime-backtest", _compute)
 
 
+@router.get("/api/breadth/calibration")
+def get_breadth_calibration():
+    """Are the exposure bands calibrated to what the tape actually paid? Reports
+    per-band forward return/volatility with EPISODE counts, the weight each band
+    is sized at today, and an evidence-shrunk suggested weight. Read-only — it
+    never rewrites the live weights. Seeds the ledger first so the join has rows.
+    Memoized on the cache fingerprint."""
+    def _compute():
+        _sa_compute(30)
+        from breadth import run_calibration
+        return run_calibration()
+    return _breadth_cached("calibration", _compute)
+
+
 @router.get("/api/breadth/signal-scorecard")
 def get_breadth_signal_scorecard():
     """Forward-return scorecard for the Trade Today signals (verdict, turn-watch,

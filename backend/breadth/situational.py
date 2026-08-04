@@ -217,6 +217,21 @@ def _score_from_factors(evs: list[dict]) -> float:
     return max(0.0, min(100.0, 50.0 + sum(e["points"] for e in evs)))
 
 
+def exposure_score(row: dict) -> int:
+    """The 0–100 exposure score for one breadth row.
+
+    Public because `regime.classify` derives the tape label from it: two
+    surfaces reading the same day must never disagree, so there is exactly one
+    scoring implementation and everything else is a view of it.
+    """
+    return int(round(_score_from_factors(evaluate_factors(row))))
+
+
+def stance_level(score: float) -> str:
+    """Public alias for the band lookup — see `_BANDS`."""
+    return _stance_level(score)
+
+
 def _drivers_from_factors(evs: list[dict]) -> list[dict]:
     ds = [
         {"label": e["label"], "points": e["points"], "detail": e["detail"], "tone": e["tone"]}
