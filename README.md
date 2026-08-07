@@ -62,8 +62,11 @@ The app is organized around a trading **workflow**, not a pile of tools:
   exhaustion gap taxonomy), **Candles × Rails** (which candle at the rail is
   buyable), **Exit — Trend Death vs Shakeout** (7 discriminators and a tiered
   cascade ladder for when to leave a winner for good), **Bases & Pivots**,
-  **EP Catalysts**, **Trade Lifecycle**, **Short Side**, and your own editable
-  rule list with a rule-of-the-day.
+  **EP Setup** (what the chart must look like *before* the gap — forgotten base,
+  beaten-down-but-no-longer-falling, blue sky — plus the earnings arithmetic that
+  actually re-rates: guidance raise > accelerating YoY revenue > EPS surprise),
+  **EP Catalysts** (Stockbee's ranking of the *why*), **Trade Lifecycle**,
+  **Short Side**, and your own editable rule list with a rule-of-the-day.
 - **Playbook** — annotated setup library with chart screenshots.
 - **Tools** — Position Sizer (Fixed %, Kelly, ATR) and a customizable pre-trade
   discipline checklist.
