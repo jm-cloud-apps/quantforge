@@ -155,6 +155,221 @@ export const CATALYST_HIERARCHY = [
   },
 ]
 
+// ── EP Setup ────────────────────────────────────────────────────────────────
+// The Catalyst Hierarchy above ranks the WHY. This block answers the two
+// questions that actually decide whether a given episodic pivot is worth risk:
+// what the chart looked like the day BEFORE the gap, and whether the numbers
+// behind the headline re-rate the company or just beat a lowered bar.
+// Rendered by components/EPSetup.jsx. Thresholds mirror backend/ep_scorer.py
+// and backend/scanners/ep9m.py so the page and the scanners grade one thing.
+//
+// side: 'want' = the pre-gap chart you're hunting; 'avoid' = the ones that
+// look identical at 9:31 and pay nothing.
+export const EP_PRIOR_CHART = [
+  {
+    key: 'forgotten', glyph: 'forgotten', side: 'want', tone: 'good', signal: 'confirm',
+    title: 'The forgotten base',
+    tagline: 'Dead for months, then gaps clean out of the range',
+    what: '3–12 months of sideways drift in a narrow band, ranges compressing, volume dull — no spikes, no story, no crowd. The gap opens above every bar of that range.',
+    why: 'Nobody owns it and nobody is waiting to sell it. A range that long means the impatient money left; the gap has to buy from holders who now have no reason to let go. This is the textbook EP and the highest-paying version of it.',
+    rule: 'Boring is the feature. If the chart looked interesting last week, it is not this setup.',
+  },
+  {
+    key: 'bottoming', glyph: 'bottoming', side: 'want', tone: 'good', signal: 'confirm',
+    title: 'Beaten down, stopped going down',
+    tagline: 'Down 50–80%, then flat — the gap crosses the 200 in one bar',
+    what: 'A long decline that has gone quiet: the last 2–4 months refuse to make new lows even on bad tape. Price sits at or under a flattening 200-day. The gap opens well above it.',
+    why: 'Sellers are exhausted — everyone who wanted out is out, which is why the lows stopped printing. The news does not just move price, it changes the classification: a left-for-dead name becomes ownable, and the funds that screen on trend have to buy it from a standing start.',
+    rule: 'Require the flat part. Still making lower lows into the print is a falling knife with a headline attached.',
+  },
+  {
+    key: 'bluesky', glyph: 'bluesky', side: 'want', tone: 'good', signal: 'confirm',
+    title: 'Blue-sky gap',
+    tagline: 'Tight base under the highs → gap into white space',
+    what: 'A quiet multi-week coil just under the 52-week (or all-time) high, then the gap opens above it. Nothing but empty chart above the day-1 candle.',
+    why: 'Zero overhead supply: not one holder in the last year is underwater, so no rally meets a seller getting back to breakeven. Fewer of these than forgotten bases, but they trend the cleanest once they go.',
+    rule: 'Blue sky beats a big gap. A +12% gap into white space outruns a +35% gap into old wreckage.',
+  },
+  {
+    key: 'trend', glyph: 'trend', side: 'want', tone: 'info', signal: 'context',
+    title: 'Shallow pullback in an uptrend',
+    tagline: 'Already working, news extends it — a B, not an A',
+    what: 'Above a rising 50/200, pulled back into the 20/50 rail for a couple of weeks into the print, then gaps and continues.',
+    why: 'A real setup, but the re-rating is partly done — the market already believed the story, so the gap continues a trend instead of starting one. Expect a normal swing, not a multi-month leg.',
+    rule: 'Trade it as a continuation: normal size, rail stop, take the partial into strength. Do not price it like a fresh EP.',
+  },
+  {
+    key: 'supply', glyph: 'supply', side: 'avoid', tone: 'warn', signal: 'caution',
+    title: 'Gap into overhead supply',
+    tagline: 'The open lands inside somebody else’s disaster',
+    what: 'Look left: the gap opens into a heavy-volume shelf where the stock broke down in the last 6–12 months. Day 1 often prints a fat upper wick and closes mid-range.',
+    why: 'Every bagholder from that shelf just got their exit. Their selling is mechanical and price-insensitive — it does not care about your catalyst — and it caps the move exactly where the chart says it should.',
+    rule: 'Skip it, or wait for the stock to build a new base above the shelf and take the breakout from there instead.',
+  },
+  {
+    key: 'knife', glyph: 'knife', side: 'avoid', tone: 'bad', signal: 'caution',
+    title: 'No base — still making lows',
+    tagline: 'Gaps up out of a live downtrend',
+    what: 'Lower lows right into the print, no flat stretch anywhere, then a gap that opens into a declining 200-day and closes red.',
+    why: 'A downtrend is supply that has not finished working. Every bounce is somebody’s exit, and the gap hands that queue its best fill in months. “Beaten down” only becomes bullish once the stock has stopped going down.',
+    rule: 'Require 2–4 months without a new low before the gap. A falling knife with a headline attached is still a falling knife.',
+  },
+  {
+    key: 'novol', glyph: 'novol', side: 'avoid', tone: 'warn', signal: 'caution',
+    title: 'The gap nobody showed up for',
+    tagline: 'Right chart, right story, 1.4× volume',
+    what: 'A perfectly good base gaps +8% on barely above-average volume, drifts for two sessions and closes the gap.',
+    why: 'The gap is a price; volume is the evidence somebody acted on it. Without 3×+ turnover no fund built a position — so there is no ongoing bid to carry the move, and the range simply reclaims it.',
+    rule: 'Volume is the confirmation, not a bonus. Under 3× average the episode is unproven — pass, or wait for a base to form above the gap.',
+  },
+  {
+    key: 'extended', glyph: 'extended', side: 'avoid', tone: 'bad', signal: 'caution',
+    title: 'Extended before the news',
+    tagline: 'Up 40% into the print — the beat was already bought',
+    what: 'Weeks of advance straight into the catalyst, stretched well above the 10/20, then a gap up that gets sold and closes red or near the lows.',
+    why: 'The information leaked into price ahead of you. There is no surprise left to pay for, and everyone with a 40% gain now has a reason to ring the register on the one day there is liquidity to do it in.',
+    rule: 'The prior 20-day move ≤ ±10% test comes first. Fail it and the numbers do not matter — this is a gap to fade, not to buy.',
+  },
+]
+
+// The quantified pre-gap gate — the chart half, checked the night before or on
+// the gap-day open. Numbers here mirror ep_scorer.score_consolidation and the
+// ep9m compression / not-late filters.
+export const EP_CHART_GATE = [
+  { key: 'prior20', tone: 'good', label: 'Prior 20-day move', value: '≤ ±10%',
+    note: 'The coiled-spring test the EP scorer scores. Over ±30% there is no base — the news is chasing price that already moved.' },
+  { key: 'baselen', tone: 'good', label: 'Base length', value: '2–12 months',
+    note: 'Long enough that holders got bored and left. Under ~6 weeks is a pause, not a base — nobody has forgotten it yet.' },
+  { key: 'compress', tone: 'info', label: 'Range compression', value: 'last 5d ≤ 0.7× last 20d',
+    note: 'The $9M scanner’s literal filter: the bar must emerge from compression, not extend an already-wide stretch of chart.' },
+  { key: 'open', tone: 'info', label: 'Where it opens', value: 'above the base high',
+    note: 'The open must clear every bar of the range, and ideally the 200-day. A gap that opens inside the range is a good day, not an episode.' },
+  { key: 'supply', tone: 'warn', label: 'Overhead supply', value: 'none for 6–12 months',
+    note: 'Look left before you look at the news. A heavy-volume shelf overhead is trapped sellers who exit at breakeven — into your entry.' },
+  { key: 'quiet', tone: 'good', label: 'Volume before the gap', value: 'no 3× days',
+    note: 'The gap should be the first crowd event. Two volume spikes already this month means the story leaked and you are the late money.' },
+  { key: 'ma200', tone: 'info', label: 'Distance from 200-day', value: '−25% to +10%',
+    note: 'The best EPs cross the 200 in a single bar — ignored to owned. Already 30% above it and the re-rating happened without you.' },
+  { key: 'notlate', tone: 'bad', label: 'Not already moving', value: 'close 3d ago < today’s low',
+    note: 'Day 3 of a move is not day 1. If the expansion started before today, you are buying someone else’s entry.' },
+]
+
+// The gap-day gate — mirrors ep_scorer's scoring bands so the panel and the
+// $9M / EP scanners speak the same language.
+export const EP_GAP_GATE = [
+  { key: 'gap', tone: 'good', label: 'Gap size', value: '+10% to +40%',
+    note: 'Under 5% is not an episode. Over 50% is a reversion candidate — big enough to re-rate, small enough to still travel.' },
+  { key: 'vol', tone: 'good', label: 'Volume surge', value: '≥ 3× (5–10× best)',
+    note: 'Ownership actually changing hands. Under 1.5× the gap is a quote, not a transfer.' },
+  { key: 'dv', tone: 'info', label: 'Dollar volume', value: '≥ $5M ($20M+ better)',
+    note: 'What you can exit into on a bad day. Position size is capped by this number, not by conviction.' },
+  { key: 'float', tone: 'info', label: 'Float', value: '< 200M (< 50M explosive)',
+    note: 'Small float turns real demand into violent price. Above ~1B shares the same news barely registers.' },
+  { key: 'mcap', tone: 'info', label: 'Market cap', value: '$100M – $10B',
+    note: 'Big enough to be fundable, small enough that one quarter can re-rate the whole company.' },
+  { key: 'dcr', tone: 'good', label: 'Close of day 1', value: 'upper 30% of range',
+    note: 'Daily closing range ≥ 0.70. A gap that fades to the lows on the year’s biggest volume is distribution — the story got sold to you.' },
+]
+
+// The numbers, ranked by how much they actually move a forward multiple.
+// Order matters: guidance > growth shape > EPS > margins > corroboration.
+export const EP_NUMBERS = [
+  {
+    key: 'guidance', rank: 1, tone: 'good', label: 'Forward guidance',
+    weight: 'The one that re-rates',
+    want: 'Next-quarter and/or FY guide raised above consensus — best when it is the second consecutive raise.',
+    avoid: 'Beat with guidance merely maintained (a one-day pop), and beat-with-a-cut (a gap to fade, not to buy).',
+    why: 'Price is the forward number times a multiple. A beat re-prices the past; only guidance re-prices the future, which is the only thing anyone is paying for.',
+  },
+  {
+    key: 'revaccel', rank: 2, tone: 'good', label: 'Revenue acceleration (YoY)',
+    weight: 'The shape institutions chase',
+    want: 'This quarter’s YoY revenue growth above each of the last two — e.g. +14% → +27% → +52%.',
+    avoid: 'High but decelerating growth (+60% → +45% → +32%) — the multiple compresses even while the headline looks huge.',
+    why: 'Acceleration is what forces analysts to re-model, and re-modelling is what produces months of buying rather than one morning of it.',
+  },
+  {
+    key: 'revlevel', rank: 3, tone: 'good', label: 'Revenue growth (YoY)',
+    weight: 'The level under the shape',
+    want: '≥ 25–30% YoY; the EPs that run hardest print 40–100%+. Revenue must beat too, not just EPS.',
+    avoid: 'Sub-10% growth. A beat on a 6% grower is a rounding error dressed as news.',
+    why: 'Revenue is the number that cannot be engineered. Compare against the year-ago quarter, never the previous one — QoQ is seasonality, YoY is demand.',
+  },
+  {
+    key: 'eps', rank: 4, tone: 'info', label: 'EPS surprise & YoY',
+    weight: 'Table stakes, not the thesis',
+    want: 'Surprise ≥ 20% vs consensus and EPS up ≥ 25% YoY. Best of all: the first profitable quarter — loss-to-profit re-rates a company in a way no beat can.',
+    avoid: 'A 1–5% penny beat (noise — most companies beat), and an EPS beat sitting on a revenue miss.',
+    why: 'EPS beats on flat revenue are cost cuts, buybacks or a tax rate. That is accounting, not demand, and it does not repeat next quarter.',
+  },
+  {
+    key: 'margin', rank: 5, tone: 'info', label: 'Margin expansion',
+    weight: 'Proof it is real demand',
+    want: 'Gross margin up ~200bps+ YoY, opex growing slower than revenue — operating leverage showing up.',
+    avoid: 'Revenue up while gross margin falls — growth bought with discounting, which stops the moment the promo does.',
+    why: 'Expanding margins on accelerating revenue is the combination that turns a good quarter into a multi-quarter narrative.',
+  },
+  {
+    key: 'confirm', rank: 6, tone: 'info', label: 'Morning-after corroboration',
+    weight: 'Did anyone with capital agree?',
+    want: 'Several analyst price-target hikes or an upgrade, the heaviest volume in a year, and the theme’s peers bid alongside it.',
+    avoid: 'One small-shop upgrade and no volume — an opinion, not a re-rating.',
+    why: 'A gap is one morning’s opinion. Estimate revisions across the street are what fund the next three months of buying.',
+  },
+]
+
+// Non-earnings catalysts get the same test: is the NUMBER big enough to change
+// the forward model? Pairs with CATALYST_HIERARCHY, which ranks the type.
+export const EP_NON_EARNINGS = [
+  { key: 'contract', tone: 'good', label: 'Contract / award',
+    test: 'Counterparty named + dollar value ≥ ~20% of trailing annual revenue, multi-year.',
+    note: 'A "$40M award" at a company doing $2B is a press release. The same number at a $60M-revenue company is a new company.' },
+  { key: 'fda', tone: 'good', label: 'FDA / trial result',
+    test: 'Approval or Phase-3 success on the asset that IS the company — and check the label breadth, not just the yes.',
+    note: 'A narrow label on a crowded indication gaps and dies. Price the addressable market, not the headline word "approved".' },
+  { key: 'strategic', tone: 'good', label: 'Strategic investment / partnership',
+    test: 'A bellwether takes a stake or names them a partner — validation the market cannot argue with.',
+    note: 'Tier-1 in the Catalyst Hierarchy: it re-rates the name and puts a halo bid under the whole group.' },
+  { key: 'policy', tone: 'info', label: 'Government policy',
+    test: 'Tariff, subsidy, mandate or approval that changes the economics of an entire industry.',
+    note: 'The whole group gaps together — so trade the best chart in the group, not the loudest ticker.' },
+  { key: 'ma', tone: 'bad', label: 'Being acquired (cash)',
+    test: 'None — the chart is now a bond that matures at the deal price.',
+    note: 'Not an EP. Upside is capped by the offer, and the only remaining risk is the deal breaking.' },
+  { key: 'upgrade', tone: 'bad', label: 'Analyst upgrade alone',
+    test: 'No new facts about the business — just a new opinion about them.',
+    note: 'Fine as corroboration on top of numbers, worthless as the catalyst itself.' },
+]
+
+// Same morning, six different calls — the ladder ties the two halves together:
+// the last row fails on the chart even though the numbers are perfect.
+export const EP_NUMBERS_LADDER = [
+  { key: 'apl', tone: 'good', label: 'Rev +52% YoY (accel) · FY guide raised', verdict: 'FULL SIZE',
+    note: 'Growth accelerating, forward numbers moved up, base intact. This is the version worth the full risk unit.' },
+  { key: 'solid', tone: 'good', label: 'Rev +30% YoY · beat · guide maintained', verdict: 'HALF SIZE',
+    note: 'Real quarter, unmoved forward model. Tradeable, but expect a swing rather than a re-rating.' },
+  { key: 'costcut', tone: 'warn', label: 'EPS beat 40% · revenue −2% YoY', verdict: 'SKIP',
+    note: 'Cost cuts, buyback or tax rate. Nothing here repeats next quarter, and the gap usually gives it all back.' },
+  { key: 'cut', tone: 'bad', label: 'Beat · next-quarter guide cut', verdict: 'FADE',
+    note: 'The market trades the guide, not the beat. This is gap-fill territory — the short side’s setup, not yours.' },
+  { key: 'inline', tone: 'warn', label: 'In-line print · 3 PT hikes · +18%', verdict: 'WATCH',
+    note: 'Opinions moved, numbers did not. Let it build a base above the gap and take the breakout if it holds.' },
+  { key: 'priced', tone: 'bad', label: 'Beat + raise · stock +45% into the print', verdict: 'PASS',
+    note: 'Perfect numbers, failed chart. The prior-20-day test disqualified it before the release ever came out.' },
+]
+
+// The instant-no list — cheap to check, and each one has cost real money.
+export const EP_DISQUALIFIERS = [
+  'The gap is a capital raise — ATM, registered direct or secondary. The "news" is dilution.',
+  'Post-reverse-split chart, or a sub-$3 name gapping on a promotional PR.',
+  'Under $5M/day dollar volume — you cannot exit the size you want to enter.',
+  'Gap under +5%: that is a good day, not an episode.',
+  'Opens inside the prior range instead of clearing the base high.',
+  'The second gap on the same story — the surprise is spent.',
+  'Cash acquisition target: upside capped at the deal price.',
+  'You are holding into the print rather than reacting to it. That is a coin flip, not an EP.',
+]
+
 // Moving-average framework — which of the 10/20/50 rails to trust, on which
 // timeframe, at which point in the momentum-swing workflow. Rendered as a
 // dedicated framework panel on the Rules page (components/MARails.jsx);

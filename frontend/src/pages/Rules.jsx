@@ -13,6 +13,7 @@ import CandleTells from '../components/CandleTells'
 import CandlesAtRails from '../components/CandlesAtRails'
 import ExitTrendDeath from '../components/ExitTrendDeath'
 import BasesAndPivots from '../components/BasesAndPivots'
+import EPSetup from '../components/EPSetup'
 import TradeLifecycle from '../components/TradeLifecycle'
 import ShortSide from '../components/ShortSide'
 
@@ -518,6 +519,7 @@ const SECTION_NAV = [
   { id: 'rail-candles', label: 'Candles × Rails', tone: 'purple' },
   { id: 'exit', label: 'Exit', tone: 'danger' },
   { id: 'bases', label: 'Bases', tone: 'accent' },
+  { id: 'ep-setup', label: 'EP Setup', tone: 'warning' },
   { id: 'catalysts', label: 'EP Catalysts', tone: 'accent' },
   { id: 'lifecycle', label: 'Lifecycle', tone: 'cyan' },
   { id: 'short-side', label: 'Short Side', tone: 'danger' },
@@ -818,6 +820,7 @@ export default function Rules() {
       <CandlesAtRails id="rail-candles" collapsible collapsed={!!collapsed['rail-candles']} onToggle={() => toggleSection('rail-candles')} />
       <ExitTrendDeath id="exit" collapsible collapsed={!!collapsed.exit} onToggle={() => toggleSection('exit')} />
       <BasesAndPivots id="bases" collapsible collapsed={!!collapsed.bases} onToggle={() => toggleSection('bases')} />
+      <EPSetup id="ep-setup" collapsible collapsed={!!collapsed['ep-setup']} onToggle={() => toggleSection('ep-setup')} />
       <CatalystHierarchy id="catalysts" collapsible collapsed={!!collapsed.catalysts} onToggle={() => toggleSection('catalysts')} />
       <TradeLifecycle id="lifecycle" collapsible collapsed={!!collapsed.lifecycle} onToggle={() => toggleSection('lifecycle')} />
       <ShortSide id="short-side" collapsible collapsed={!!collapsed['short-side']} onToggle={() => toggleSection('short-side')} />
