@@ -27,6 +27,12 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
     </svg>
   ),
+  risk: (
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l7 3v6c0 4.2-2.9 7.9-7 9-4.1-1.1-7-4.8-7-9V6l7-3z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.5l2 2 4-4.5" />
+    </svg>
+  ),
   trophy: (
     <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M8 21h8m-4-4v4m-5-17h10v4a5 5 0 01-10 0V4zm0 1H5a2 2 0 002 4m10-4h2a2 2 0 01-2 4" />
@@ -165,6 +171,15 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M4 4h7v7H4V4zm0 9h7v7H4v-7zm9-9h7v4h-7V4zm0 6h7v10h-7V10z" />
     </svg>
   ),
+  missed: (
+    // An open book with a gap where a page should be — the trades that aren't
+    // in the Playbook because they were never taken.
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 7c-1.5-1.3-3.5-2-6-2H4v13h2c2.5 0 4.5.7 6 2m0-13c1.5-1.3 3.5-2 6-2h2v7" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 7v13" strokeDasharray="2 2" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M17 15l4 4m0-4l-4 4" />
+    </svg>
+  ),
   prep: (
     // A clipboard with a checked line — the routine you work through.
     <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -227,9 +242,11 @@ const navGroups = [
     label: '4 · Review & Learn',
     items: [
       { path: '/discipline',       label: 'Discipline',       icon: icons.edge },
+      { path: '/missed',           label: 'Missed Book',      icon: icons.missed },
       { path: '/review',           label: 'Review',           icon: icons.journal },
       { path: '/journal',          label: 'Journal',          icon: icons.journal },
       { path: '/trading-analysis', label: 'Trading Analysis', icon: icons.trading },
+      { path: '/risk',             label: 'Risk Management',  icon: icons.risk },
       { path: '/flashcards',       label: 'Flashcards',       icon: icons.flashcards },
       { path: '/wealthsimple',     label: 'Wealthsimple',     icon: icons.journal },
       { path: '/yearly-strongest', label: 'Yearly Strongest', icon: icons.trophy },

@@ -41,6 +41,8 @@ const SetupsBoard     = lazy(() => import('./pages/SetupsBoard'))
 const FactorModel     = lazy(() => import('./pages/FactorModel'))
 const EdgeValidation  = lazy(() => import('./pages/EdgeValidation'))
 const Discipline      = lazy(() => import('./pages/Discipline'))
+const RiskManagement  = lazy(() => import('./pages/RiskManagement'))
+const MissedBook      = lazy(() => import('./pages/MissedBook'))
 
 // Note: the Suspense boundary for lazy page chunks lives INSIDE Layout (around
 // the <Outlet>), so the sidebar/header stay mounted and only the content area
@@ -62,12 +64,14 @@ function AppRoutes() {
         <Route path="theme-radar" element={<ThemeRadar />} />
         <Route path="bot-trader" element={<BotTrader />} />
         <Route path="trading-analysis" element={<TradingAnalysis />} />
+        <Route path="risk" element={<RiskManagement />} />
         <Route path="flashcards" element={<Flashcards />} />
         <Route path="yearly-strongest" element={<YearlyStrongest />} />
         <Route path="wealthsimple" element={<Wealthsimple />} />
         <Route path="review" element={<Review />} />
         <Route path="discipline" element={<Discipline />} />
         <Route path="playbook" element={<Playbook />} />
+        <Route path="missed" element={<MissedBook />} />
         <Route path="journal" element={<Journal />} />
         <Route path="tools" element={<Tools />} />
         <Route path="news" element={<NewsAnalysis />} />

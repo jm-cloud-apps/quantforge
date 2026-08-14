@@ -208,6 +208,11 @@ app.include_router(sector_rotation_router)
 from prep_router import router as prep_router
 app.include_router(prep_router)
 
+# Missed Book — the omission side of the discipline loop: the setups that were
+# never taken, why, and what they went on to do. Mirror of playbook_router.
+from missed_router import router as missed_router
+app.include_router(missed_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
