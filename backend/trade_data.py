@@ -127,19 +127,54 @@ def normalize_trade_data(df):
     if 'entry_date' in df_filtered.columns and 'exit_date' in df_filtered.columns:
         df_filtered['duration_days'] = (df_filtered['exit_date'] - df_filtered['entry_date']).dt.days
 
-    # Calculate P&L if not present
-    if 'pnl' not in df_filtered.columns or df_filtered['pnl'].isna().all():
-        df_filtered['pnl'] = (df_filtered['exit_price'] - df_filtered['entry_price']) * df_filtered['quantity']
+    # P&L — filled PER ROW, never all-or-nothing.
+    #
+    # The workbook stores P/L as an Excel formula, `=(Exit Qty * Exit Price) -
+    # (Qty * Entry Price)`, and P/L % as `=P/(Qty * Entry Price)` (a decimal
+    # fraction). Those are cell-referencing formulas, so `read_trades_excel`
+    # can't evaluate them — it only handles self-contained arithmetic — and any
+    # openpyxl save (every formatter run) strips the cached results Excel left
+    # behind. pandas then reads the whole column as NaN.
+    #
+    # This used to be guarded by `isna().all()`, which a single manually-typed
+    # number defeats: one recovered row out of 500 kept the guard False, so the
+    # other 499 skipped the fallback and were zeroed by the NaN cleanup below —
+    # a workbook of real trades reporting $0 P&L and a 0.2% win rate. Recompute
+    # the workbook's own expression row-wise and use it wherever there is no
+    # cached number, so a partially-cached column heals row by row.
+    qty = pd.to_numeric(df_filtered.get('quantity'), errors='coerce')
+    entry = pd.to_numeric(df_filtered.get('entry_price'), errors='coerce')
+    exit_px = pd.to_numeric(df_filtered.get('exit_price'), errors='coerce')
+    # Scale-outs book only the shares actually sold; assume a full exit when the
+    # column is absent or blank.
+    sold = pd.to_numeric(df_filtered['exit_quantity'], errors='coerce').fillna(qty) \
+        if 'exit_quantity' in df_filtered.columns else qty
 
-    # Handle pnl_pct - if it exists but is in decimal form (0.12 instead of 12%), convert it
-    if 'pnl_pct' in df_filtered.columns and not df_filtered['pnl_pct'].isna().all():
-        # Check if values are in decimal form (between -1 and 1 for most cases)
-        sample_values = df_filtered['pnl_pct'].dropna().head(10)
+    computed_pnl = (exit_px * sold) - (entry * qty)
+    if 'side' in df_filtered.columns:
+        # The sheet's formula is long-biased — a covered short prints its P&L
+        # with the sign flipped. Shorts realise the inverse.
+        is_short = df_filtered['side'].astype(str).str.strip().str.upper().str.startswith('SHORT')
+        computed_pnl = computed_pnl.mask(is_short, (entry * qty) - (exit_px * sold))
+
+    if 'pnl' in df_filtered.columns:
+        df_filtered['pnl'] = pd.to_numeric(df_filtered['pnl'], errors='coerce').fillna(computed_pnl)
+    else:
+        df_filtered['pnl'] = computed_pnl
+
+    # P&L % against the cost basis (matches the workbook's own definition, and
+    # unlike a raw price return it stays honest on partial exits).
+    cost_basis = (entry * qty).replace(0, np.nan)
+    computed_pct = (df_filtered['pnl'] / cost_basis) * 100
+    if 'pnl_pct' in df_filtered.columns:
+        pct = pd.to_numeric(df_filtered['pnl_pct'], errors='coerce')
+        # Stored as a decimal fraction (0.12) rather than a percentage (12)?
+        sample_values = pct.dropna().head(10)
         if len(sample_values) > 0 and sample_values.abs().max() < 10:
-            # Likely in decimal form, convert to percentage
-            df_filtered['pnl_pct'] = df_filtered['pnl_pct'] * 100
-    elif 'pnl_pct' not in df_filtered.columns or df_filtered['pnl_pct'].isna().all():
-        df_filtered['pnl_pct'] = ((df_filtered['exit_price'] - df_filtered['entry_price']) / df_filtered['entry_price']) * 100
+            pct = pct * 100
+        df_filtered['pnl_pct'] = pct.fillna(computed_pct)
+    else:
+        df_filtered['pnl_pct'] = computed_pct
 
     # Convert to list of dicts, handling NaN values
     trades = df_filtered.to_dict('records')

@@ -77,6 +77,48 @@ def test_normalize_computes_pnl_when_missing():
     assert t["pnl"] == pytest.approx(20.0)                 # (12 - 10) * 10
 
 
+def test_normalize_fills_pnl_row_by_row_not_all_or_nothing():
+    """The workbook's P/L column is Excel formulas; every openpyxl save strips
+    their cached values, so pandas reads NaN. One manually-typed number used to
+    defeat the old `isna().all()` guard and zero out every other trade."""
+    df = pd.DataFrame([
+        {"Symbol": "AAA", "Qty": 10, "Entry Price": 10.0, "Exit Price": 12.0, "Profit / Loss": None},
+        {"Symbol": "BBB", "Qty": 5, "Entry Price": 20.0, "Exit Price": 18.0, "Profit / Loss": None},
+        {"Symbol": "CCC", "Qty": 8, "Entry Price": 5.0, "Exit Price": 6.0, "Profit / Loss": 40.99},
+    ])
+    trades = normalize_trade_data(df)
+    assert [t["pnl"] for t in trades] == pytest.approx([20.0, -10.0, 40.99])  # cached row wins
+
+
+def test_normalize_pnl_uses_exit_quantity_for_scale_outs():
+    df = pd.DataFrame([
+        {"Symbol": "AAA", "Qty": 35, "Entry Price": 10.2, "Exit Qty": 15, "Exit Price": 12.0},
+    ])
+    t = normalize_trade_data(df)[0]
+    assert t["pnl"] == pytest.approx(15 * 12.0 - 35 * 10.2)   # only the shares sold
+
+
+def test_normalize_pnl_flips_sign_for_shorts():
+    """The sheet's own formula is long-biased — a covered short would print a
+    profit for a losing trade."""
+    df = pd.DataFrame([
+        {"Symbol": "AAA", "Qty": 45, "Side": "SHORT", "Entry Price": 49.13, "Exit Price": 49.608},
+    ])
+    t = normalize_trade_data(df)[0]
+    assert t["pnl"] == pytest.approx(-21.51, abs=0.01)
+
+
+def test_normalize_pnl_pct_is_cost_basis_and_fills_missing():
+    df = pd.DataFrame([
+        {"Symbol": "AAA", "Qty": 10, "Entry Price": 10.0, "Exit Price": 12.0,
+         "Profit / Loss": None, "Profit / Loss %": None},
+        {"Symbol": "BBB", "Qty": 10, "Entry Price": 10.0, "Exit Price": 11.0,
+         "Profit / Loss": 10.0, "Profit / Loss %": 0.10},   # stored as a decimal fraction
+    ])
+    trades = normalize_trade_data(df)
+    assert [t["pnl_pct"] for t in trades] == pytest.approx([20.0, 10.0])
+
+
 def test_metrics_win_rate_profit_factor_and_averages():
     trades = [{"pnl": 100.0}, {"pnl": -50.0}, {"pnl": 50.0}, {"pnl": -25.0}]
     m = calculate_trade_metrics(trades)

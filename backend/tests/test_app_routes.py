@@ -68,6 +68,10 @@ def test_critical_routes_are_registered():
         # Discipline / process analytics (discipline_router)
         "/api/discipline/scorecard",
         "/api/discipline/today",
+        # Missed Book — the omission side of the loop (missed_router)
+        "/api/missed/entries",
+        "/api/missed/summary",
+        "/api/missed/screenshots/{filename}",
     ]
     missing = [p for p in required if p not in paths]
     assert not missing, f"routes missing from the app: {missing}"

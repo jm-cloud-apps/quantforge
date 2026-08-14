@@ -6,11 +6,13 @@ import { TONE, SIGNAL_LABEL } from './tones'
 // pair, and "The rule" verdict box. Every scene panel's card (tells, rail
 // candles, short side, base patterns, lifecycle phases) is this one layout.
 //
-//   t     — { tone, signal, title, tagline, what, why, rule }
-//   spec  — the SCENES entry for the card's glyph
-//   step  — optional 1-based sequence number (renders the 01/02/03 chip)
+//   t        — { tone, signal, title, tagline, what, why, rule }
+//   spec     — the SCENES entry for the card's glyph
+//   step     — optional 1-based sequence number (renders the 01/02/03 chip)
+//   children — optional extra block rendered just above "The rule" (the Entries
+//              panel uses it for the trigger/stop spec strip)
 
-export default function FrameworkCard({ t, spec, step }) {
+export default function FrameworkCard({ t, spec, step, children }) {
   const tone = TONE[t.tone]
   return (
     <div className={`relative rounded-2xl border overflow-hidden ${tone.border} ${tone.bgSoft} flex flex-col`}>
@@ -49,6 +51,8 @@ export default function FrameworkCard({ t, spec, step }) {
         </div>
 
         <div className="flex-1" />
+
+        {children}
 
         <div className={`mt-3 rounded-lg border ${tone.border} ${tone.bgSoft} px-3 py-2`}>
           <div className={`text-[9px] font-bold tracking-widest uppercase mb-0.5 ${tone.text}`}>The rule</div>

@@ -62,11 +62,18 @@ The app is organized around a trading **workflow**, not a pile of tools:
   exhaustion gap taxonomy), **Candles × Rails** (which candle at the rail is
   buyable), **Exit — Trend Death vs Shakeout** (7 discriminators and a tiered
   cascade ladder for when to leave a winner for good), **Bases & Pivots**,
-  **EP Setup** (what the chart must look like *before* the gap — forgotten base,
-  beaten-down-but-no-longer-falling, blue sky — plus the earnings arithmetic that
-  actually re-rates: guidance raise > accelerating YoY revenue > EPS surprise),
-  **EP Catalysts** (Stockbee's ranking of the *why*), **Trade Lifecycle**,
-  **Short Side**, and your own editable rule list with a rule-of-the-day.
+  **HTF Setup** (what the chart must look like *before* the pole — fresh Stage-2
+  turn, a catalyst gap, RS leadership that predates the move — and the four
+  lookalikes whose flag is textbook and whose chart is dead), **EP Setup** (the
+  same question asked of the gap: forgotten base, beaten-down-but-no-longer-
+  falling, blue sky — plus the earnings arithmetic that actually re-rates:
+  guidance raise > accelerating YoY revenue > EPS surprise), **EP Catalysts**
+  (Stockbee's ranking of the *why*), **Entries** (where the order actually goes:
+  the 1/5/60-minute opening-range triggers for EPs, the five HTF continuation
+  variants, and the second sizing constraint — a stop is a daytime instrument,
+  so size once assuming it holds and once assuming a gap skips it, then take the
+  smaller), **Trade Lifecycle**, **Short Side**, and your own editable rule list
+  with a rule-of-the-day.
 - **Playbook** — annotated setup library with chart screenshots.
 - **Tools** — Position Sizer (Fixed %, Kelly, ATR) and a customizable pre-trade
   discipline checklist.
@@ -79,12 +86,34 @@ The app is organized around a trading **workflow**, not a pile of tools:
   `ib_insync` isn't installed.
 
 ### 4 · Review & Learn
+- **Missed Book** — the mirror of the Playbook: the setups you *didn't* take,
+  with the chart, the reason and what they went on to do. Two rules keep it
+  useful rather than corrosive. Every entry carries a verdict, so a setup the
+  rules correctly declined is counted as a **correct pass** — evidence the
+  filters worked — and never as a cost. And cost is reported twice, to the high
+  you'd never have caught and to the exit you'd actually have taken, each with
+  its own n, because a book of maxima sums to a fictional number that argues for
+  trading more. Reasons are a controlled vocabulary grouped by what the fix
+  would be — process (never reached you), execution (you had it and didn't act),
+  capacity (structurally couldn't), correct — so a dozen entries in, the ranked
+  bars stop being a diary and start being a diagnosis.
 - **Review** — edit setup / grade / emotion / notes per trade (sidecar-backed).
 - **Journal** — pre/post-trade plan, emotions, lessons, execution rating, tags.
 - **Trading Analysis** — win rate, profit factor, Sharpe/Sortino, expectancy,
   P&L calendar heatmap, hold-time scatter, streak/tilt detection, entry-timing,
   setup/symbol/market-cap breakdowns, SPY benchmark & alpha, R-multiple and
   rolling/drawdown analytics.
+- **Risk Management** — the model behind those numbers: expectancy in R, the
+  breakeven frontier (`win% = 1/(1+R)`), and a seeded fixed-fractional Monte
+  Carlo showing what a sub-50% win rate does to a $15k account at 0.5% risk per
+  trade — equity fan, outcome distribution, drawdown-touch probabilities,
+  losing-streak damage by risk size, and the position-size arithmetic. Sizing
+  gets its own treatment: the **Kelly ceiling** (`f* = expectancy / payoff`)
+  against a log-log **growth-vs-risk sweep** where the unlucky path peaks at a
+  far smaller size than the median, plus one-variable counterfactuals (+0.5R
+  payoff / +5pp win rate / double risk). It also re-prices **your own trade
+  log in R** — how much of the total came from the top handful of outliers, and
+  how much was given away by losses that ran past 1R.
 - **Wealthsimple** — separate-account analysis.
 - **Yearly Strongest** — strongest names by year.
 
@@ -252,7 +281,7 @@ quantforge/
 
 ```bash
 cd backend && source venv/bin/activate
-python -m pytest                      # 98 tests
+python -m pytest                      # 238 tests
 python -m pyflakes *.py tests/*.py    # undefined-name / dead-import gate
 ```
 
