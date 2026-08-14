@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getScorecard, WINDOWS } from '../api/discipline'
+import { getMissedSummary } from '../api/missed'
 import RefreshControl from '../components/RefreshControl'
 import TickerLink from '../components/TickerLink'
 
@@ -155,6 +156,8 @@ export default function Discipline() {
                 {summary.plans_unexecuted} logged plan{summary.plans_unexecuted === 1 ? '' : 's'} never became a trade.
               </div>
             )}
+
+            <OmissionStrip />
           </div>
 
           {/* ── 2. Where the unplanned money goes ──────────────────────── */}
@@ -366,6 +369,48 @@ export default function Discipline() {
           </p>
         </>
       )}
+    </div>
+  )
+}
+
+// The other half of the same question. Everything above this counts trades that
+// were taken and shouldn't have been; the Missed Book counts the reverse. Kept
+// to one line and rendered only when the book has entries — an empty prompt on
+// a page about compliance would just be an advert. Fails silent: if the missed
+// endpoint is down, the compliance number must still render.
+function OmissionStrip() {
+  const [s, setS] = useState(null)
+
+  useEffect(() => {
+    let alive = true
+    getMissedSummary().then(d => { if (alive) setS(d) }).catch(() => {})
+    return () => { alive = false }
+  }, [])
+
+  if (!s || s.missed.count === 0) return null
+  const top = s.by_reason[0]
+
+  return (
+    <div className="mt-4 rounded-lg bg-surface-800/40 border border-surface-700/50 px-3 py-2.5 flex items-center gap-x-4 gap-y-1 flex-wrap text-[12px]">
+      <span className="text-[10px] uppercase tracking-wide text-surface-500 font-semibold">Omission</span>
+      <span className="text-surface-300">
+        <span className="font-semibold text-surface-100 tabular-nums">{s.missed.count}</span> logged miss
+        {s.missed.count === 1 ? '' : 'es'}
+        {s.missed.r_real_sum != null && (
+          <> · <span className="font-semibold text-surface-100 tabular-nums">
+            {s.missed.r_real_sum > 0 ? '+' : ''}{s.missed.r_real_sum.toFixed(1)}R
+          </span> left on the table over {s.missed.r_real_n} priced</>
+        )}
+      </span>
+      {top && (
+        <span className="text-surface-500">
+          most often: <span className="text-surface-300">{top.reason}</span> ({top.count})
+        </span>
+      )}
+      {s.passed.count > 0 && (
+        <span className="text-emerald-300/80">{s.passed.count} correct pass{s.passed.count === 1 ? '' : 'es'}</span>
+      )}
+      <Link to="/missed" className="ml-auto text-accent hover:underline">Missed Book →</Link>
     </div>
   )
 }

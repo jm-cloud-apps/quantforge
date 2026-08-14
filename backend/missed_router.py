@@ -118,6 +118,127 @@ def pct_move(direction: str, entry, price) -> Optional[float]:
     return round(move / entry * 100, 2)
 
 
+FORWARD_SESSIONS = 20   # how far ahead "what did it do" looks
+TRAIL_MA = 10           # the rail the realistic exit is trailed against
+
+
+def _bar(frame, symbol: str) -> Optional[dict]:
+    """One symbol's OHLC out of a session frame.
+
+    Accepts either a pandas frame indexed by symbol (what breadth.cache hands
+    back) or a plain dict-of-dicts, so the pricing logic can be tested without
+    building DataFrames.
+    """
+    try:
+        if hasattr(frame, "index"):
+            if symbol not in frame.index:
+                return None
+            return {
+                "high": float(frame.at[symbol, "high"]),
+                "low": float(frame.at[symbol, "low"]),
+                "close": float(frame.at[symbol, "close"]),
+            }
+        row = frame.get(symbol)
+        if not row:
+            return None
+        return {"high": float(row["high"]), "low": float(row["low"]), "close": float(row["close"])}
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def forward_prices(symbol: str, start, bars_by_date: dict, direction: str = "long",
+                   sessions: int = FORWARD_SESSIONS, ma_period: int = TRAIL_MA) -> Optional[dict]:
+    """What the name did after `start`, priced the two ways the page reports.
+
+    - `peak` is the best price *touched* in the window. Structurally biased: over
+      twenty sessions almost any volatile name prints a good high somewhere, and
+      nobody sells there. It feeds the "best case" column that exists to be
+      distrusted.
+    - `trail_exit` is the close of the first session that closes through the
+      `ma_period` rail — the exit the trading rules actually prescribe, and a
+      decision that could really have been taken. It feeds the realistic column.
+      When the rail never breaks inside the window, the last close stands in and
+      `trail_hit` says so.
+
+    Filling these from the cache rather than from memory is the point: a
+    self-reported "it went to 58" drifts toward whatever story is being told
+    that day, and the R totals inherit the drift.
+
+    The grouped cache is **unadjusted**, so a split inside the window reads as a
+    huge move — anything beyond ±90% is refused rather than returned (the same
+    hazard discipline.post_exit_excursion guards against).
+    """
+    symbol = (symbol or "").upper()
+    if not symbol or start is None or not bars_by_date:
+        return None
+    long_side = direction != "short"
+
+    session_days = sorted(bars_by_date.keys())
+    forward = [d for d in session_days if d > start][:sessions]
+    if not forward:
+        return None
+
+    # Seed the rail with the closes *before* the entry, otherwise the first
+    # sessions have no average to break and the exit reads as too late.
+    closes = []
+    for d in [x for x in session_days if x <= start][-(ma_period - 1):]:
+        bar = _bar(bars_by_date[d], symbol)
+        if bar:
+            closes.append(bar["close"])
+
+    # The pre-entry close is the anchor the split guard measures against. The
+    # first *forward* close is no use: a split prints on that bar too, so a
+    # one-session window would compare the artefact to itself.
+    ref_close = closes[-1] if closes else None
+
+    peak = peak_day = None
+    trail_exit = trail_day = None
+    last_close = first_close = None
+    used = 0
+
+    for d in forward:
+        bar = _bar(bars_by_date[d], symbol)
+        if bar is None:
+            continue
+        used += 1
+        if first_close is None:
+            first_close = bar["close"]
+        last_close = bar["close"]
+
+        candidate = bar["high"] if long_side else bar["low"]
+        if peak is None or (candidate > peak if long_side else candidate < peak):
+            peak, peak_day = candidate, d
+
+        closes.append(bar["close"])
+        if trail_exit is None and len(closes) >= ma_period:
+            ma = sum(closes[-ma_period:]) / ma_period
+            if (bar["close"] < ma) if long_side else (bar["close"] > ma):
+                trail_exit, trail_day = bar["close"], d
+
+    if peak is None or first_close is None:
+        return None
+
+    # Unadjusted-cache artefact: a split, not a move.
+    anchor = ref_close if ref_close else first_close
+    if anchor and abs((peak - anchor) / anchor * 100) > 90:
+        return None
+
+    hit = trail_exit is not None
+    return {
+        "symbol": symbol,
+        "direction": "long" if long_side else "short",
+        "sessions_used": used,
+        "peak": round(peak, 4),
+        "peak_date": peak_day.isoformat(),
+        "trail_exit": round(trail_exit if hit else last_close, 4),
+        "trail_exit_date": (trail_day or forward[used - 1 if used else 0]).isoformat() if hit
+                           else forward[-1].isoformat(),
+        "trail_hit": hit,
+        "trail_ma": ma_period,
+        "last_close": round(last_close, 4),
+    }
+
+
 def _num(v):
     """Form floats arrive as '' when the field was left blank."""
     if v is None or v == "":
@@ -279,6 +400,42 @@ def list_missed_entries():
 @router.get("/api/missed/summary")
 def missed_summary():
     return summarize(list(_load()["entries"].values()))
+
+
+@router.get("/api/missed/price-check")
+def price_check(symbol: str, date: str, direction: str = "long",
+                sessions: int = FORWARD_SESSIONS):
+    """Fill the two price fields from the grouped cache instead of from memory.
+
+    Fails soft on every path — no cache, no coverage, an unparseable date — so a
+    missing local cache degrades the form to manual entry rather than blocking
+    the log. Nothing here fetches from a provider.
+    """
+    try:
+        start = dt.fromisoformat(date).date()
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
+
+    try:
+        from datetime import timedelta
+
+        from breadth import cache as breadth_cache
+        # Reach back far enough to seed the trail average, forward far enough
+        # that `sessions` trading days fit inside the calendar window.
+        window = breadth_cache.load_cached_window(
+            start - timedelta(days=TRAIL_MA * 3),
+            start + timedelta(days=sessions * 2 + 10),
+        )
+    except Exception:
+        return {"available": False, "reason": "The local grouped-price cache isn't available."}
+
+    if not window:
+        return {"available": False, "reason": "No cached sessions cover that date."}
+
+    result = forward_prices(symbol, start, window, direction=direction, sessions=sessions)
+    if result is None:
+        return {"available": False, "reason": f"No cached bars for {symbol.upper()} after {date}."}
+    return {"available": True, **result}
 
 
 @router.post("/api/missed/entries")

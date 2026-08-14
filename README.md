@@ -96,7 +96,13 @@ The app is organized around a trading **workflow**, not a pile of tools:
   trading more. Reasons are a controlled vocabulary grouped by what the fix
   would be — process (never reached you), execution (you had it and didn't act),
   capacity (structurally couldn't), correct — so a dozen entries in, the ranked
-  bars stop being a diary and start being a diagnosis.
+  bars stop being a diary and start being a diagnosis. Both prices are filled
+  from the local grouped-price cache rather than from memory: the high it
+  touched, and the close of the first session through the 10-day rail — the exit
+  the rules actually prescribe. On real setups those two differ by a factor of
+  eight or more, which is the entire reason the page reports them separately.
+  Discipline shows the headline number next to plan compliance: trades taken
+  that shouldn't have been, and trades not taken that should have.
 - **Review** — edit setup / grade / emotion / notes per trade (sidecar-backed).
 - **Journal** — pre/post-trade plan, emotions, lessons, execution rating, tags.
 - **Trading Analysis** — win rate, profit factor, Sharpe/Sortino, expectancy,
@@ -281,7 +287,7 @@ quantforge/
 
 ```bash
 cd backend && source venv/bin/activate
-python -m pytest                      # 238 tests
+python -m pytest                      # 247 tests
 python -m pyflakes *.py tests/*.py    # undefined-name / dead-import gate
 ```
 
