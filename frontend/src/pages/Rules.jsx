@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   CATEGORIES,
   CATALYST_HIERARCHY,
@@ -13,7 +14,9 @@ import CandleTells from '../components/CandleTells'
 import CandlesAtRails from '../components/CandlesAtRails'
 import ExitTrendDeath from '../components/ExitTrendDeath'
 import BasesAndPivots from '../components/BasesAndPivots'
+import HTFSetup from '../components/HTFSetup'
 import EPSetup from '../components/EPSetup'
+import Entries from '../components/Entries'
 import TradeLifecycle from '../components/TradeLifecycle'
 import ShortSide from '../components/ShortSide'
 
@@ -519,8 +522,10 @@ const SECTION_NAV = [
   { id: 'rail-candles', label: 'Candles × Rails', tone: 'purple' },
   { id: 'exit', label: 'Exit', tone: 'danger' },
   { id: 'bases', label: 'Bases', tone: 'accent' },
+  { id: 'htf-setup', label: 'HTF Setup', tone: 'purple' },
   { id: 'ep-setup', label: 'EP Setup', tone: 'warning' },
   { id: 'catalysts', label: 'EP Catalysts', tone: 'accent' },
+  { id: 'entries', label: 'Entries', tone: 'accent' },
   { id: 'lifecycle', label: 'Lifecycle', tone: 'cyan' },
   { id: 'short-side', label: 'Short Side', tone: 'danger' },
   { id: 'my-rules', label: 'My Rules', tone: 'neutral' },
@@ -655,6 +660,17 @@ export default function Rules() {
     }
     setActiveSection(id)
   }
+
+  // Deep links — /rules#htf-setup, whether it arrives from another page or from
+  // one panel cross-referencing another. Expands the target and scrolls to it;
+  // re-runs on hash changes because a hash-only navigation leaves the page
+  // mounted. Deliberately not in the deps: jumpTo is rebuilt every render.
+  const { hash } = useLocation()
+  useEffect(() => {
+    const id = hash.replace('#', '')
+    if (id && SECTION_NAV.some(s => s.id === id)) jumpTo(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hash])
 
   // Today's rotating rule — deterministic by day-of-year so the same rule
   // is shown all session, and the user cycles through every rule over time
@@ -820,8 +836,10 @@ export default function Rules() {
       <CandlesAtRails id="rail-candles" collapsible collapsed={!!collapsed['rail-candles']} onToggle={() => toggleSection('rail-candles')} />
       <ExitTrendDeath id="exit" collapsible collapsed={!!collapsed.exit} onToggle={() => toggleSection('exit')} />
       <BasesAndPivots id="bases" collapsible collapsed={!!collapsed.bases} onToggle={() => toggleSection('bases')} />
+      <HTFSetup id="htf-setup" collapsible collapsed={!!collapsed['htf-setup']} onToggle={() => toggleSection('htf-setup')} />
       <EPSetup id="ep-setup" collapsible collapsed={!!collapsed['ep-setup']} onToggle={() => toggleSection('ep-setup')} />
       <CatalystHierarchy id="catalysts" collapsible collapsed={!!collapsed.catalysts} onToggle={() => toggleSection('catalysts')} />
+      <Entries id="entries" collapsible collapsed={!!collapsed.entries} onToggle={() => toggleSection('entries')} />
       <TradeLifecycle id="lifecycle" collapsible collapsed={!!collapsed.lifecycle} onToggle={() => toggleSection('lifecycle')} />
       <ShortSide id="short-side" collapsible collapsed={!!collapsed['short-side']} onToggle={() => toggleSection('short-side')} />
 

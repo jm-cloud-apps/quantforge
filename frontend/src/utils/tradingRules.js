@@ -25,6 +25,7 @@ export const DEFAULT_RULES = [
   { category: 'RISK', text: 'Cut losses fast. A small loss is the price of admission — never let it run.' },
   { category: 'RISK', text: 'Always know your stop before you enter. No stop, no trade.' },
   { category: 'RISK', text: 'Position size off the stop, not the conviction. Risk drives size — every time.' },
+  { category: 'RISK', text: 'Size it twice, take the smaller: risk ÷ stop distance, and the position you could survive a −15% overnight gap in. The stop only exists while the market is open.' },
   { category: 'RISK', text: 'Never average down on a losing trade. Add only to winners.' },
   { category: 'RISK', text: 'Hold a max of 3–5 positions. Concentration beats diversification when risk is defined.' },
   { category: 'RISK', text: 'Define a maximum daily loss. Hit it, close the laptop. Tomorrow is another day.' },
@@ -42,6 +43,9 @@ export const DEFAULT_RULES = [
   { category: 'ENTRY', text: 'Minimum $5M daily dollar volume. Liquidity matters when you need to exit.' },
   { category: 'ENTRY', text: 'The first 15–30 minutes is for amateurs. Let the open settle before entering.' },
   { category: 'ENTRY', text: 'Don’t chase. If the entry is gone, the entry is gone. Wait for the next one.' },
+  { category: 'ENTRY', text: 'The trigger is a printed price — the opening-range high or the prior day’s high. The stop is the low it broke from, never a percentage.' },
+  { category: 'ENTRY', text: 'Chase limit: more than ⅓ of the stop distance above the trigger and the R is gone. Missed is cheaper than chased.' },
+  { category: 'ENTRY', text: 'The risk budget belongs to the idea, not the attempt — two tries at a level is half a unit each. Third attempt and the name is off the list.' },
   { category: 'ENTRY', text: 'For Episodic Pivots, rank the catalyst before sizing in: Theme > Govt policy > Shortages > Sales / Products / Mgmt change. (Stockbee)' },
 
   // EXIT
@@ -368,6 +372,119 @@ export const EP_DISQUALIFIERS = [
   'The second gap on the same story — the surprise is spent.',
   'Cash acquisition target: upside capped at the deal price.',
   'You are holding into the print rather than reacting to it. That is a coin flip, not an EP.',
+]
+
+// ── HTF Setup ───────────────────────────────────────────────────────────────
+// The mirror of the EP block above, for the continuation family. EP_PRIOR_CHART
+// asks what the chart looked like the day before the gap; this asks what it
+// looked like before the POLE — the months of chart that decide whether a flag
+// is the second leg of a young trend or the last gasp of an old one.
+//
+// The distinction the panel exists to draw: a pole is evidence about this week.
+// The chart behind it is evidence about the next three months, and it is the
+// only half that is knowable in advance. Rendered by components/HTFSetup.jsx;
+// Bases & Pivots defines the base itself, Entries takes the trigger — this one
+// decides whether the name deserved to be on the list at all.
+//
+// side: 'want' = the pre-pole chart you're hunting; 'avoid' = the ones whose
+// flag looks identical and pays nothing.
+export const HTF_PRIOR_CHART = [
+  {
+    key: 'stage2', glyph: 'stage2', side: 'want', tone: 'good', signal: 'confirm',
+    title: 'Fresh Stage-2 turn', tagline: 'Quarters of nothing, then the first thrust',
+    what: 'Six months to years of flat, ignored chart under a flattening 30-week line, then the first decisive thrust up through it on the heaviest volume in a year. The pole is the turn itself; the flag that follows is base 1.',
+    why: 'This is the beginning of the story rather than the middle of it. Nobody screens for a name that has not moved, so the institutions building the position are early and slow — and their buying is what funds the next several bases. The odds of the entire cycle are concentrated here.',
+    rule: 'Hunt the first flag after the Stage-1 → 2 turn. It pays more than the third one in the same name, and it is the version you are allowed to size fully.',
+  },
+  {
+    key: 'epole', glyph: 'epole', side: 'want', tone: 'good', signal: 'confirm',
+    title: 'The pole is a catalyst gap', tagline: 'An EP that has not finished',
+    what: 'The advance is not a drift — it is an episodic pivot: one gap on a real catalyst that re-rated the company, then 3–15 sessions holding tight above the gap on drying volume.',
+    why: 'Most poles are a mystery: price moved and nobody can tell you why, so nobody can tell you whether it continues. A catalyst pole comes with a reason, an estimate-revision cycle behind it, and a floor — the gap itself — that everyone can see.',
+    rule: 'The strongest HTFs are EPs in their second act. If you missed the gap, this flag is the trade — the same setup the “base above the gap” entry takes.',
+  },
+  {
+    key: 'rslead', glyph: 'rslead', side: 'want', tone: 'good', signal: 'confirm',
+    title: 'Already the leader', tagline: 'Outperforming before the pole, not because of it',
+    what: 'The name was beating the index for months before this move — it appears in at least two of the 6M / 3M / 1M leader lists, and it held up on the days the market did not.',
+    why: 'Relative strength that predates the pole means sponsorship, not beta. The pole is then confirmation of something already true, which is a far better prior than a single week of price telling you a story for the first time.',
+    rule: 'Check RS before the pole, not after — every pole looks strong on the day it prints. The Prep page’s confluence flag is exactly this test, run for you.',
+  },
+  {
+    key: 'railrun', glyph: 'railrun', side: 'want', tone: 'info', signal: 'context',
+    title: 'Orderly leader, mid-trend', tagline: 'Base 2 of a working trend — a B, not an A',
+    what: 'Already above a rising 10/20/50, one prior base behind it, pullbacks staying shallow and getting bought at the rails, then another pole and another flag.',
+    why: 'A genuine setup, and a later one: the market has already agreed with you, so the re-rating is partly spent. Expect a normal swing rather than the leg that pays for the quarter.',
+    rule: 'Trade it as a continuation — normal size, rail stop, take the partial into strength. Do not price base 2 like base 1.',
+  },
+  {
+    key: 'nobase', glyph: 'nobase', side: 'avoid', tone: 'bad', signal: 'caution',
+    title: 'The pole is the whole chart', tagline: 'Dead flat, then vertical, from nowhere',
+    what: 'Months of near-zero volume at the lows — an ignored, illiquid, often low-float name — and then a violent multi-day rip on volume that dwarfs anything in its history.',
+    why: 'There is no institutional base behind it because there are no institutions in it. What looks like a flag is a distribution pattern: the promoters and the fast money need somebody to sell to, and a tidy consolidation is how they find them.',
+    rule: 'No prior base, no trade. This is the raw material of the Parabolic Short, not of an HTF — and it is the single most expensive lookalike on this page.',
+  },
+  {
+    key: 'late', glyph: 'late', side: 'avoid', tone: 'bad', signal: 'caution',
+    title: 'The late-stage pole', tagline: 'Base 4+, and the legs keep getting steeper',
+    what: 'Months of advance already banked, each leg steeper than the last, the newest pole the widest bar of the entire run on the heaviest volume of the entire run.',
+    why: 'By base 4 the story is on every screen and in every newsletter — there is no marginal buyer left to convert. Accelerating slope into climax volume is exhaustion wearing the costume of strength.',
+    rule: 'Count the bases before you admire the pole. Late-stage flags fail as a rule; let someone else own the last one.',
+  },
+  {
+    key: 'laggard', glyph: 'laggard', side: 'avoid', tone: 'warn', signal: 'caution',
+    title: 'The laggard’s pole', tagline: 'The group ran; this one finally moved',
+    what: 'The theme is three months old and this name sat it out. Now it prints its own pole — and it is still nowhere near the highs its peers made weeks ago.',
+    why: 'That is beta arriving late, not leadership. Money rotating into the laggards is the last phase of a group move: it is the crowd buying what is left after the leaders got expensive.',
+    rule: 'Trade the leader’s second base over the laggard’s first pole, every time. If the group is what moved, the group’s best chart is the trade.',
+  },
+  {
+    key: 'supply', glyph: 'supply', side: 'avoid', tone: 'warn', signal: 'caution',
+    title: 'Pole into overhead supply', tagline: 'The advance stops under somebody else’s exit',
+    what: 'Look left: the pole runs straight into a heavy-volume shelf where the stock broke down 6–12 months ago, and stalls there on a wide bar with an upper wick.',
+    why: 'Trapped holders from that shelf get their money back exactly where your flag is forming. Their selling is mechanical and indifferent to your setup, and it caps the move precisely where the chart says it will.',
+    rule: 'A flag under old wreckage is not a flag, it is a queue. Wait for the stock to base above the shelf and take that breakout instead.',
+  },
+]
+
+// The pre-pole gate — the weekend-checkable half, in the same spirit as
+// EP_CHART_GATE. Numbers mirror the scanners that already compute them:
+// breadth/stage analysis for the stage line, scanners/rs_leaders for the RS
+// windows and the 20-day liquidity floor.
+export const HTF_SETUP_GATE = [
+  { key: 'stage', tone: 'good', label: 'Stage', value: 'above a rising 30-week',
+    note: 'Weinstein Stage 2, the gate the Stage Analysis page computes. Below a falling 30-week there is no HTF, whatever the pole looks like.' },
+  { key: 'basecount', tone: 'good', label: 'Base count', value: '1–2 off the turn',
+    note: 'Base 3 is tradeable smaller and stricter; base 4+ is a pass. The full ladder lives in Bases & Pivots — bring the count with you before you look at the flag.' },
+  { key: 'prior', tone: 'info', label: 'Prior advance', value: '≥ 30% before the base',
+    note: 'A base needs something to base ON. Without a qualifying advance behind it, a tight range is not a coil — it is just a quiet chart.' },
+  { key: 'rs', tone: 'good', label: 'Relative strength', value: '≥ 2 of 6M / 3M / 1M',
+    note: 'The Prep page’s confluence flag: a leader in more than one window, not a name that happens to top a single lookback. Measured before the pole.' },
+  { key: 'adr', tone: 'info', label: 'ADR', value: '> 5%',
+    note: 'Volatility is the raw material — a 2% ADR name cannot produce a pole worth flagging, and its flag is indistinguishable from noise.' },
+  { key: 'liq', tone: 'warn', label: 'Liquidity', value: '20-day avg ≥ $5M',
+    note: 'The 20-day average, never today’s. A name that pumped this morning clears a single-day bar while being untradable for the rest of the month.' },
+  { key: 'group', tone: 'info', label: 'The group', value: 'peers confirming',
+    note: 'One stock moving is a story; the group moving is a theme. Sector Scan tells you which it is — and a theme gives the flag a reason to resolve up.' },
+  { key: 'pole', tone: 'good', label: 'And then the pole', value: '+30%+ on record volume',
+    note: 'Days-to-weeks, mostly green closes near the highs, the heaviest volume of the year. A slow, overlapping drift is not a pole — see Bases & Pivots for what the flag must then do.' },
+]
+
+// Same flag, six different charts behind it. The last two rows are the ones
+// that cost money, because on the day you look at them the flag is textbook.
+export const HTF_SETUP_LADDER = [
+  { key: 'turn', tone: 'good', label: 'Stage-2 turn · base 1 · RS leader · record volume', verdict: 'FULL SIZE',
+    note: 'The whole cycle’s odds in one chart. This is the version worth the full risk unit and the patience to hold it through the first shakeout.' },
+  { key: 'ep', tone: 'good', label: 'Pole is a catalyst gap · first flag above it', verdict: 'FULL SIZE',
+    note: 'The EP’s second act: a reason for the move, a visible floor, and estimate revisions still running. The strongest continuation there is.' },
+  { key: 'base2', tone: 'info', label: 'Base 2 · orderly leader · good volume', verdict: 'NORMAL',
+    note: 'A working trend taking its second rest. Standard swing, standard size, standard rail — just do not expect the leg that pays for the quarter.' },
+  { key: 'base3', tone: 'warn', label: 'Base 3 · still leading, story now obvious', verdict: 'HALF SIZE',
+    note: 'Everyone owns the thesis by now. Tighten every criterion and cut the size — late bases fail more often and fail faster.' },
+  { key: 'lag', tone: 'warn', label: 'Group ran first · this one finally moved', verdict: 'PASS',
+    note: 'Rotation into laggards is the end of a group move, not the start of one. If the theme is real, the leader’s next base is the trade.' },
+  { key: 'nobase', tone: 'bad', label: 'No base behind it · low float · pole is the chart', verdict: 'NO — WRONG SIDE',
+    note: 'Not a weak long, a different setup entirely. When this one cracks it belongs to the Parabolic Short panel; buying its flag is standing in front of that.' },
 ]
 
 // Moving-average framework — which of the 10/20/50 rails to trust, on which
@@ -1366,4 +1483,228 @@ export const SHORT_ARC_LADDER = [
     verdict: 'Squeezed — cover now',
     note: 'No averaging up, no overnight holds. The trade is wrong; the only question is how small the loss stays.',
   },
+]
+
+// ── Entries ─────────────────────────────────────────────────────────────────
+// The trigger framework (components/Entries.jsx). Every panel above decides
+// WHETHER a name is worth trading — the rails qualify it, Bases & Pivots gives
+// it structure, the EP panel prices the catalyst. This one decides WHERE the
+// order goes and where the trade is wrong, for the only two setup families in
+// the sanctioned taxonomy: HTF (continuation) and EP (re-rating). The card keys
+// deliberately mirror the setup lists in components/TradePlanGate.jsx and
+// pages/Playbook.jsx, so what you read here is what you tag — otherwise the
+// per-setup analytics in Trading Analysis are measuring a different vocabulary
+// than the one you traded.
+//
+// The through-line: the trigger is always a HORIZONTAL price taken off a bar
+// that already printed — an opening-range high or a prior day's high — and the
+// stop is always the structural low that price came from. Nothing here is drawn
+// by hand or decided at 9:31.
+
+// EP entries. You are reacting to a gap, so the opening range is what defines
+// the risk: the shorter the range, the tighter the stop and the more noise it
+// sits inside. Ordered by how much the open has to settle before you act.
+export const ENTRY_EP_TRIGGERS = [
+  {
+    key: 'orb1', glyph: 'orb1', tone: 'good', signal: 'confirm',
+    title: '1-minute ORB', tagline: 'Tightest risk, most shakeouts',
+    trigger: 'High of the 9:30–9:31 bar',
+    stop: 'Low of that bar (or LOD)',
+    what: 'Let the first one-minute bar print, then buy the break of its high. Stop is that bar’s low — often a fraction of a percent away.',
+    why: 'The opening minute is where the overnight imbalance clears. Taking out its high says the buyers who were holding out for a better fill gave up, and it prices the risk in cents rather than percent — which is the only reason a +20% gapper is sizeable at all.',
+    rule: 'Reserve it for clean opens: one decisive bar, huge volume, no two-sided fight. Losing the 1-min low is not the end of the idea — you are allowed one re-entry on the 5-min range.',
+  },
+  {
+    key: 'orb5', glyph: 'orb5', tone: 'good', signal: 'confirm',
+    title: '5-minute ORB', tagline: 'The default EP entry',
+    trigger: 'High of the first 5-min bar',
+    stop: 'Low of that bar',
+    what: 'Buy the break of the first five-minute bar’s high, stop under its low. Most EPs get taken here.',
+    why: 'Five minutes is long enough for the opening auction to finish clearing and short enough that risk is still a slice of the day’s range. The bar is the market’s own first honest opinion of where the gap is fairly priced.',
+    rule: 'Default to this one and deviate deliberately: down to the 1-min when the 5-min range is too wide to size around, out to the 60-min when the open is a two-sided mess.',
+  },
+  {
+    key: 'orb60', glyph: 'orb60', tone: 'info', signal: 'context',
+    title: '60-minute ORB', tagline: 'For the opens that are a war',
+    trigger: 'High of the first hour',
+    stop: 'Low of the first hour',
+    what: 'Wide, whipsawing first bars running both sides. Wait out the full hour, then trade the break of the hour’s high with the stop under the hour’s low.',
+    why: 'A violent open means neither side has cleared yet, so the short ranges are noise generators that get broken in both directions. The hour is the first range on that chart with anything behind it.',
+    rule: 'High-ADR, heavily-shorted, headline gaps only. The wider stop means smaller size — that arithmetic is not optional. If the hour’s range is wider than about one ADR, there is no entry today.',
+  },
+  {
+    key: 'basegap', glyph: 'basegap', tone: 'info', signal: 'confirm',
+    title: 'Base above the gap', tagline: 'The entry for the one you missed',
+    trigger: 'Day-1 high, after the shelf holds',
+    stop: 'Low of the shelf',
+    what: 'Day 1 went without you. The stock then spends 3–15 sessions holding tight above the gap on drying volume, and breaks the day-1 high on expanding volume.',
+    why: 'Holding the gap for weeks proves the re-rating stuck: nobody who bought day 1 is underwater, and none of them are selling. The EP has turned itself into an HTF, and the flag gives you back a definable stop.',
+    rule: 'This is the only legitimate late entry to an EP. Buying on day 2 because you missed day 1 is not — that is the same trade with the stop four times wider and the surprise already spent.',
+  },
+]
+
+// HTF entries — the five continuation variants in the Playbook taxonomy. The
+// structure differs; the trigger barely does. Every one of them is bought at a
+// horizontal price off the last printed bar, with the stop at the low that
+// price came from. Ordered best-odds first.
+export const ENTRY_HTF_TRIGGERS = [
+  {
+    key: 'longbase', glyph: 'longbase', tone: 'good', signal: 'confirm',
+    title: 'Long Base Break', tagline: 'Weeks of flat, one pivot',
+    trigger: 'The base high (pivot)',
+    stop: 'Last contraction low / breakout-day low',
+    what: 'A multi-week to multi-month base whose range contracts into the right edge; the trigger is the break of the base high on volume expansion.',
+    why: 'The longest base holds the least supply — every impatient holder has been bored out of the position. The pivot is the single price where whatever is left gets absorbed in public, which is why the move out of it is clean.',
+    rule: 'Stop under the last contraction low or the breakout-day low, whichever is tighter and still structural. If that stop sits more than ~1 ADR away, the base has not tightened enough yet — leave it on the watchlist.',
+  },
+  {
+    key: 'downflag', glyph: 'downflag', tone: 'good', signal: 'confirm',
+    title: 'Down Flat Flag', tagline: 'The textbook bull flag',
+    trigger: 'Prior day’s high',
+    stop: 'Low of day / flag low',
+    what: 'A pole, then 3–15 sessions drifting sideways-to-down on collapsing volume while holding the upper third of the pole and riding the 10/20.',
+    why: 'A flag that drifts down on drying volume is holders refusing to sell into weakness. Because each session prints a lower high, the trigger falls with it — the longer it drifts, the tighter your risk gets for the same trade.',
+    rule: 'Buy the break of the prior day’s high; stop at the low of day, or under the flag low when that is tighter than your max. Give back half the pole and this is not a flag — it is a correction with better marketing.',
+  },
+  {
+    key: 'symflag', glyph: 'symflag', tone: 'info', signal: 'confirm',
+    title: 'Symmetrical Flag', tagline: 'Both sides converge into the apex',
+    trigger: 'High of the apex bar',
+    stop: 'Low of the coil',
+    what: 'The consolidation coils: lower highs and higher lows squeezing together, volume drying at every touch, until the range goes quiet at the apex.',
+    why: 'Symmetry means neither side has committed — which is why the resolution is violent, and why risk at the apex is the smallest it will ever be on this chart.',
+    rule: 'Take it at the apex or not at all. Two-thirds of the way through the coil the stop is twice as wide for the identical trade, and the range is still doing its job.',
+  },
+  {
+    key: 'channel', glyph: 'channel', tone: 'info', signal: 'confirm',
+    title: 'Channel', tagline: 'A flag that took three weeks',
+    trigger: 'Prior day’s high at the channel top',
+    stop: 'Last channel low',
+    what: 'The consolidation is a clean parallel channel, usually sloping gently down, running weeks rather than days — orderly lower highs and lower lows on fading volume.',
+    why: 'Time in a channel does the work a flag does in days: it transfers the float and lets the rails climb back under price. The orderliness is the whole tell — a channel that goes ragged is a downtrend that has not admitted it yet.',
+    rule: 'The trigger is still a horizontal price — the prior day’s high as it clears the channel’s upper edge, never the drawn line itself. Out if it gives back more than half the pole.',
+  },
+  {
+    key: 'upflag', glyph: 'upflag', tone: 'warn', signal: 'caution',
+    title: 'Up Flat Flag', tagline: 'The one that fakes you out',
+    trigger: 'Flag high — volume expansion required',
+    stop: 'Flag low (tight, and it will get hit)',
+    what: 'The consolidation drifts UP into the highs: a rising wedge of higher highs and higher lows on thin volume, with no shakeout anywhere in it.',
+    why: 'An upward drift means nobody was ever forced out, so the supply a flag is supposed to clear is still sitting overhead. The break gets bought by everyone watching the same wedge, and then there is no one left to pay up.',
+    rule: 'Demand volume expansion on the trigger bar — same rule as the handle that wedges upward in Bases & Pivots. Otherwise half size, or skip it and wait for a flush-and-reclaim to build a real low.',
+  },
+]
+
+// The shared mechanics — the numbers that apply to every card above. These are
+// the three values the Trade Plan gate asks for (entry, stop, size), stated as
+// rules rather than blanks.
+export const ENTRY_MECHANICS = [
+  { key: 'where', tone: 'good', label: 'The trigger', value: 'OR high or prior-day high',
+    note: 'Two triggers on the entire page, both horizontal prices off a bar that already printed. Never a hand-drawn trendline, never “when it looks strong”.' },
+  { key: 'stop', tone: 'good', label: 'The stop', value: 'the low it broke from',
+    note: 'Opening-range low, low of day, or flag low. Structural, not a percentage — a round-number stop is a level the chart has no reason to respect.' },
+  { key: 'width', tone: 'warn', label: 'Stop distance', value: '≤ ~1 ADR',
+    note: 'Wider than the stock’s own daily range means you are on the wrong timeframe. Drop to a shorter opening range; never widen the risk to fit the trade.' },
+  { key: 'size', tone: 'info', label: 'Size', value: 'risk ÷ stop, then capped',
+    note: '0.25–1% of the account, computed before the bell — then held under the position cap below, which binds on every tight-stop entry. Conviction decides which trades you take, never how many shares.' },
+  { key: 'chase', tone: 'bad', label: 'Chase limit', value: '≤ ⅓ of the stop above the trigger',
+    note: 'Past that the R is already gone — the same move now pays a third less. Missed is cheaper than chased, every time.' },
+  { key: 'vol', tone: 'good', label: 'Volume on the trigger bar', value: 'expanding',
+    note: 'The break has to be someone acting. Average volume through a pivot is a quote, not a transfer — half size, or wait for the retest.' },
+  { key: 'clock', tone: 'info', label: 'When', value: 'after the range prints',
+    note: 'Never pre-market, never at 9:30:00. “Let the open settle” and “buy the opening-range break” are the same rule — the range is how you let it settle.' },
+  { key: 'rr', tone: 'info', label: 'Minimum R:R', value: '≥ 2R',
+    note: 'Measured to the first logical target — measured move or prior high — the same number the Trade Plan gate computes. Under 2R the setup can be right and still not worth the slot.' },
+]
+
+// Same setup, six different mornings. The point of the table: the entry decision
+// is almost never "is this a good setup" — it is "is the trigger still where the
+// plan said it was".
+export const ENTRY_LADDER = [
+  { key: 'clean', tone: 'good', label: 'Opens in range · breaks the OR high on 3× volume', verdict: 'TAKE IT',
+    note: 'The planned trade. Trigger, stop and size were written last night; the market only filled in the timestamp.' },
+  { key: 'gapthru', tone: 'good', label: 'Gaps above the trigger · stop still ≤ 1 ADR', verdict: 'TAKE IT',
+    note: 'A gap through your level is not a chase while the structural stop is still where the plan put it. Recompute the share count, then go.' },
+  { key: 'gapfar', tone: 'warn', label: 'Gaps far above · stop now 2× planned', verdict: 'HALF SIZE OR WAIT',
+    note: 'Same trade, twice the risk per share. Halve the size, or wait for the 5/60-min range to hand you a tighter low. Never full size on a doubled stop.' },
+  { key: 'thin', tone: 'warn', label: 'Breaks the trigger on 0.8× volume', verdict: 'PROBE OR PASS',
+    note: 'The level broke and nobody acted. Pilot size at most — the volume-less break is the one that gets undercut two sessions later.' },
+  { key: 'reclaim', tone: 'good', label: 'Breaks, fails, reclaims the level same day', verdict: 'RECLAIM IS THE ENTRY',
+    note: 'Undercut & reclaim. The stop is now the failure low, which is tighter than the one you planned — the shakeout did you a favour.' },
+  { key: 'gone', tone: 'bad', label: 'Already +8% past the trigger when you look', verdict: 'NO TRADE',
+    note: 'The entry is gone and every stop from here is invented. Inventing a stop mid-move is exactly how a planned trade gets logged as Random.' },
+]
+
+// ── Entries · the second sizing constraint ──────────────────────────────────
+// "Size = risk ÷ stop distance" is correct, and on an opening-range stop it is
+// also dangerous: the tighter the stop, the larger the position the formula
+// asks for. That arithmetic assumes the stop works — and a stop is a
+// continuous-price instrument that stops existing at 4:00 PM. What you own
+// overnight is the position, not the risk number.
+//
+// So every entry gets sized twice and takes the smaller: once assuming the stop
+// holds, once assuming a gap skips it entirely. The scenarios below are priced
+// by components/Entries.jsx through riskMath.positionSize() — the same function
+// the Trade Plan gate sizes with — so the worked example cannot drift from what
+// the app actually tells you at the ticket.
+
+// Defaults match trade_plans_router._DEFAULT_CONFIG so the worked example shows
+// the numbers the gate would show you.
+export const ENTRY_SIZE_ASSUMPTIONS = { account: 25000, riskPct: 0.5, gapPct: 15, capPct: 25 }
+
+// One $42 stock, one entry, four stops — the entire point in four rows.
+export const ENTRY_SIZE_SCENARIOS = [
+  { key: 'orb1', label: '1-min ORB', entry: 42.10, stop: 41.85,
+    note: 'The tightest stop on the page, and the largest position the formula will ever hand you.' },
+  { key: 'orb5', label: '5-min ORB', entry: 42.10, stop: 41.40,
+    note: 'The default EP entry — still nearly a third of the account on a 0.5% risk unit.' },
+  { key: 'orb60', label: '60-min ORB', entry: 42.10, stop: 40.60,
+    note: 'Wider range, smaller position. The trade-off working exactly as designed.' },
+  { key: 'flag', label: 'HTF flag · prior-day high', entry: 42.10, stop: 40.00,
+    note: 'A daily-bar stop sizes itself sanely with no cap needed at all.' },
+]
+
+export const ENTRY_SIZE_CAPS = [
+  { key: 'single', tone: 'warn', label: 'Single position', value: `≤ 25% of equity`,
+    note: 'A starting convention rather than a constant — but any number here beats the formula’s answer, which is “as much as the stop allows”.' },
+  { key: 'gap', tone: 'bad', label: 'The gap test', value: 'position × 15% ≤ 3R',
+    note: 'Size it a second time assuming the stop never fires. Whatever the risk formula allows and this allows, you take the smaller of the two.' },
+  { key: 'hot', tone: 'warn', label: 'Day-1 EP / low float', value: 'half the cap',
+    note: 'The names that can gap 15% against you are the ones you just watched gap 25% for you. Overnight volatility is symmetric; your position is not.' },
+  { key: 'lev', tone: 'bad', label: 'Leveraged ETFs', value: 'count 3× the notional',
+    note: 'TQQQ / SOXL / FNGU at 10% of the account is 30% of the exposure. The cap applies to what you own, not to what the ticker costs.' },
+  { key: 'gross', tone: 'info', label: 'Gross exposure', value: '3–5 positions',
+    note: 'Your own rule, and the cap does not replace it: per-position discipline still has to add up to a book you can hold through a −3% index day.' },
+  { key: 'cost', tone: 'good', label: 'What the cap costs', value: 'nothing at the stop',
+    note: 'Cutting size never widens the stop — it lowers the dollar risk too. The cap costs upside on the trades that work, and only that.' },
+]
+
+// ── Entries · re-entry ──────────────────────────────────────────────────────
+// The rule the panel exists to prevent breaking: sizing every attempt as a
+// fresh full unit turns one wrong idea into a −3R day while every individual
+// stop was honoured. The budget belongs to the idea.
+export const ENTRY_REENTRY = [
+  { key: 'tighter', tone: 'good', label: 'Stopped on the 1-min · 5-min range intact', verdict: 'ONE RE-ENTRY',
+    note: 'The idea was right and the range was too tight for the noise. The 5-min trigger carries a wider stop, so the size drops on its own — take the rest of the idea’s budget, not a fresh unit.' },
+  { key: 'reclaim', tone: 'good', label: 'Flushed the low, reclaimed it the same day', verdict: 'BEST RE-ENTRY THERE IS',
+    note: 'Undercut & reclaim. The shakeout built a lower, better-defended low than the one you planned around — this is a new trigger, not a retry.' },
+  { key: 'chase', tone: 'warn', label: 'Stopped, then it runs back through your entry', verdict: 'ONLY AT A NEW TRIGGER',
+    note: 'Buying back at a worse price with no new level is the revenge form of a re-entry. Wait for the next printed high to break; if there is not one, there is no trade.' },
+  { key: 'tomorrow', tone: 'info', label: 'Stopped yesterday · structure intact today', verdict: 'NEW DAY, NEW PLAN',
+    note: 'A fresh budget, but only if the flag low or base low is still there. Write the plan again — a re-entry taken off yesterday’s plan reconciles as unplanned in the Discipline scorecard, because that is what it is.' },
+  { key: 'third', tone: 'bad', label: 'Third attempt at the same level', verdict: 'OFF THE LIST',
+    note: 'Two stops at one level is the market pricing your idea, not noise. It comes back when it has a new base, a new pole or a new catalyst — never merely a new hour.' },
+]
+
+// The instant-no list — each of these is an execution error rather than a bad
+// read, which is what makes them the cheapest ones to eliminate.
+export const ENTRY_DISQUALIFIERS = [
+  'No written trigger price before the bell. Deciding the level while the bar prints is reacting to a candle, not executing a plan.',
+  'Entering pre-market or on the 9:30 print — there is no range yet, so there is no stop yet.',
+  'A stop set at a percentage or a round number instead of the low the move came from.',
+  'Widening the stop after entry so the position survives. That is a new trade, with worse odds and no plan behind it.',
+  'Buying in front of the trigger to “get a better price”. The level has not proven anything yet — that is a guess wearing a plan’s clothes.',
+  'The third attempt at the same pivot inside two weeks: the level is being distributed, not accumulated.',
+  'A trigger that fires within ~5 days of earnings — the gap the stop cannot catch (see the earnings gate in Trade Lifecycle).',
+  'A stop so wide that the risk-based size is too small to matter. That is a trade taken to be busy.',
 ]
