@@ -4,9 +4,12 @@ No I/O — these hit the module-level functions directly, so they say nothing
 about the store and everything about the arithmetic the page reports.
 """
 
+from datetime import date
+
 from missed_router import (
     REASONS,
     VERDICTS,
+    forward_prices,
     price_fields,
     pct_move,
     r_multiple,
@@ -153,6 +156,92 @@ def test_empty_book_summarizes_without_blowing_up():
     assert s["missed"]["count"] == 0
     assert s["missed"]["r_real_sum"] is None
     assert s["by_reason"] == []
+
+
+# --- forward_prices ---------------------------------------------------------
+# Bars are plain dicts; the function accepts those as well as the pandas frames
+# breadth.cache returns, so the pricing logic is testable without DataFrames.
+
+def _bars(closes, symbol="STX", start_day=1, spread=0.5):
+    """One session per entry, highs/lows a fixed spread around the close."""
+    return {
+        date(2026, 8, start_day + i): {symbol: {
+            "high": c + spread, "low": c - spread, "close": c,
+        }}
+        for i, c in enumerate(closes)
+    }
+
+
+def test_peak_is_the_best_high_after_the_entry_date():
+    bars = _bars([100, 104, 109, 106, 103])
+    r = forward_prices("STX", date(2026, 8, 1), bars, ma_period=3)
+    # Day 1 is the entry date itself, so the window starts at day 2.
+    assert r["peak"] == 109.5
+    assert r["peak_date"] == "2026-08-03"
+    assert r["sessions_used"] == 4
+
+
+def test_short_peak_is_the_lowest_low():
+    bars = _bars([100, 96, 91, 94])
+    r = forward_prices("STX", date(2026, 8, 1), bars, direction="short", ma_period=3)
+    assert r["peak"] == 90.5
+    assert r["peak_date"] == "2026-08-03"
+
+
+def test_trail_exit_is_the_first_close_through_the_rail():
+    # Rises, then breaks back under its own 3-day average on the last bar.
+    bars = _bars([100, 104, 108, 112, 100])
+    r = forward_prices("STX", date(2026, 8, 1), bars, ma_period=3)
+    assert r["trail_hit"] is True
+    assert r["trail_exit"] == 100
+    assert r["trail_exit_date"] == "2026-08-05"
+    # And the peak is well above it — the two numbers must not collapse.
+    assert r["peak"] > r["trail_exit"]
+
+
+def test_trail_falls_back_to_the_last_close_when_the_rail_never_breaks():
+    bars = _bars([100, 102, 104, 106, 108])
+    r = forward_prices("STX", date(2026, 8, 1), bars, ma_period=3)
+    assert r["trail_hit"] is False
+    assert r["trail_exit"] == 108
+    assert r["trail_exit_date"] == "2026-08-05"
+
+
+def test_window_is_capped_at_the_session_limit():
+    bars = _bars(list(range(100, 130)))
+    r = forward_prices("STX", date(2026, 8, 1), bars, sessions=3, ma_period=3)
+    assert r["sessions_used"] == 3
+    assert r["last_close"] == 103
+
+
+def test_prior_closes_seed_the_rail_so_the_first_bars_can_break_it():
+    # Entry on day 4: the three sessions before it prime the average, so a drop
+    # on day 5 is catchable instead of waiting for the window to fill.
+    bars = _bars([110, 112, 114, 116, 100])
+    r = forward_prices("STX", date(2026, 8, 4), bars, ma_period=3)
+    assert r["trail_hit"] is True
+    assert r["trail_exit_date"] == "2026-08-05"
+
+
+def test_a_split_sized_move_is_refused_rather_than_returned():
+    bars = _bars([100, 500])   # unadjusted-cache artefact, not a 400% day
+    assert forward_prices("STX", date(2026, 8, 1), bars, ma_period=3) is None
+
+
+def test_missing_symbol_or_empty_window_returns_none():
+    bars = _bars([100, 104])
+    assert forward_prices("NVDA", date(2026, 8, 1), bars) is None
+    assert forward_prices("STX", date(2026, 9, 1), bars) is None
+    assert forward_prices("STX", date(2026, 8, 1), {}) is None
+    assert forward_prices("", date(2026, 8, 1), bars) is None
+
+
+def test_gaps_in_coverage_are_skipped_not_counted():
+    bars = _bars([100, 104, 108])
+    bars[date(2026, 8, 2)] = {}           # a session with no row for the symbol
+    r = forward_prices("STX", date(2026, 8, 1), bars, ma_period=2)
+    assert r["sessions_used"] == 1
+    assert r["peak"] == 108.5
 
 
 def test_vocabularies_are_the_ones_the_frontend_mirrors():

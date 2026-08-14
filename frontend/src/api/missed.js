@@ -19,6 +19,14 @@ export async function getMissedSummary() {
   return unwrap(await fetch(`${API_BASE}/missed/summary`), 'load the missed summary')
 }
 
+// Fills the two price fields from the local grouped-price cache instead of from
+// memory. Always resolves — `{available:false, reason}` when the cache can't
+// cover it, so the form degrades to manual entry rather than blocking the log.
+export async function priceCheck({ symbol, date, direction = 'long' }) {
+  const q = new URLSearchParams({ symbol, date, direction })
+  return unwrap(await fetch(`${API_BASE}/missed/price-check?${q}`), 'price the setup')
+}
+
 export async function createMissedEntry(formData) {
   return unwrap(await fetch(`${API_BASE}/missed/entries`, { method: 'POST', body: formData }), 'save the entry')
 }

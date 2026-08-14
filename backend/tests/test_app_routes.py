@@ -71,6 +71,7 @@ def test_critical_routes_are_registered():
         # Missed Book — the omission side of the loop (missed_router)
         "/api/missed/entries",
         "/api/missed/summary",
+        "/api/missed/price-check",
         "/api/missed/screenshots/{filename}",
     ]
     missing = [p for p in required if p not in paths]

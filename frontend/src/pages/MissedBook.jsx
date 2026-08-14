@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   getMissedEntries, getMissedSummary, createMissedEntry, updateMissedEntry,
-  deleteMissedEntry, missedScreenshotUrl,
+  deleteMissedEntry, missedScreenshotUrl, priceCheck,
   VERDICTS, REASON_GROUPS, ALL_REASONS, SETUP_GROUPS, GROUP_TONE, GROUP_FIX,
 } from '../api/missed'
 
@@ -110,6 +110,23 @@ function EntryForm({ initial, editingId, onCancel, onSaved }) {
   // editing session doesn't leak object URLs.
   const pendingUrls = useMemo(() => files.map(f => URL.createObjectURL(f)), [files])
   useEffect(() => () => pendingUrls.forEach(URL.revokeObjectURL), [pendingUrls])
+
+  // Pull the two price fields off the local cache. Self-reported highs drift
+  // toward whatever story is being told that day, and the R totals inherit the
+  // drift — so the measured number is offered the moment symbol + date exist.
+  const [pricing, setPricing] = useState(null)
+  const canPrice = form.symbol.trim().length > 0 && !!form.date
+  const pullPrices = async () => {
+    setPricing({ state: 'loading' })
+    try {
+      const p = await priceCheck({ symbol: form.symbol, date: form.date, direction: form.direction })
+      if (!p.available) { setPricing({ state: 'unavailable', reason: p.reason }); return }
+      setForm(f => ({ ...f, peak: String(p.peak), exit_price: String(p.trail_exit) }))
+      setPricing({ state: 'done', ...p })
+    } catch (e) {
+      setPricing({ state: 'unavailable', reason: e.message })
+    }
+  }
 
   // Esc closes — but only when there's nothing to lose. A dirty form asks.
   const dirty = JSON.stringify(form) !== JSON.stringify(initial || BLANK) || files.length > 0
@@ -235,6 +252,19 @@ function EntryForm({ initial, editingId, onCancel, onSaved }) {
 
           {/* Prices — the whole quantified half */}
           <div>
+            <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+              <span className="text-[10px] font-bold tracking-widest text-surface-500 uppercase">What it did</span>
+              <button
+                type="button"
+                onClick={pullPrices}
+                disabled={!canPrice || pricing?.state === 'loading'}
+                className="text-[11px] font-semibold text-cyan hover:text-cyan/80 bg-cyan/10 border border-cyan/30 rounded-lg px-2.5 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={canPrice ? 'Read the high and the rail exit off the local price cache'
+                                : 'Enter a symbol and date first'}
+              >
+                {pricing?.state === 'loading' ? 'Reading…' : 'Fill from chart data'}
+              </button>
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <Field label="Entry" hint="The trigger you'd have used">
                 <input className={inputCls} inputMode="decimal" value={form.entry} onChange={e => set('entry', e.target.value)} placeholder="42.10" />
@@ -249,6 +279,23 @@ function EntryForm({ initial, editingId, onCancel, onSaved }) {
                 <input className={inputCls} inputMode="decimal" value={form.exit_price} onChange={e => set('exit_price', e.target.value)} placeholder="48.50" />
               </Field>
             </div>
+            {pricing?.state === 'done' && (
+              <div className="mt-2 text-[11px] text-cyan/90 leading-snug rounded-lg border border-cyan/25 bg-cyan/[0.06] px-3 py-2">
+                Measured over {pricing.sessions_used} session{pricing.sessions_used === 1 ? '' : 's'}: high{' '}
+                <span className="font-mono font-bold">{pricing.peak}</span> on {pricing.peak_date}
+                {pricing.trail_hit
+                  ? <> · first close through the {pricing.trail_ma}-day rail at{' '}
+                      <span className="font-mono font-bold">{pricing.trail_exit}</span> on {pricing.trail_exit_date}</>
+                  : <> · the {pricing.trail_ma}-day rail never broke, so the realistic exit falls back to the last close
+                      (<span className="font-mono font-bold">{pricing.trail_exit}</span>) — it was still running</>}
+                . Edit either field if your plan would have exited elsewhere.
+              </div>
+            )}
+            {pricing?.state === 'unavailable' && (
+              <div className="mt-2 text-[11px] text-surface-500 leading-snug rounded-lg border border-surface-700/50 bg-surface-800/40 px-3 py-2">
+                {pricing.reason} Fill the prices by hand — the entry is just as valid, it's the number that's estimated.
+              </div>
+            )}
             {preview && (
               <div className="mt-2 flex items-center gap-4 flex-wrap text-[11.5px] rounded-lg border border-surface-700/50 bg-surface-800/40 px-3 py-2">
                 <span className="text-surface-500">This would have been</span>
