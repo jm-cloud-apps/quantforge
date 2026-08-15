@@ -7,6 +7,7 @@ this via app.include_router.
 import json
 import os
 import threading
+from datetime import datetime as dt
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -40,6 +41,21 @@ def _save_playbook(data: dict):
             json.dump(data, f, indent=2)
 
 
+def _new_id(entries: dict) -> str:
+    """A millisecond stamp, stepped forward until it's actually free.
+
+    The store keys on this id, so a bare `int(time * 1000)` silently
+    *overwrote* an entry whenever two writes landed in the same millisecond —
+    saving two setups in quick succession, or a double-submitted form. It lost
+    the row with no error anywhere. Mirrors missed_router._new_id, where the
+    same bug was caught by a faster CI runner.
+    """
+    stamp = int(dt.now().timestamp() * 1000)
+    while str(stamp) in entries:
+        stamp += 1
+    return str(stamp)
+
+
 @router.get("/api/playbook/entries")
 def list_playbook_entries():
     playbook = _load_playbook()
@@ -59,9 +75,8 @@ async def create_playbook_entry(
     tags: str = Form(""),
     screenshot: Optional[UploadFile] = File(None),
 ):
-    from datetime import datetime as dt
-
-    entry_id = str(int(dt.now().timestamp() * 1000))
+    playbook = _load_playbook()
+    entry_id = _new_id(playbook["entries"])
     screenshot_filename = None
 
     if screenshot and screenshot.filename:
@@ -87,7 +102,6 @@ async def create_playbook_entry(
         "created_at": dt.now().isoformat(),
     }
 
-    playbook = _load_playbook()
     playbook["entries"][entry_id] = entry
     _save_playbook(playbook)
 

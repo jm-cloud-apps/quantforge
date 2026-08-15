@@ -27,7 +27,7 @@ python -m screener.qullamaggie.test_fetch
 QF_DATA_PROVIDER=yahoo python -m screener.qullamaggie.test_fetch
 ```
 
-Tests live in `backend/tests/` (pytest; `pytest.ini` sets `pythonpath = .`) — 270 tests. They favour **pure-logic units** — position sizing/validation (`trade_plans_router`), the EP scorer, the MA-reclaim and parabolic scanner math, the Setups Board aggregation, the `ScanCache` TTL primitive, the discipline reconciler/decay/breaker, the Missed Book R math — plus `test_app_routes.py`, which imports the app and asserts every critical route is registered (the safety net for moving endpoints between routers). **Add new routes to that test.** The suite is offline-safe: no network I/O, and data-dependent tests (e.g. breadth) skip themselves when local caches are absent.
+Tests live in `backend/tests/` (pytest; `pytest.ini` sets `pythonpath = .`) — 274 tests. They favour **pure-logic units** — position sizing/validation (`trade_plans_router`), the EP scorer, the MA-reclaim and parabolic scanner math, the Setups Board aggregation, the `ScanCache` TTL primitive, the discipline reconciler/decay/breaker, the Missed Book R math — plus `test_app_routes.py`, which imports the app and asserts every critical route is registered (the safety net for moving endpoints between routers). **Add new routes to that test.** The suite is offline-safe: no network I/O, and data-dependent tests (e.g. breadth) skip themselves when local caches are absent.
 
 CI (`.github/workflows/backend.yml`) runs `python -m pyflakes *.py tests/*.py` + `python -m pytest` on every PR and push to `main`; keep those paths pyflakes-clean. `screener/qullamaggie/test_fetch.py` is a separate manual data-provider script, not a pytest test.
 
