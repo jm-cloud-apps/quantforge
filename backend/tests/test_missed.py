@@ -9,6 +9,7 @@ from datetime import date
 from missed_router import (
     REASONS,
     VERDICTS,
+    first_trigger,
     forward_prices,
     price_fields,
     pct_move,
@@ -242,6 +243,39 @@ def test_gaps_in_coverage_are_skipped_not_counted():
     r = forward_prices("STX", date(2026, 8, 1), bars, ma_period=2)
     assert r["sessions_used"] == 1
     assert r["peak"] == 108.5
+
+
+# --- first_trigger -----------------------------------------------------------
+# A shortlist says "watch this". Measuring a trade from the night it was written
+# down reports the wait, not the trade.
+
+def test_trigger_is_the_first_close_back_above_the_rail():
+    # Sags under its own average, then reclaims it on the last bar.
+    bars = _bars([100, 98, 96, 94, 110])
+    assert first_trigger("STX", date(2026, 8, 1), bars, ma_period=3) == date(2026, 8, 5)
+
+
+def test_trigger_can_be_the_start_day_itself():
+    bars = _bars([90, 92, 94, 120])
+    assert first_trigger("STX", date(2026, 8, 4), bars, ma_period=3) == date(2026, 8, 4)
+
+
+def test_no_trigger_inside_the_window_means_there_was_no_trade_to_miss():
+    bars = _bars([100, 98, 96, 94, 92])          # never reclaims
+    assert first_trigger("STX", date(2026, 8, 1), bars, ma_period=3) is None
+
+
+def test_trigger_respects_the_within_limit():
+    bars = _bars([100, 98, 96, 94, 92, 90, 200])
+    assert first_trigger("STX", date(2026, 8, 1), bars, ma_period=3, within=3) is None
+    assert first_trigger("STX", date(2026, 8, 1), bars, ma_period=3, within=8) == date(2026, 8, 7)
+
+
+def test_trigger_handles_a_missing_symbol_and_an_empty_window():
+    bars = _bars([100, 104])
+    assert first_trigger("NVDA", date(2026, 8, 1), bars) is None
+    assert first_trigger("STX", date(2026, 8, 1), {}) is None
+    assert first_trigger("", date(2026, 8, 1), bars) is None
 
 
 def test_vocabularies_are_the_ones_the_frontend_mirrors():

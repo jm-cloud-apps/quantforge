@@ -102,7 +102,11 @@ The app is organized around a trading **workflow**, not a pile of tools:
   the rules actually prescribe. On real setups those two differ by a factor of
   eight or more, which is the entire reason the page reports them separately.
   Discipline shows the headline number next to plan compliance: trades taken
-  that shouldn't have been, and trades not taken that should have.
+  that shouldn't have been, and trades not taken that should have. And the book
+  doesn't only wait to be written: it cross-references your **Prep shortlists**
+  against your fills, and proposes the names you flagged, never traded, and
+  which then went somewhere — anchored on the session the setup actually
+  triggered rather than the night you wrote it down.
 - **Review** — edit setup / grade / emotion / notes per trade (sidecar-backed).
 - **Journal** — pre/post-trade plan, emotions, lessons, execution rating, tags.
 - **Trading Analysis** — win rate, profit factor, Sharpe/Sortino, expectancy,
@@ -287,7 +291,7 @@ quantforge/
 
 ```bash
 cd backend && source venv/bin/activate
-python -m pytest                      # 247 tests
+python -m pytest                      # 270 tests
 python -m pyflakes *.py tests/*.py    # undefined-name / dead-import gate
 ```
 
