@@ -104,6 +104,33 @@ def test_list_is_newest_first_and_ships_the_vocabularies(client):
     assert "correct" in body["reason_groups"]
 
 
+def test_two_entries_in_the_same_millisecond_do_not_overwrite_each_other(monkeypatch):
+    """Entry ids are millisecond stamps; a frozen clock is the same millisecond.
+
+    The original scheme keyed the store on the raw stamp, so the second write
+    silently replaced the first. It passed locally and failed on a faster CI
+    runner — freeze the clock and it fails deterministically anywhere.
+    """
+    from datetime import datetime as real_dt
+
+    frozen = real_dt(2026, 8, 3, 9, 30, 0, 0)
+
+    class _Frozen(real_dt):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen
+
+    monkeypatch.setattr(missed_router, "dt", _Frozen)
+
+    store: dict = {}
+    for _ in range(5):
+        new = missed_router._new_id(store)
+        assert new not in store, "id collided with an existing entry"
+        store[new] = {}
+
+    assert len(store) == 5   # five writes, five surviving rows
+
+
 def test_summary_separates_cost_from_correct_passes(client):
     _post(client, symbol="aaa")                                  # missed, priced
     _post(client, symbol="bbb", verdict="passed", reason="rules said no — correct pass")

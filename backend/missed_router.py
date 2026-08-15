@@ -366,6 +366,21 @@ def summarize(entries: List[dict]) -> dict:
 
 # --- Store ------------------------------------------------------------------
 
+def _new_id(entries: dict) -> str:
+    """A millisecond stamp, stepped forward until it's actually free.
+
+    The bare `int(time * 1000)` this started as (inherited from
+    playbook_router) silently *overwrote* an entry when two writes landed in
+    the same millisecond — logging two suggestions in quick succession, or a
+    double-submit. It survived local runs and failed on a faster CI box, which
+    is the worst way for a data-loss bug to behave.
+    """
+    stamp = int(dt.now().timestamp() * 1000)
+    while str(stamp) in entries:
+        stamp += 1
+    return str(stamp)
+
+
 def _load() -> dict:
     with _missed_lock:
         if os.path.exists(MISSED_PATH):
@@ -571,7 +586,8 @@ async def create_missed_entry(
     screenshots: List[UploadFile] = File(default=[]),
 ):
     _require_reason(_clean_verdict(verdict), reason)
-    entry_id = str(int(dt.now().timestamp() * 1000))
+    data = _load()
+    entry_id = _new_id(data["entries"])
     direction = "short" if (direction or "").strip().lower() == "short" else "long"
     prices = {"entry": _num(entry), "stop": _num(stop), "peak": _num(peak), "exit_price": _num(exit_price)}
     files = await _store_screenshots(entry_id, screenshots, [])
@@ -594,7 +610,6 @@ async def create_missed_entry(
         "updated_at": dt.now().isoformat(),
     }
 
-    data = _load()
     data["entries"][entry_id] = record
     _save(data)
     return {"status": "created", "entry": record}
