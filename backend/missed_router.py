@@ -29,6 +29,7 @@ from typing import List, Optional
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+import missed_suggest
 from security import _enforce_upload_limit, _safe_within
 
 router = APIRouter()
@@ -228,6 +229,9 @@ def forward_prices(symbol: str, start, bars_by_date: dict, direction: str = "lon
         "symbol": symbol,
         "direction": "long" if long_side else "short",
         "sessions_used": used,
+        # The close going in — what the move is measured against when there's no
+        # entry price yet (a shortlisted name you never actually bought).
+        "ref_close": round(ref_close, 4) if ref_close else None,
         "peak": round(peak, 4),
         "peak_date": peak_day.isoformat(),
         "trail_exit": round(trail_exit if hit else last_close, 4),
@@ -237,6 +241,43 @@ def forward_prices(symbol: str, start, bars_by_date: dict, direction: str = "lon
         "trail_ma": ma_period,
         "last_close": round(last_close, 4),
     }
+
+
+def first_trigger(symbol: str, start, bars_by_date: dict, ma_period: int = TRAIL_MA,
+                  within: int = 15):
+    """The first session at or after `start` that closes back above the rail.
+
+    A prep shortlist is an instruction to *watch*, not to buy — so measuring a
+    trade from the night you wrote the name down is measuring the wrong thing.
+    A name can sit under its 10-day for a week and then trigger; anchoring on
+    the shortlist date reports the chop and hides the move that followed.
+
+    So: walk forward to the first close back above the rail — the earliest
+    session on which the setup was actually buyable — and treat that as the
+    entry. Returns None when it never triggers inside `within` sessions, which
+    is the honest answer that there was no trade to miss.
+    """
+    symbol = (symbol or "").upper()
+    if not symbol or start is None or not bars_by_date:
+        return None
+
+    session_days = sorted(bars_by_date.keys())
+    closes = []
+    for d in [x for x in session_days if x < start][-(ma_period - 1):]:
+        bar = _bar(bars_by_date[d], symbol)
+        if bar:
+            closes.append(bar["close"])
+
+    for d in [x for x in session_days if x >= start][:within]:
+        bar = _bar(bars_by_date[d], symbol)
+        if bar is None:
+            continue
+        closes.append(bar["close"])
+        if len(closes) >= ma_period:
+            ma = sum(closes[-ma_period:]) / ma_period
+            if bar["close"] > ma:
+                return d
+    return None
 
 
 def _num(v):
@@ -379,6 +420,20 @@ def _clean_verdict(v: str) -> str:
     return v if v in VERDICTS else "missed"
 
 
+def _require_reason(verdict: str, reason: str) -> None:
+    """A miss with no reason is a row that can't be aggregated.
+
+    The ranked-reason table is the only thing on the page that turns a diary
+    into a diagnosis, and one blank entry pollutes it silently by landing in
+    "unspecified". Passes and unclears are exempt — you don't always know yet.
+    """
+    if verdict == "missed" and not (reason or "").strip():
+        raise HTTPException(
+            status_code=422,
+            detail="A missed entry needs a reason — it's what the summary ranks.",
+        )
+
+
 def _clean_tags(tags: str) -> List[str]:
     return [t.strip() for t in (tags or "").split(",") if t.strip()]
 
@@ -438,6 +493,63 @@ def price_check(symbol: str, date: str, direction: str = "long",
     return {"available": True, **result}
 
 
+@router.get("/api/missed/suggestions")
+def suggestions(days: int = 90, min_move: float = missed_suggest.MIN_MOVE_PCT,
+                sessions: int = FORWARD_SESSIONS):
+    """Names you shortlisted on Prep, never traded, that then went somewhere.
+
+    Fails soft at every join — no prep sessions, no workbook, no cache — because
+    a suggestion list is an assistant, not a source of truth. An empty list with
+    a reason is always better than a 500 on the page that holds your log.
+    """
+    from datetime import timedelta
+
+    since = dt.now().date() - timedelta(days=days)
+
+    try:
+        from prep_router import _load as _load_prep
+        prep_sessions = _load_prep().get("sessions", [])
+    except Exception:
+        return {"suggestions": [], "reason": "No prep sessions have been saved yet."}
+    if not prep_sessions:
+        return {"suggestions": [], "reason": "No prep sessions have been saved yet."}
+
+    try:
+        from trading_analysis_router import load_default_trades
+        trades = (load_default_trades() or {}).get("trades") or []
+    except Exception:
+        # No workbook is survivable: every shortlisted name simply reads as
+        # untaken, which over-suggests rather than hiding a real miss.
+        trades = []
+
+    try:
+        from breadth import cache as breadth_cache
+        window = breadth_cache.load_cached_window(
+            since - timedelta(days=TRAIL_MA * 3),
+            dt.now().date(),
+        )
+    except Exception:
+        window = {}
+    if not window:
+        return {"suggestions": [], "reason": "The local grouped-price cache isn't available."}
+
+    def _forward(symbol, day):
+        # Anchor on the trigger, not the shortlist date — see first_trigger.
+        anchor = first_trigger(symbol, day, window)
+        if anchor is None:
+            return None
+        priced = forward_prices(symbol, anchor, window, sessions=sessions)
+        if priced:
+            priced["anchor_date"] = anchor.isoformat()
+        return priced
+
+    rows = missed_suggest.suggest(
+        prep_sessions, trades, list(_load()["entries"].values()), _forward,
+        since=since, min_move_pct=min_move,
+    )
+    return {"suggestions": rows, "count": len(rows), "since": since.isoformat()}
+
+
 @router.post("/api/missed/entries")
 async def create_missed_entry(
     symbol: str = Form(...),
@@ -458,6 +570,7 @@ async def create_missed_entry(
     # hands a bare UploadFile to pydantic on a single-file post and 422s.
     screenshots: List[UploadFile] = File(default=[]),
 ):
+    _require_reason(_clean_verdict(verdict), reason)
     entry_id = str(int(dt.now().timestamp() * 1000))
     direction = "short" if (direction or "").strip().lower() == "short" else "long"
     prices = {"entry": _num(entry), "stop": _num(stop), "peak": _num(peak), "exit_price": _num(exit_price)}
@@ -513,6 +626,7 @@ async def update_missed_entry(
     if entry_id not in data["entries"]:
         raise HTTPException(status_code=404, detail="Missed entry not found")
 
+    _require_reason(_clean_verdict(verdict), reason)
     record = data["entries"][entry_id]
     direction = "short" if (direction or "").strip().lower() == "short" else "long"
 

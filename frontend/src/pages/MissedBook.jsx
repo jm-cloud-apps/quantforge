@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  getMissedEntries, getMissedSummary, createMissedEntry, updateMissedEntry,
-  deleteMissedEntry, missedScreenshotUrl, priceCheck,
-  VERDICTS, REASON_GROUPS, ALL_REASONS, SETUP_GROUPS, GROUP_TONE, GROUP_FIX,
+  getMissedEntries, getMissedSummary, getMissedSuggestions, createMissedEntry,
+  updateMissedEntry, deleteMissedEntry, missedScreenshotUrl, priceCheck,
+  VERDICTS, REASON_GROUPS, ALL_REASONS, SETUP_GROUPS, GROUP_TONE, GROUP_FIX, HORIZONS,
 } from '../api/missed'
 
 // ── Missed Book ─────────────────────────────────────────────────────────────
@@ -115,11 +115,12 @@ function EntryForm({ initial, editingId, onCancel, onSaved }) {
   // toward whatever story is being told that day, and the R totals inherit the
   // drift — so the measured number is offered the moment symbol + date exist.
   const [pricing, setPricing] = useState(null)
+  const [horizon, setHorizon] = useState(HORIZONS[0].value)
   const canPrice = form.symbol.trim().length > 0 && !!form.date
-  const pullPrices = async () => {
+  const pullPrices = async (sessions = horizon) => {
     setPricing({ state: 'loading' })
     try {
-      const p = await priceCheck({ symbol: form.symbol, date: form.date, direction: form.direction })
+      const p = await priceCheck({ symbol: form.symbol, date: form.date, direction: form.direction, sessions })
       if (!p.available) { setPricing({ state: 'unavailable', reason: p.reason }); return }
       setForm(f => ({ ...f, peak: String(p.peak), exit_price: String(p.trail_exit) }))
       setPricing({ state: 'done', ...p })
@@ -149,6 +150,12 @@ function EntryForm({ initial, editingId, onCancel, onSaved }) {
   const submit = async (ev) => {
     ev.preventDefault()
     if (!form.symbol.trim()) { setError('Symbol is required'); return }
+    // Mirrors the backend guard: an unreasoned miss lands in "unspecified" and
+    // silently degrades the one table that makes this page a diagnosis.
+    if (form.verdict === 'missed' && !form.reason) {
+      setError('Pick a reason — it’s what the summary ranks. Not sure yet? Log it as Unclear.')
+      return
+    }
     setSaving(true); setError(null)
     try {
       const fd = new FormData()
@@ -239,8 +246,15 @@ function EntryForm({ initial, editingId, onCancel, onSaved }) {
             </div>
           </Field>
 
-          <Field label="Reason" hint="Controlled list so it aggregates — the summary ranks which failure mode costs the most.">
-            <select className={inputCls} value={form.reason} onChange={e => set('reason', e.target.value)}>
+          <Field
+            label={isPass ? 'Reason' : 'Reason · required'}
+            hint="Controlled list so it aggregates — the summary ranks which failure mode costs the most."
+          >
+            <select
+              className={`${inputCls} ${form.verdict === 'missed' && !form.reason ? 'border-danger/50' : ''}`}
+              value={form.reason}
+              onChange={e => set('reason', e.target.value)}
+            >
               <option value="">—</option>
               {REASON_GROUPS.map(g => (
                 <optgroup key={g.group} label={g.label}>
@@ -254,9 +268,21 @@ function EntryForm({ initial, editingId, onCancel, onSaved }) {
           <div>
             <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
               <span className="text-[10px] font-bold tracking-widest text-surface-500 uppercase">What it did</span>
+              <select
+                value={horizon}
+                onChange={(e) => {
+                  const v = Number(e.target.value)
+                  setHorizon(v)
+                  if (pricing?.state === 'done') pullPrices(v)   // re-measure in place
+                }}
+                title={HORIZONS.find(h => h.value === horizon)?.hint}
+                className="ml-auto bg-surface-800 border border-surface-700 text-surface-300 text-[11px] rounded px-1.5 py-1 focus:outline-none focus:border-cyan"
+              >
+                {HORIZONS.map(h => <option key={h.value} value={h.value}>{h.label}</option>)}
+              </select>
               <button
                 type="button"
-                onClick={pullPrices}
+                onClick={() => pullPrices()}
                 disabled={!canPrice || pricing?.state === 'loading'}
                 className="text-[11px] font-semibold text-cyan hover:text-cyan/80 bg-cyan/10 border border-cyan/30 rounded-lg px-2.5 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
                 title={canPrice ? 'Read the high and the rail exit off the local price cache'
@@ -481,6 +507,84 @@ function DetailModal({ e, onClose }) {
   )
 }
 
+// Names shortlisted on Prep, never traded, that then went somewhere. The book
+// otherwise records only what you remember to record — the worst possible
+// sample of the events you're least motivated to write down. Accepting a
+// suggestion prefills the form; logging it as a *correct pass* is how you tell
+// the list to stop offering it, so there's no separate dismissal state.
+function Suggestions({ onAccept }) {
+  const [rows, setRows] = useState(null)
+  const [open, setOpen] = useState(true)
+
+  useEffect(() => {
+    let alive = true
+    getMissedSuggestions({ days: 90 })
+      .then(d => { if (alive) setRows(d) })
+      .catch(() => { if (alive) setRows({ suggestions: [] }) })
+    return () => { alive = false }
+  }, [])
+
+  if (!rows || !rows.suggestions?.length) return null
+
+  return (
+    <div className="rounded-2xl border border-cyan/25 bg-cyan/[0.04] overflow-hidden">
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-cyan/[0.06] transition-colors">
+        <span className="text-[11px] font-bold tracking-widest uppercase text-cyan">From your prep</span>
+        <span className="text-[12px] text-surface-400">
+          <span className="font-semibold text-surface-200">{rows.suggestions.length}</span> shortlisted
+          {rows.suggestions.length === 1 ? ' name you' : ' names you'} didn’t trade, and {rows.suggestions.length === 1 ? 'it' : 'they'} moved
+        </span>
+        <svg className={`w-4 h-4 ml-auto text-surface-500 transition-transform ${open ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4">
+          <p className="text-[11px] text-surface-500 leading-snug mb-2.5">
+            A review queue, not a cost: ranked by how far the name travelled from its first trigger, with what the
+            10-day rail would actually have banked beside it. Those disagree most often when a setup triggered, stopped
+            you out, and then ran — the commonest shape a real miss takes. Cost only gets computed from the entry and
+            stop you supply. Logging one as a correct pass removes it from here; the filters working is a result worth
+            keeping, not a row to hide.
+          </p>
+          <div className="space-y-1.5">
+            {rows.suggestions.map(s => (
+              <div key={`${s.symbol}-${s.prep_date}`}
+                className="flex items-center gap-3 flex-wrap rounded-xl border border-surface-700/50 bg-surface-900/50 px-3 py-2">
+                <span className="text-[13.5px] font-display font-bold text-surface-50 w-14 shrink-0">{s.symbol}</span>
+                <span className="text-[11px] text-surface-500 w-24 shrink-0" title={`Shortlisted ${s.prep_date}`}>
+                  {s.anchor_date || s.prep_date}
+                </span>
+                {s.setup_state && (
+                  <span className="text-[10px] text-surface-400 bg-surface-800 border border-surface-700 rounded px-1.5 py-0.5">
+                    {s.setup_state}
+                  </span>
+                )}
+                <span className="text-[12px] font-mono tabular-nums text-accent font-semibold"
+                  title={`High of ${s.peak} on ${s.peak_date}`}>
+                  +{s.pct_to_peak}%
+                </span>
+                <span className={`text-[11px] font-mono tabular-nums ${s.pct_to_rail < 0 ? 'text-danger/80' : 'text-surface-500'}`}
+                  title={`10-day rail exit at ${s.trail_exit} on ${s.trail_exit_date}`}>
+                  {s.pct_to_rail >= 0 ? '+' : ''}{s.pct_to_rail}% on the rail
+                  {s.trail_hit ? '' : ' (still running)'}
+                </span>
+                <button onClick={() => onAccept(s)}
+                  className="ml-auto text-[11px] font-semibold text-accent hover:text-accent-bright bg-accent/10 border border-accent/30 rounded-lg px-2.5 py-1">
+                  Log it
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export default function MissedBook() {
@@ -529,6 +633,14 @@ export default function MissedBook() {
   const missed = summary?.missed
   const topReason = summary?.by_reason?.[0]
 
+  // Unclear entries that have sat undecided for a month. The verdict decides
+  // whether a row is a cost or a process win, so leaving them is the one way to
+  // make every number on the page wrong at once.
+  const staleUnclear = useMemo(() => {
+    const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
+    return entries.filter(e => e.verdict === 'unclear' && (e.date || '') < cutoff).length
+  }, [entries])
+
   return (
     <div className="space-y-6">
       {/* HERO */}
@@ -565,6 +677,33 @@ export default function MissedBook() {
       {error && (
         <div className="rounded-xl border border-danger/40 bg-danger/10 px-4 py-3 text-[12.5px] text-danger">
           {error} — is the backend running?
+        </div>
+      )}
+
+      <Suggestions onAccept={(s) => {
+        // Prefill everything the shortlist and the cache already know; the
+        // reason is the one field only you can supply, so it's left blank.
+        setEditing({
+          // Dated at the trigger, not the shortlist night — that's the day the
+          // decision was actually available to make.
+          symbol: s.symbol, date: s.anchor_date || s.prep_date, setup: '', direction: 'long',
+          verdict: 'missed', reason: '',
+          entry: String(s.ref_close ?? ''), stop: '',
+          peak: String(s.peak ?? ''), exit_price: String(s.trail_exit ?? ''),
+          why_good: s.note || '', lesson: '', tags: '', screenshots: [],
+        })
+        setShowForm(true)
+      }} />
+
+      {staleUnclear > 0 && (
+        <div className="rounded-xl border border-surface-700/60 bg-surface-900/50 px-4 py-2.5 text-[12px] text-surface-400 flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] font-bold tracking-widest uppercase text-surface-500">Revisit</span>
+          <span>
+            <span className="font-semibold text-surface-200">{staleUnclear}</span> entr{staleUnclear === 1 ? 'y is' : 'ies are'} still
+            marked unclear after 30 days. The verdict is the field the whole summary hangs on — decide them.
+          </span>
+          <button onClick={() => setFilterVerdict('unclear')}
+            className="ml-auto text-[11px] text-accent hover:text-accent-bright">Show them →</button>
         </div>
       )}
 
@@ -639,6 +778,38 @@ export default function MissedBook() {
                 distrusted. Nobody sells the high, and a book of maxima adds up to a number that argues for trading more,
                 which is exactly the wrong lesson to take from a page like this.
               </p>
+
+              {/* Which setups go missing. Reasons say *how* you miss; this says
+                  *what* — and the two answer different questions. EPs force a
+                  decision in the first five minutes; a flag gives you all day,
+                  so a book weighted to one family points somewhere specific. */}
+              {summary.by_setup.filter(s => s.setup !== 'unspecified').length >= 2 && (
+                <div className="mt-4 pt-4 border-t border-surface-700/40">
+                  <div className="flex items-baseline justify-between gap-3 flex-wrap mb-2">
+                    <h3 className="text-[11px] font-bold tracking-widest uppercase text-surface-400">Which setups go missing</h3>
+                    <span className="text-[11px] text-surface-500">a book that leans one way is a different problem from one that doesn’t</span>
+                  </div>
+                  <div className="space-y-1">
+                    {summary.by_setup.map(s => {
+                      const max = Math.max(...summary.by_setup.map(x => x.count)) || 1
+                      const isEP = s.setup.startsWith('EP')
+                      return (
+                        <div key={s.setup} className="flex items-center gap-3">
+                          <span className="text-[11.5px] text-surface-300 w-[220px] shrink-0 truncate">{s.setup}</span>
+                          <div className="flex-1 h-2 rounded-full bg-surface-800 overflow-hidden">
+                            <div className={`h-full opacity-80 ${isEP ? 'bg-warning' : 'bg-purple'}`}
+                              style={{ width: `${(s.count / max) * 100}%` }} />
+                          </div>
+                          <span className="text-[11px] font-mono tabular-nums text-surface-400 w-10 text-right">{s.count}</span>
+                          <span className="text-[11px] font-mono tabular-nums text-surface-300 w-16 text-right">
+                            {s.r_real_sum != null ? fmtR(s.r_real_sum) : '—'}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* The trend. Ranked reasons say where the leak is; only this says
                   whether last month's fix did anything. Hidden under two months

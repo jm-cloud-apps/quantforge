@@ -22,10 +22,28 @@ export async function getMissedSummary() {
 // Fills the two price fields from the local grouped-price cache instead of from
 // memory. Always resolves — `{available:false, reason}` when the cache can't
 // cover it, so the form degrades to manual entry rather than blocking the log.
-export async function priceCheck({ symbol, date, direction = 'long' }) {
+export async function priceCheck({ symbol, date, direction = 'long', sessions }) {
   const q = new URLSearchParams({ symbol, date, direction })
+  if (sessions) q.set('sessions', sessions)
   return unwrap(await fetch(`${API_BASE}/missed/price-check?${q}`), 'price the setup')
 }
+
+// Names shortlisted on Prep, never traded, that then went somewhere. Always
+// resolves to a list (possibly empty with a `reason`) — a suggestion engine is
+// an assistant, so it must never take the page down with it.
+export async function getMissedSuggestions({ days = 90, minMove } = {}) {
+  const q = new URLSearchParams({ days })
+  if (minMove != null) q.set('min_move', minMove)
+  return unwrap(await fetch(`${API_BASE}/missed/suggestions?${q}`), 'load suggestions')
+}
+
+// How far forward the price check measures. A flag resolves in days; a long
+// base can need two months, and 20 sessions would quietly clip the move.
+export const HORIZONS = [
+  { value: 20, label: '20 sessions', hint: 'A month — flags and EPs' },
+  { value: 40, label: '40 sessions', hint: 'Two months — bases' },
+  { value: 60, label: '60 sessions', hint: 'A quarter — the full leg' },
+]
 
 export async function createMissedEntry(formData) {
   return unwrap(await fetch(`${API_BASE}/missed/entries`, { method: 'POST', body: formData }), 'save the entry')

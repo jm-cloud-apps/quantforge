@@ -122,7 +122,10 @@ def test_screenshot_round_trip_and_traversal_guard(client):
 
     r = client.post(
         "/api/missed/entries",
-        data={"symbol": "amd", "date": "2026-08-06", "verdict": "missed"},
+        # A reason is mandatory on a miss; without one the 422 below would fire
+        # for that instead of for the thing each test is actually asserting.
+        data={"symbol": "amd", "date": "2026-08-06", "verdict": "missed",
+              "reason": "saw it, hesitated"},
         files=[("screenshots", ("chart.png", io.BytesIO(PNG), "image/png"))],
     )
     name = r.json()["entry"]["screenshots"][0]
@@ -134,7 +137,10 @@ def test_screenshot_round_trip_and_traversal_guard(client):
 def test_rejects_non_image_uploads(client):
     r = client.post(
         "/api/missed/entries",
-        data={"symbol": "amd", "date": "2026-08-06", "verdict": "missed"},
+        # A reason is mandatory on a miss; without one the 422 below would fire
+        # for that instead of for the thing each test is actually asserting.
+        data={"symbol": "amd", "date": "2026-08-06", "verdict": "missed",
+              "reason": "saw it, hesitated"},
         files=[("screenshots", ("payload.svg", io.BytesIO(b"<svg/>"), "image/svg+xml"))],
     )
     assert r.status_code == 400
@@ -157,7 +163,10 @@ def test_patch_reprices_and_can_move_an_entry_out_of_the_cost_bucket(client):
 def test_delete_removes_the_entry_and_its_screenshot(client):
     r = client.post(
         "/api/missed/entries",
-        data={"symbol": "amd", "date": "2026-08-06", "verdict": "missed"},
+        # A reason is mandatory on a miss; without one the 422 below would fire
+        # for that instead of for the thing each test is actually asserting.
+        data={"symbol": "amd", "date": "2026-08-06", "verdict": "missed",
+              "reason": "saw it, hesitated"},
         files=[("screenshots", ("chart.png", io.BytesIO(PNG), "image/png"))],
     )
     entry = r.json()["entry"]
@@ -165,6 +174,26 @@ def test_delete_removes_the_entry_and_its_screenshot(client):
     assert client.delete(f"/api/missed/entries/{entry['id']}").status_code == 200
     assert client.get("/api/missed/entries").json()["total"] == 0
     assert client.get(f"/api/missed/screenshots/{name}").status_code == 404
+
+
+def test_a_miss_without_a_reason_is_refused(client):
+    r = _post(client, reason="")
+    assert r.status_code == 422
+    assert "reason" in r.json()["detail"].lower()
+    assert client.get("/api/missed/entries").json()["total"] == 0
+
+
+def test_passes_and_unclears_do_not_need_a_reason_yet(client):
+    assert _post(client, verdict="passed", reason="").status_code == 200
+    assert _post(client, verdict="unclear", reason="").status_code == 200
+
+
+def test_patch_cannot_strip_the_reason_off_a_miss(client):
+    entry_id = _post(client).json()["entry"]["id"]
+    r = client.patch(f"/api/missed/entries/{entry_id}", data={
+        "symbol": "NVDA", "date": "2026-08-03", "verdict": "missed", "reason": "",
+    })
+    assert r.status_code == 422
 
 
 def test_missing_entry_is_404_not_500(client):
