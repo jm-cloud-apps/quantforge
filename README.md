@@ -291,7 +291,7 @@ quantforge/
 
 ```bash
 cd backend && source venv/bin/activate
-python -m pytest                      # 270 tests
+python -m pytest                      # 274 tests
 python -m pyflakes *.py tests/*.py    # undefined-name / dead-import gate
 ```
 
