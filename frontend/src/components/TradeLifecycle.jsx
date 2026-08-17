@@ -1,6 +1,7 @@
 import { LIFECYCLE, EXPOSURE_LADDER } from '../utils/tradingRules'
 import { Candle } from './MARailsVisuals'
 import { VOL_COLORS } from './volumeCharts'
+import { useDensity } from './framework/density'
 
 // Trade Lifecycle — the management framework: entry day to resolution as a
 // day-by-day protocol (day-0 discipline, the day-1–3 partial + breakeven, the
@@ -172,6 +173,7 @@ function Scene({ spec, toneHex, label }) {
 }
 
 function PhaseCard({ t, step }) {
+  const brief = useDensity() === 'brief'
   const tone = TONE[t.tone]
   return (
     <div className={`relative rounded-2xl border overflow-hidden ${tone.border} ${tone.bgSoft} flex flex-col`}>
@@ -192,7 +194,7 @@ function PhaseCard({ t, step }) {
           </span>
         </div>
 
-        <div className="mt-3">
+        {!brief && (<><div className="mt-3">
           <Scene spec={SCENES[t.glyph]} toneHex={tone.hex} label={`${t.title}: ${t.what}`} />
         </div>
 
@@ -205,7 +207,7 @@ function PhaseCard({ t, step }) {
             <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-0.5">Means</div>
             <p className="text-[12px] text-surface-400 leading-snug">{t.why}</p>
           </div>
-        </div>
+        </div></>)}
 
         <div className="flex-1" />
 

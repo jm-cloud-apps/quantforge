@@ -1,5 +1,7 @@
-import { VOLUME_PATTERNS, VOLUME_METRICS } from '../utils/tradingRules'
+import { Link } from 'react-router-dom'
+import { VOLUME_PATTERNS, VOLUME_METRICS, VOLUME_PACE } from '../utils/tradingRules'
 import { VolumeHero, VolumeGlyph } from './VolumeVisuals'
+import { useDensity } from './framework/density'
 
 // Volume Patterns — the "second opinion" framework panel on the Rules page,
 // deliberately paired with MA Rails (components/MARails.jsx): the rail says
@@ -19,6 +21,7 @@ const TONE = {
 const SIGNAL_LABEL = { confirm: 'CONFIRM', caution: 'CAUTION' }
 
 function PatternCard({ p }) {
+  const brief = useDensity() === 'brief'
   const tone = TONE[p.tone]
   return (
     <div className={`relative rounded-2xl border overflow-hidden ${tone.border} ${tone.bgSoft} flex flex-col`}>
@@ -34,7 +37,7 @@ function PatternCard({ p }) {
           </span>
         </div>
 
-        <div className="mt-3">
+        {!brief && (<><div className="mt-3">
           <VolumeGlyph glyphKey={p.glyph} tone={p.tone} />
         </div>
 
@@ -47,7 +50,7 @@ function PatternCard({ p }) {
             <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-0.5">Means</div>
             <p className="text-[12px] text-surface-400 leading-snug">{p.why}</p>
           </div>
-        </div>
+        </div></>)}
 
         <div className="flex-1" />
 
@@ -148,6 +151,47 @@ export default function VolumePatterns({ collapsible = false, collapsed = false,
             Sequence matters: volume confirms price, it never predicts it. Read the price / rail signal
             first, then ask volume to agree — a loud tape with no price signal is just noise with sponsors.
           </p>
+
+          {/* Intraday pace — every threshold above is a full-day number, which
+              is exactly what you don't have when an opening-range trigger
+              fires. */}
+          <div className="mt-4 pt-4 border-t border-surface-700/40">
+            <div className="flex items-baseline justify-between gap-3 flex-wrap mb-2">
+              <h3 className="text-[11px] font-bold tracking-widest uppercase text-surface-400">
+                Reading it before the close
+              </h3>
+              <span className="text-[11px] text-surface-500">
+                the numbers above are full-day — at 9:35 you need pace instead
+              </span>
+            </div>
+            <p className="text-[11.5px] text-surface-400 leading-snug mb-2.5">
+              Compare like with like: volume so far against what a <em>normal</em> day has done by the same clock. A
+              session is heavily front-loaded, so “half the average by noon” is ordinary, not strong — while 3× the
+              usual 10:30 share is the tell that the{' '}
+              <Link to="/rules#entries" className="text-accent hover:text-accent-bright underline underline-offset-2">
+                opening-range entry
+              </Link>{' '}
+              is worth taking.
+            </p>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+              {VOLUME_PACE.map(p => {
+                const tone = TONE[p.tone]
+                return (
+                  <div key={p.key} className={`rounded-xl border ${tone.border} ${tone.bgSoft} px-3.5 py-3`}>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-[10px] font-bold tracking-widest text-surface-400 uppercase">{p.time}</span>
+                      <span className={`font-mono font-bold text-[14px] tabular-nums ${tone.text}`}>{p.done}</span>
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-surface-400 leading-snug">{p.note}</p>
+                  </div>
+                )
+              })}
+            </div>
+            <p className="mt-2 text-[11px] text-surface-500 leading-snug">
+              Those fractions are the conventional intraday U-curve, not a measurement of the names you trade — a
+              straight edge to check the tape against, not a constant.
+            </p>
+          </div>
         </div>
 
         {/* Pairs with the rails */}

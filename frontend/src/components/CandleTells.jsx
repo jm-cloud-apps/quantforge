@@ -1,6 +1,7 @@
 import { CANDLE_TELLS, GAP_TAXONOMY } from '../utils/tradingRules'
 import { Candle } from './MARailsVisuals'
 import { VOL_COLORS } from './volumeCharts'
+import { useDensity } from './framework/density'
 
 // Candle Tells — how the momentum lineage reads candles: supply/demand math
 // (range × close location × volume), not named Japanese patterns. Data lives
@@ -229,6 +230,7 @@ const ANATOMY_DIMS = [
 ]
 
 function TellCard({ t }) {
+  const brief = useDensity() === 'brief'
   const tone = TONE[t.tone]
   return (
     <div className={`relative rounded-2xl border overflow-hidden ${tone.border} ${tone.bgSoft} flex flex-col`}>
@@ -244,7 +246,7 @@ function TellCard({ t }) {
           </span>
         </div>
 
-        <div className="mt-3">
+        {!brief && (<><div className="mt-3">
           <Scene spec={SCENES[t.glyph]} toneHex={tone.hex} label={`${t.title}: ${t.what}`} />
         </div>
 
@@ -257,7 +259,7 @@ function TellCard({ t }) {
             <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-0.5">Means</div>
             <p className="text-[12px] text-surface-400 leading-snug">{t.why}</p>
           </div>
-        </div>
+        </div></>)}
 
         <div className="flex-1" />
 

@@ -928,6 +928,30 @@ export const VOLUME_METRICS = [
   },
 ]
 
+// Intraday volume pace — the only volume read that exists at the moment the
+// Entries panel's opening-range triggers actually fire.
+//
+// Every threshold in VOLUME_METRICS is measured against a *full* session, which
+// is useless at 9:35: a stock on pace for 5× its average has still only traded a
+// fraction of a day's shares. The fix is to compare like with like — volume so
+// far against what a normal day has done by the same clock. A typical US equity
+// session is heavily front-loaded, so these fractions are far from linear, and
+// that shape is what makes an early read possible at all.
+//
+// Percentages are the conventional U-curve of intraday volume, not measured
+// from this account's own names — treat them as a straight edge, and check them
+// against the tape you actually trade.
+export const VOLUME_PACE = [
+  { key: 'open', time: '9:45', done: '~13%', tone: 'warn',
+    note: 'The opening auction plus fifteen minutes. Noisy — a single block can double the number — but a name doing 3× its usual 9:45 share is already unusual.' },
+  { key: 'first', time: '10:30', done: '~28%', tone: 'good',
+    note: 'The most useful checkpoint. The open has cleared, the day’s character is set, and there is enough volume that the ratio means something.' },
+  { key: 'noon', time: '12:00', done: '~45%', tone: 'info',
+    note: 'Midday lull begins. A name still expanding through this is being accumulated rather than traded.' },
+  { key: 'close', time: '16:00', done: '100%', tone: 'info',
+    note: 'The full-day number every threshold on this panel is written against — and the one you cannot have when the trigger fires.' },
+]
+
 // Candle tells — how the momentum lineage actually reads candles: not named
 // Japanese patterns, but supply/demand math — how wide the bar is, where it
 // closed, on how much volume. Rendered as the Candle Tells panel
@@ -1694,6 +1718,96 @@ export const ENTRY_REENTRY = [
     note: 'A fresh budget, but only if the flag low or base low is still there. Write the plan again — a re-entry taken off yesterday’s plan reconciles as unplanned in the Discipline scorecard, because that is what it is.' },
   { key: 'third', tone: 'bad', label: 'Third attempt at the same level', verdict: 'OFF THE LIST',
     note: 'Two stops at one level is the market pricing your idea, not noise. It comes back when it has a new base, a new pole or a new catalyst — never merely a new hour.' },
+]
+
+// ── Exits ───────────────────────────────────────────────────────────────────
+// The mirror of the Entries panel, and deliberately the shortest framework on
+// the page. Three other panels already explain exits well — Trade Lifecycle has
+// the day-by-day protocol, Exit (trend death vs shakeout) has the "is it over"
+// question, Candles × Rails has how the touch prints — so this one does not
+// re-teach any of that. It exists because all three describe exits as
+// *conditions* ("a decisive close below the rail", "sell into strength") and
+// none of them gives a **price**.
+//
+// Entries turned the trigger, the stop and the size into three numbers written
+// before the bell. This does the same for the way out: where the partial goes,
+// where the stop sits right now, and which rail is carrying the rest. Rendered
+// by components/Exits.jsx; every row links to the panel that explains the why.
+export const EXIT_TICKET = [
+  {
+    key: 'partial', tone: 'good', label: 'The partial',
+    price: 'entry + 2–3× the stop distance',
+    when: 'Days 1–3, into strength',
+    note: 'Sized off your own risk, not off a round number — 2–3R is the band where a real breakout has already paid and the runner becomes free. Take ⅓–½ there.',
+    ref: { to: '/rules#lifecycle', label: 'Trade Lifecycle' },
+  },
+  {
+    key: 'stretch', tone: 'warn', label: 'The stretch exit',
+    price: '≥ 3 ADR above the 10-day',
+    when: 'Any day the move goes vertical',
+    note: 'Extension is the other partial trigger and it overrides the calendar: a name 3+ ADRs above its 10-day has borrowed from next week. Sell the reach, never the snap-back.',
+    ref: { to: '/rules#rail-candles', label: 'Candles × Rails' },
+  },
+  {
+    key: 'stop', tone: 'bad', label: 'The stop, right now',
+    price: 'entry-day low → breakeven → the rail',
+    when: 'Moves once, after the partial',
+    note: 'Three states, in order. It starts at the structural low the entry came from, moves to breakeven once the partial is banked, and is the rail thereafter. It never moves down.',
+    ref: { to: '/rules#entries', label: 'Entries' },
+  },
+  {
+    key: 'trail', tone: 'info', label: 'The trail',
+    price: 'daily close below the chosen rail',
+    when: 'From the partial to the end',
+    note: 'The rail is picked at entry and written into the plan — 10-day for the fastest movers, 20 for the standard swing, 50 for a core hold. Judged at 4:00 PM only.',
+    ref: { to: '/rules#ma-rails', label: 'MA Rails' },
+  },
+  {
+    key: 'time', tone: 'warn', label: 'The time stop',
+    price: 'no follow-through by day 3–5',
+    when: 'Even while above the stop',
+    note: 'The price stop is for being wrong on direction; this is for being wrong on schedule. Dead money is open risk plus the trade you did not take instead.',
+    ref: { to: '/rules#lifecycle', label: 'Trade Lifecycle' },
+  },
+  {
+    key: 'gap', tone: 'bad', label: 'Gap through the stop',
+    price: 'the open, or the first failed bounce',
+    when: 'The one intraday exception',
+    note: 'The close-only rule assumes continuous prices, and a gap breaks the assumption. Waiting for 4:00 PM on a position that opened through its stop is rationalising.',
+    ref: { to: '/rules#exit', label: 'Exit — trend death' },
+  },
+]
+
+// The numbers behind the ticket, in the same shape as ENTRY_MECHANICS.
+export const EXIT_MECHANICS = [
+  { key: 'first', tone: 'good', label: 'First partial', value: '⅓ – ½',
+    note: 'Enough to change the trade’s character — the rest rides with the stop at breakeven. Selling a token 10% leaves you fully exposed and feeling covered.' },
+  { key: 'target', tone: 'good', label: 'Where', value: '2–3R, or 3 ADR extended',
+    note: 'Whichever comes first. Both are measured from numbers you already wrote down at entry, so neither requires a decision mid-trade.' },
+  { key: 'be', tone: 'info', label: 'Breakeven', value: 'after the partial',
+    note: 'Not before. Moving to breakeven on day 0 chokes the trade inside normal noise — the market has to prove something first.' },
+  { key: 'rail', tone: 'info', label: 'Trail rail', value: '10 / 20 / 50',
+    note: 'Chosen at entry, never mid-trade. Widening the rail while underwater is how a plan becomes a hope.' },
+  { key: 'close', tone: 'warn', label: 'Judged at', value: 'the 4:00 PM close',
+    note: 'Intraday wicks through a rail are noise. The single exception is a gap that opens through the stop.' },
+  { key: 'never', tone: 'bad', label: 'Never', value: 'move a stop down',
+    note: 'A stop that widens is a new trade with worse odds and no plan. If the level was wrong, the position size was wrong too.' },
+]
+
+// Same open position, six mornings. Mirrors ENTRY_LADDER.
+export const EXIT_LADDER = [
+  { key: 'runs', tone: 'good', label: 'Day 2, up 2.5R, closing near the highs', verdict: 'PARTIAL + BREAKEVEN',
+    note: 'The plan worked. Take ⅓–½, move the stop to breakeven, and stop watching it tick — the rest is the rail’s job now.' },
+  { key: 'vertical', tone: 'warn', label: 'Day 4, 3+ ADR above the 10-day', verdict: 'SELL THE REACH',
+    note: 'Extension pays you for patience you have not spent yet. Take the second partial into the strength, not into the pullback that follows it.' },
+  { key: 'quiet', tone: 'warn', label: 'Day 5, still near the entry, volume gone', verdict: 'TIME STOP',
+    note: 'Right idea, wrong schedule — or wrong idea. Either way it is capital and attention parked in something the market is ignoring.' },
+  { key: 'wick', tone: 'good', label: 'Wicks through the rail, closes back above', verdict: 'HOLD',
+    note: 'A shakeout, judged at 4:00 PM like everything else. Selling the intraday flush is donating the very move the rail exists to survive.' },
+  { key: 'body', tone: 'bad', label: 'Closes decisively below the trail rail', verdict: 'EXIT THE REST',
+    note: 'The swing thesis is done. Reassess flat — a reclaim can always be re-bought, and buying it back is cheaper than hoping.' },
+  { key: 'gapped', tone: 'bad', label: 'Opens 8% below the stop on news', verdict: 'OUT AT THE OPEN',
+    note: 'The loss already happened; the only remaining choice is whether it compounds. No waiting for the close, no negotiating for a reclaim.' },
 ]
 
 // The instant-no list — each of these is an execution error rather than a bad

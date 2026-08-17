@@ -1,5 +1,6 @@
 import Scene from './Scene'
 import { TONE, SIGNAL_LABEL } from './tones'
+import { useDensity } from './density'
 
 // The standard framework card: tone-tinted shell, optional sequence-number
 // chip, title/tagline + signal chip, a drawn Scene, the Looks like / Means
@@ -14,6 +15,11 @@ import { TONE, SIGNAL_LABEL } from './tones'
 
 export default function FrameworkCard({ t, spec, step, children }) {
   const tone = TONE[t.tone]
+  // In brief mode the card keeps its identity (title, tagline, signal) and its
+  // verdict, and drops the scene + the Looks like / Means prose — the two parts
+  // that make the page long. Anything a panel passes as children (the Entries
+  // trigger/stop strip) is a spec, not prose, so it stays.
+  const brief = useDensity() === 'brief'
   return (
     <div className={`relative rounded-2xl border overflow-hidden ${tone.border} ${tone.bgSoft} flex flex-col`}>
       <div className={`absolute left-0 right-0 top-0 h-0.5 ${tone.bar} opacity-80`} />
@@ -35,20 +41,24 @@ export default function FrameworkCard({ t, spec, step, children }) {
           </span>
         </div>
 
-        <div className="mt-3">
-          <Scene spec={spec} toneHex={tone.hex} label={`${t.title}: ${t.what}`} />
-        </div>
+        {!brief && (
+          <>
+            <div className="mt-3">
+              <Scene spec={spec} toneHex={tone.hex} label={`${t.title}: ${t.what}`} />
+            </div>
 
-        <div className="mt-3 space-y-2">
-          <div>
-            <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-0.5">Looks like</div>
-            <p className="text-[12px] text-surface-300 leading-snug">{t.what}</p>
-          </div>
-          <div>
-            <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-0.5">Means</div>
-            <p className="text-[12px] text-surface-400 leading-snug">{t.why}</p>
-          </div>
-        </div>
+            <div className="mt-3 space-y-2">
+              <div>
+                <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-0.5">Looks like</div>
+                <p className="text-[12px] text-surface-300 leading-snug">{t.what}</p>
+              </div>
+              <div>
+                <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-0.5">Means</div>
+                <p className="text-[12px] text-surface-400 leading-snug">{t.why}</p>
+              </div>
+            </div>
+          </>
+        )}
 
         <div className="flex-1" />
 

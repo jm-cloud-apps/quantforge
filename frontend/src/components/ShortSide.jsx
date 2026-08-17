@@ -1,6 +1,7 @@
 import { SHORT_MIRROR, SHORT_SIDE, SHORT_ARC_LADDER } from '../utils/tradingRules'
 import { Candle } from './MARailsVisuals'
 import { VOL_COLORS } from './volumeCharts'
+import { useDensity } from './framework/density'
 
 // Short Side — the mirror panel: the lineage's one A+ short (the parabolic
 // short) plus the backside re-short, taught against the long frameworks above
@@ -156,6 +157,7 @@ function Scene({ spec, toneHex, label }) {
 // One playbook card — same layout as the Candles × Rails cards, numbered so
 // each side reads as a sequence.
 function ShortCard({ t, step }) {
+  const brief = useDensity() === 'brief'
   const tone = TONE[t.tone]
   return (
     <div className={`relative rounded-2xl border overflow-hidden ${tone.border} ${tone.bgSoft} flex flex-col`}>
@@ -176,7 +178,7 @@ function ShortCard({ t, step }) {
           </span>
         </div>
 
-        <div className="mt-3">
+        {!brief && (<><div className="mt-3">
           <Scene spec={SCENES[t.glyph]} toneHex={tone.hex} label={`${t.title}: ${t.what}`} />
         </div>
 
@@ -189,7 +191,7 @@ function ShortCard({ t, step }) {
             <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-0.5">Means</div>
             <p className="text-[12px] text-surface-400 leading-snug">{t.why}</p>
           </div>
-        </div>
+        </div></>)}
 
         <div className="flex-1" />
 

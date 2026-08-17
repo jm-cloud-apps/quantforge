@@ -14,9 +14,12 @@ import CandleTells from '../components/CandleTells'
 import CandlesAtRails from '../components/CandlesAtRails'
 import ExitTrendDeath from '../components/ExitTrendDeath'
 import BasesAndPivots from '../components/BasesAndPivots'
+import { DensityContext } from '../components/framework/density'
+import { searchRules, snippet } from '../utils/rulesSearch'
 import HTFSetup from '../components/HTFSetup'
 import EPSetup from '../components/EPSetup'
 import Entries from '../components/Entries'
+import Exits from '../components/Exits'
 import TradeLifecycle from '../components/TradeLifecycle'
 import ShortSide from '../components/ShortSide'
 
@@ -526,6 +529,7 @@ const SECTION_NAV = [
   { id: 'ep-setup', label: 'EP Setup', tone: 'warning' },
   { id: 'catalysts', label: 'EP Catalysts', tone: 'accent' },
   { id: 'entries', label: 'Entries', tone: 'accent' },
+  { id: 'exits', label: 'Exits', tone: 'cyan' },
   { id: 'lifecycle', label: 'Lifecycle', tone: 'cyan' },
   { id: 'short-side', label: 'Short Side', tone: 'danger' },
   { id: 'my-rules', label: 'My Rules', tone: 'neutral' },
@@ -534,6 +538,11 @@ const SECTION_NAV = [
 // v2: earlier builds defaulted the frameworks to collapsed; the page now opens
 // fully expanded, so a fresh key resets everyone to that default.
 const COLLAPSE_KEY = 'qf:rules:collapsed:v2'
+const DENSITY_KEY = 'qf:rules:density'
+
+function loadDensity() {
+  try { return localStorage.getItem(DENSITY_KEY) === 'brief' ? 'brief' : 'full' } catch { return 'full' }
+}
 
 function loadCollapsed() {
   try {
@@ -545,7 +554,61 @@ function loadCollapsed() {
 
 // Sticky wayfinding bar. Sits under the mobile header (h-14) and at the top
 // of the viewport on desktop; scrollspy highlights the section in view.
-function SectionNav({ active, onJump, allCollapsed, onToggleAll }) {
+// Search sits in the sticky nav because that's the one thing always on screen.
+// Results come from the data module, so a folded-away panel is still findable —
+// which is exactly when you need it.
+function RulesSearch({ onPick }) {
+  const [q, setQ] = useState('')
+  const [open, setOpen] = useState(false)
+  const results = useMemo(() => searchRules(q), [q])
+
+  return (
+    <div className="relative shrink-0">
+      <input
+        value={q}
+        onChange={(e) => { setQ(e.target.value); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}   // let a click land first
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') { setQ(''); setOpen(false); e.currentTarget.blur() }
+          if (e.key === 'Enter' && results[0]) { onPick(results[0].id); setOpen(false) }
+        }}
+        placeholder="Search the rules…"
+        aria-label="Search the rules"
+        className="w-[150px] focus:w-[220px] transition-[width] bg-surface-900/70 border border-surface-700/60 rounded-lg pl-7 pr-2 py-1.5 text-[12px] text-surface-100 placeholder-surface-500 focus:outline-none focus:border-accent"
+      />
+      <svg className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-surface-500 pointer-events-none"
+        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+      </svg>
+
+      {open && q.trim().length >= 2 && (
+        <div className="absolute right-0 top-full mt-1.5 w-[min(28rem,80vw)] max-h-[60vh] overflow-y-auto rounded-xl border border-surface-700 bg-surface-950/98 backdrop-blur-xl shadow-card z-50">
+          {results.length === 0 ? (
+            <div className="px-3 py-3 text-[12px] text-surface-500">
+              Nothing matches “{q.trim()}”.
+            </div>
+          ) : results.map((r, i) => (
+            <button
+              key={`${r.id}-${r.title}-${i}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { onPick(r.id); setOpen(false) }}
+              className="w-full text-left px-3 py-2 hover:bg-surface-800/70 border-b border-surface-800 last:border-0"
+            >
+              <div className="flex items-baseline gap-2">
+                <span className="text-[12.5px] font-semibold text-surface-100 truncate">{r.title}</span>
+                <span className="ml-auto text-[9.5px] font-bold tracking-wider uppercase text-surface-500 shrink-0">{r.panel}</span>
+              </div>
+              <div className="text-[11px] text-surface-500 leading-snug line-clamp-2">{snippet(r, q)}</div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SectionNav({ active, onJump, allCollapsed, onToggleAll, density, onToggleDensity }) {
   return (
     <div className="sticky top-14 lg:top-0 z-40 py-1.5 -my-1.5">
       <nav
@@ -570,6 +633,29 @@ function SectionNav({ active, onJump, allCollapsed, onToggleAll }) {
           )
         })}
         <span className="flex-1 min-w-2" aria-hidden />
+        <RulesSearch onPick={onJump} />
+        {/* Brief drops each card's scene and its Looks like / Means prose,
+            keeping the title and the one-line rule. ~18k words is the right
+            shape for studying and the wrong one for checking something at
+            9:25. */}
+        <button
+          type="button"
+          onClick={onToggleDensity}
+          aria-pressed={density === 'brief'}
+          title={density === 'brief'
+            ? 'Showing rules only — switch back to the full explanations'
+            : 'Show just the one-line rules'}
+          className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors ${
+            density === 'brief'
+              ? 'bg-accent/15 text-accent border-accent/40'
+              : 'border-surface-700/60 text-surface-400 hover:text-surface-100 hover:bg-surface-800/60'
+          }`}
+        >
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h10M4 18h7" />
+          </svg>
+          {density === 'brief' ? 'Rules only' : 'Brief'}
+        </button>
         {/* Collapse/expand every panel at once — collapsed, the page reads as a
             table of contents of panel headers. */}
         <button
@@ -610,8 +696,13 @@ export default function Rules() {
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const [collapsed, setCollapsed] = useState(loadCollapsed)
   const [activeSection, setActiveSection] = useState('ma-rails')
+  const [density, setDensity] = useState(loadDensity)
 
   useEffect(() => { saveRules(rules) }, [rules])
+
+  useEffect(() => {
+    try { localStorage.setItem(DENSITY_KEY, density) } catch {}
+  }, [density])
 
   useEffect(() => {
     try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsed)) } catch {}
@@ -825,11 +916,17 @@ export default function Rules() {
       </div>
 
       {/* STICKY SECTION NAV — wayfinding; scrollspy highlights the section in view */}
-      <SectionNav active={activeSection} onJump={jumpTo} allCollapsed={allCollapsed} onToggleAll={toggleAll} />
+      <SectionNav
+        active={activeSection} onJump={jumpTo}
+        allCollapsed={allCollapsed} onToggleAll={toggleAll}
+        density={density}
+        onToggleDensity={() => setDensity(d => (d === 'brief' ? 'full' : 'brief'))}
+      />
 
       {/* FRAMEWORK PANELS — workflow order (MA Rails → Volume → Candles → EP
           Catalysts). Each self-collapses via its own header; expanded by
           default. My Rules comes last. */}
+      <DensityContext.Provider value={density}>
       <MARails id="ma-rails" collapsible collapsed={!!collapsed['ma-rails']} onToggle={() => toggleSection('ma-rails')} />
       <VolumePatterns id="volume" collapsible collapsed={!!collapsed.volume} onToggle={() => toggleSection('volume')} />
       <CandleTells id="candles" collapsible collapsed={!!collapsed.candles} onToggle={() => toggleSection('candles')} />
@@ -840,8 +937,10 @@ export default function Rules() {
       <EPSetup id="ep-setup" collapsible collapsed={!!collapsed['ep-setup']} onToggle={() => toggleSection('ep-setup')} />
       <CatalystHierarchy id="catalysts" collapsible collapsed={!!collapsed.catalysts} onToggle={() => toggleSection('catalysts')} />
       <Entries id="entries" collapsible collapsed={!!collapsed.entries} onToggle={() => toggleSection('entries')} />
+      <Exits id="exits" collapsible collapsed={!!collapsed.exits} onToggle={() => toggleSection('exits')} />
       <TradeLifecycle id="lifecycle" collapsible collapsed={!!collapsed.lifecycle} onToggle={() => toggleSection('lifecycle')} />
       <ShortSide id="short-side" collapsible collapsed={!!collapsed['short-side']} onToggle={() => toggleSection('short-side')} />
+      </DensityContext.Provider>
 
       {/* MY RULES — last; the rules you actually trade. Header doubles as the
           collapse toggle, same as the framework panels. */}
