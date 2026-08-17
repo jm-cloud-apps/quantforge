@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { BASE_PATTERNS, BASE_QUALITY, BASE_COUNT_LADDER, POLE_FORK, SETUP_MATRIX } from '../utils/tradingRules'
 import { Candle } from './MARailsVisuals'
 import { VOL_COLORS } from './volumeCharts'
+import { useDensity } from './framework/density'
 
 // Bases & Pivots — the structure framework. Every other panel reads the
 // *moment* (rails, volume, candles, their interaction); this one defines the
@@ -139,6 +140,7 @@ function ForkScene() {
 }
 
 function PatternCard({ t }) {
+  const brief = useDensity() === 'brief'
   const tone = TONE[t.tone]
   return (
     <div className={`relative rounded-2xl border overflow-hidden ${tone.border} ${tone.bgSoft} flex flex-col`}>
@@ -154,7 +156,7 @@ function PatternCard({ t }) {
           </span>
         </div>
 
-        <div className="mt-3">
+        {!brief && (<><div className="mt-3">
           <Scene spec={SCENES[t.glyph]} toneHex={tone.hex} label={`${t.title}: ${t.what}`} />
         </div>
 
@@ -167,7 +169,7 @@ function PatternCard({ t }) {
             <div className="text-[9px] font-bold tracking-widest text-surface-500 uppercase mb-0.5">Means</div>
             <p className="text-[12px] text-surface-400 leading-snug">{t.why}</p>
           </div>
-        </div>
+        </div></>)}
 
         <div className="flex-1" />
 
