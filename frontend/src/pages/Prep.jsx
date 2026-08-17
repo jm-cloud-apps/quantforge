@@ -303,6 +303,11 @@ export default function Prep() {
           horizons: row.horizons || [],
           adr_pct: row.adr_pct ?? null,
           from_high_pct: row.from_high_pct ?? null,
+          // Carried so an RS-leadership pick keeps its reason on the shortlist —
+          // it qualifies on sustained rank, not on any return horizon.
+          rs_rank: row.rs_rank ?? null,
+          rs_days_top: row.rs_days_top ?? null,
+          rs_window: row.rs_window ?? null,
           note: '',
         }])
   }, [])
@@ -624,7 +629,14 @@ export default function Prep() {
                       <span className="font-mono font-semibold text-surface-100 w-16 shrink-0"><TickerLink symbol={p.symbol} /></span>
                       <StateBadge state={p.setup_state} />
                       <span className="text-[11px] text-surface-500 font-mono shrink-0">
-                        {(p.horizons || []).join('+') || '—'} · ADR {p.adr_pct?.toFixed?.(1) ?? '—'}%
+                        {/* Return-lane names carry their horizons; an RS-leadership
+                            name qualifies on sustained rank instead, so show that
+                            rather than an empty dash. */}
+                        {(p.horizons || []).length
+                          ? p.horizons.join('+')
+                          : p.rs_days_top != null
+                            ? `RS ${p.rs_rank} · ${p.rs_days_top}/${p.rs_window}d`
+                            : '—'} · ADR {p.adr_pct?.toFixed?.(1) ?? '—'}%
                       </span>
                       <input
                         value={p.note}

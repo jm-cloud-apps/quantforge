@@ -78,6 +78,38 @@ TOP_N = 25              # names kept per horizon
 ADR_WINDOW = 20         # sessions for the ADR% average
 QUIET_WINDOW = 10       # recent sessions tested for range contraction
 SMA_FAST, SMA_SLOW = 10, 20
+
+# --- RS leadership lane -----------------------------------------------------
+# The three horizon scans above rank by RAW RETURN, and that quietly encodes a
+# bias: over any window the top 25 by percentage are dominated by low-priced,
+# violent names. A heavy liquid leader compounding against the market never
+# appears, however strong it is.
+#
+# SNDK is the worked example. It sat at RS rank 99-100 for eight straight
+# months — top 1% of the market — while it went from $219 to $2,100, and it is
+# in none of the 6M / 3M / 1M lists, because +9% over a month does not compete
+# with +171%. The scan that was meant to find leadership could not see the
+# clearest leader on the board.
+#
+# So this lane ranks by *sustained* relative strength instead. Mansfield RS is
+# computed with the same formula stage_analysis uses (the stock/SPY ratio
+# against its own moving average of that ratio) so the two surfaces cannot
+# drift; test_rs_leaders_lane.py pins them together. What is new here is the
+# persistence count — how many of the recent sessions the name has held the top
+# decile — because one day at RS 95 is noise and forty is sponsorship.
+RS_MA_DAYS = 150        # 30 weeks, matching stage_analysis.MA_DAYS
+RS_MIN_MA_DAYS = 60     # shorter cache → shorter MA, flagged approximate
+RS_PERSIST_WINDOW = 63  # ~3 months of sessions scored for persistence
+RS_TOP_PCT = 90.0       # "leading" = top decile of the cross-section that day
+RS_MIN_DAYS_TOP = 20    # ~1 month in the top decile to qualify at all
+RS_TOP_N = 25
+# Persistence and current standing are blended rather than applied in
+# sequence. Sorting on days-in-the-top-decile first looks reasonable and is
+# not: with a hard cap, any name at 63/63 outranks every name at 62/63
+# whatever its RS today, which quietly selects for the *least volatile*
+# leaders. SNDK — 52/63 days top-decile, RS 92 and rising — was cut by exactly
+# that, which is the same failure this lane exists to fix, one level down.
+RS_PERSIST_WEIGHT = 0.6
 SPARK_SESSIONS = 60     # closes attached per row for the inline sparkline
 
 # setup_state cuts
@@ -212,12 +244,16 @@ def run(
         return _empty(today.isoformat(), universe_size, 0)
     symbols = list(gated.index)
 
-    # --- Walk back for the deepest horizon we need (+1 bar for the return) --
-    need = max(HORIZONS.values()) + 1
+    # --- Walk back for the deepest window we need (+1 bar for the return) ---
+    # The RS lane needs its MA window *plus* the persistence window behind it,
+    # which is deeper than any return horizon; the extra sessions are read once
+    # and the whole response is ScanCache'd.
+    need = max(max(HORIZONS.values()) + 1, RS_MA_DAYS + RS_PERSIST_WINDOW)
     closes: dict = {}
     highs: dict = {}
     lows: dict = {}
     vols: dict = {}
+    spy_close: dict = {}
     for d in reversed(all_days):
         df = load_cached_day(d)
         if df is None or df.empty:
@@ -226,6 +262,12 @@ def run(
         highs[d] = df["high"].reindex(symbols)
         lows[d] = df["low"].reindex(symbols)
         vols[d] = df["volume"].reindex(symbols)
+        # SPY is the RS benchmark and is filtered out of `symbols` by the
+        # common-stock universe gate, so it's carried separately.
+        try:
+            spy_close[d] = float(df["close"].get("SPY", np.nan))
+        except (TypeError, ValueError):
+            spy_close[d] = np.nan
         if len(closes) >= need:
             break
 
@@ -253,6 +295,11 @@ def run(
         day_returns = (C[:, 1:] / C[:, :-1] - 1.0) * 100.0
         # 20-day average dollar volume — the liquidity gate that matters.
         adv = np.nanmean((C * V)[:, -ADR_WINDOW:], axis=1)
+
+    # Sustained relative strength across the whole panel, indexed like C.
+    spy_row = pd.Series(spy_close).sort_index().to_numpy(dtype=float)
+    rs = rs_persistence(C, spy_row) if np.isfinite(spy_row).any() else None
+    rs_index = {sym: i for i, sym in enumerate(symbols)} if rs else {}
 
     records: dict[str, dict] = {}
     passed_liquidity = 0
@@ -349,6 +396,19 @@ def run(
             "horizons": [],
         }
 
+        if rs is not None:
+            j = rs_index.get(sym)
+            if j is not None:
+                rank_v = rs["rank"][j]
+                mans_v = rs["mansfield"][j]
+                records[sym].update({
+                    "rs_rank": round(float(rank_v)) if np.isfinite(rank_v) else None,
+                    "rs_mansfield": round(float(mans_v), 1) if np.isfinite(mans_v) else None,
+                    "rs_days_top": int(rs["days_top"][j]),
+                    "rs_window": rs["window"],
+                    "rs_rising": bool(rs["rising"][j]),
+                })
+
     # --- Rank each horizon independently — that IS the three-scan routine ---
     horizon_out = []
     for key in ("6M", "3M", "1M"):
@@ -367,6 +427,36 @@ def run(
             "blurb": HORIZON_BLURB[key],
             "sessions": HORIZONS[key],
             "rows": [{**r, "rank": n} for n, r in enumerate(ranked, 1)],
+        })
+
+    # --- RS leadership: sustained, not fastest -------------------------------
+    # Deliberately NOT tagged into r["horizons"]: that field drives `confluence`,
+    # which means "in two or more *return* windows". Folding a different kind of
+    # measure into it would quietly change what confluence claims.
+    if rs is not None:
+        qualified = []
+        for r in records.values():
+            if r.get("rs_days_top") is None or r.get("rs_rank") is None:
+                continue
+            if r["rs_days_top"] < RS_MIN_DAYS_TOP:
+                continue
+            persist = r["rs_days_top"] / max(1, r["rs_window"]) * 100.0
+            r["rs_score"] = round(
+                RS_PERSIST_WEIGHT * persist + (1 - RS_PERSIST_WEIGHT) * r["rs_rank"], 1
+            )
+            qualified.append(r)
+        ranked_rs = sorted(qualified, key=lambda r: -r["rs_score"])[:RS_TOP_N]
+        horizon_out.append({
+            "key": "RS",
+            "label": "RS leadership",
+            "blurb": (
+                "Sustained outperformance, not the biggest move — ranked by how many of the "
+                f"last {rs['window']} sessions the name held the top decile of relative strength. "
+                "This is where a heavy, liquid leader compounding against the market shows up; "
+                "the return scans structurally can't see it."
+            ),
+            "sessions": rs["window"],
+            "rows": [{**r, "rank": n} for n, r in enumerate(ranked_rs, 1)],
         })
 
     # --- Confluence: in two or more lists = sustained AND accelerating -------
@@ -390,3 +480,81 @@ def run(
 
 def _r(v: float | None) -> float | None:
     return None if v is None else round(float(v), 1)
+
+
+def rs_persistence(closes: np.ndarray, spy: np.ndarray,
+                   ma_days: int = RS_MA_DAYS,
+                   window: int = RS_PERSIST_WINDOW,
+                   top_pct: float = RS_TOP_PCT) -> dict | None:
+    """Sustained relative strength for a whole panel at once.
+
+    `closes` is symbols × sessions, `spy` the matching benchmark row. Mansfield
+    RS is the stock/benchmark ratio measured against its own `ma_days` mean of
+    that ratio — the same expression stage_analysis uses, so a name's RS reads
+    the same on the Prep lane and the Stage page.
+
+    Ranking is cross-sectional *per session*, then persistence counts how many
+    of the last `window` sessions each name spent in the top decile. That count
+    is the point of the lane: a single day at RS 95 is a good week, forty of
+    them is institutional accumulation, and raw return can't tell them apart.
+
+    Returns None when the panel is too short to form even the minimum MA.
+    """
+    n_days = closes.shape[1]
+    if n_days < 2:
+        return None
+    # The MA must leave sessions behind it to score, or "persistence" would be
+    # measured over a single day. Reserve a slice of the panel for scoring and
+    # shorten the MA to fit — the same trade stage_analysis._fit_windows makes.
+    reserve = max(2, min(window, 10))
+    ma = min(ma_days, n_days - reserve + 1)
+    if ma < RS_MIN_MA_DAYS:
+        return None
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        safe_spy = np.where(spy > 0, spy, np.nan)
+        ratio = closes / safe_spy                              # symbols × sessions
+
+        # Trailing mean of the ratio, per session, over the MA window. Only the
+        # sessions that have a full window behind them are scorable.
+        scorable = n_days - ma + 1
+        if scorable < 2:
+            return None
+        cum = np.nancumsum(np.nan_to_num(ratio, nan=0.0), axis=1)
+        counts = np.nancumsum(np.isfinite(ratio), axis=1)
+        # rolling sum/count over `ma` columns ending at each scorable session
+        head_sum = np.concatenate([np.zeros((ratio.shape[0], 1)), cum[:, :-1]], axis=1)
+        head_cnt = np.concatenate([np.zeros((ratio.shape[0], 1)), counts[:, :-1]], axis=1)
+        roll_sum = cum[:, ma - 1:] - head_sum[:, : n_days - ma + 1]
+        roll_cnt = counts[:, ma - 1:] - head_cnt[:, : n_days - ma + 1]
+        ratio_ma = np.where(roll_cnt > 0, roll_sum / np.where(roll_cnt > 0, roll_cnt, 1), np.nan)
+
+        ratio_now = ratio[:, ma - 1:]
+        mansfield = (ratio_now / np.where(ratio_ma != 0, ratio_ma, np.nan) - 1.0) * 100.0
+
+    # Cross-sectional percentile per session (a column at a time), NaNs excluded.
+    ranks = np.full(mansfield.shape, np.nan)
+    for j in range(mansfield.shape[1]):
+        col = mansfield[:, j]
+        ok = np.isfinite(col)
+        if ok.sum() < 2:
+            continue
+        order = col[ok].argsort().argsort().astype(float)
+        ranks[ok, j] = (order + 1) / ok.sum() * 100.0
+
+    tail = ranks[:, -min(window, ranks.shape[1]):]
+    with np.errstate(invalid="ignore"):
+        days_top = np.nansum(tail >= top_pct, axis=1)
+        # Rising = today's RS above where it was a fifth of the window ago.
+        back = max(1, tail.shape[1] // 5)
+        rising = ranks[:, -1] > ranks[:, -1 - back] if ranks.shape[1] > back else np.zeros(len(ranks), bool)
+
+    return {
+        "mansfield": mansfield[:, -1],
+        "rank": ranks[:, -1],
+        "days_top": days_top.astype(int),
+        "window": int(tail.shape[1]),
+        "rising": np.asarray(rising, dtype=bool),
+        "ma_days": int(ma),
+        "approx": ma < ma_days,
+    }
