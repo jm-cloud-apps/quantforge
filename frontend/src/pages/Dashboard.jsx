@@ -10,6 +10,7 @@ import { getBreakouts } from '../api/breakoutScreener'
 import { BREAKOUT_PRESETS } from '../api/breakoutPresets'
 import { get9MScan } from '../api/scanner9m'
 import { getEarnings } from '../api/calendar'
+import { getRoutine } from '../api/prep'
 import { getMovers, getExtendedMovers, getGapMovers } from '../api/movers'
 import { getWatchlist } from '../api/watchlists'
 import { fetchNews, refreshNewsCachePrices } from '../api/news'
@@ -197,6 +198,48 @@ function Empty({ children }) {
 
 const INDEX_SYMS = ['SPY', 'QQQ', 'IWM', 'DIA']
 const INDEX_NAMES = { SPY: 'S&P 500', QQQ: 'Nasdaq 100', IWM: 'Russell 2000', DIA: 'Dow 30' }
+
+// The next step, not another number.
+//
+// This app has 36 pages grouped by category, and a category is a filing system
+// rather than a routine — standing in "Find Setups" still leaves you choosing
+// between twelve things. Nothing else here is time-aware either: the right
+// surface at 08:45, 10:30 and 16:30 are completely different, and every page
+// was presented identically at all of them.
+//
+// So this names one action, chosen from the market clock and from what has
+// actually been done today. It fails silently — a dashboard hint that breaks
+// the dashboard is worse than no hint.
+const ROUTINE_TONE = {
+  act: { wrap: 'border-accent/40 bg-accent/[0.07]', chip: 'bg-accent/15 text-accent', cta: 'bg-accent/15 text-accent hover:bg-accent/25 border-accent/30' },
+  ok: { wrap: 'border-surface-700/60 bg-surface-900/60', chip: 'bg-surface-800 text-surface-300', cta: 'border-surface-600 text-surface-200 hover:bg-surface-800' },
+  idle: { wrap: 'border-surface-700/40 bg-surface-900/40', chip: 'bg-surface-800 text-surface-500', cta: 'border-surface-700 text-surface-400 hover:bg-surface-800' },
+}
+
+function RoutineStrip({ refreshKey }) {
+  const { data } = useCardData(() => getRoutine(), refreshKey, 'Routine')
+  const a = data?.action
+  if (!a) return null
+  const tone = ROUTINE_TONE[a.tone] || ROUTINE_TONE.ok
+
+  return (
+    <div className={`rounded-2xl border px-4 py-3 flex items-center gap-4 flex-wrap ${tone.wrap}`}>
+      <span className={`shrink-0 text-[9.5px] font-bold tracking-widest uppercase px-2 py-1 rounded ${tone.chip}`}>
+        {a.phase === 'session' ? 'Now' : a.phase}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="text-[14px] font-semibold text-surface-50">{a.headline}</div>
+        <div className="text-[12px] text-surface-400 leading-snug mt-0.5">{a.detail}</div>
+      </div>
+      <Link
+        to={a.to}
+        className={`shrink-0 text-[12px] font-semibold rounded-lg border px-3 py-1.5 transition-colors ${tone.cta}`}
+      >
+        {a.cta} →
+      </Link>
+    </div>
+  )
+}
 
 function IndexStrip({ refreshKey }) {
   const { data, loading } = useCardData(() => refreshNewsCachePrices(INDEX_SYMS), refreshKey, 'Index prices')
@@ -1441,6 +1484,7 @@ function DashboardInner() {
       <LoadProgress />
 
       {/* Index / market pulse strip */}
+      <RoutineStrip refreshKey={refreshKey} />
       <IndexStrip refreshKey={refreshKey} />
 
       {/* Rule of the day */}

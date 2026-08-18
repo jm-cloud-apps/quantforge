@@ -47,3 +47,10 @@ export function getPrepAttention({ lane = '', limit = 20 } = {}) {
   if (lane) q.set('lane', lane)
   return req(`/attention?${q}`)
 }
+
+// The single next step, from the market clock and from what you've actually
+// done. Composition of endpoints that already exist; degrades to a weaker
+// suggestion rather than failing when one of them is unavailable.
+export function getRoutine() {
+  return req('/routine')
+}

@@ -91,6 +91,80 @@ def get_leaders(
     return _leaders_cache.fetch(key, _scan, force=fresh)
 
 
+@router.get("/routine")
+def get_routine() -> dict:
+    """The single next step, from the clock and from what you've actually done.
+
+    Composition only — every input already has an endpoint. Each lookup is
+    wrapped because this is a nudge on the dashboard: if the trade workbook is
+    missing or the discipline module throws, the strip should degrade to a
+    weaker suggestion rather than take the page down.
+    """
+    from datetime import datetime as _dt
+
+    import market_clock
+    import routine
+
+    phase = market_clock.session_phase()
+
+    plans_today = 0
+    try:
+        from discipline_router import today as _today
+        plans_today = int((_today() or {}).get("plans_today") or 0)
+    except Exception:
+        pass
+
+    last_prep = None
+    try:
+        sessions = _load().get("sessions") or []
+        if sessions:
+            last_prep = max(s.get("date") or "" for s in sessions) or None
+    except Exception:
+        pass
+
+    cache_as_of = None
+    try:
+        from breadth.cache import list_cached_days
+        days = list_cached_days()
+        if days:
+            cache_as_of = max(days).isoformat()
+    except Exception:
+        pass
+
+    open_suggestions = 0
+    try:
+        import missed_router
+        open_suggestions = int(missed_router.suggestions().get("count") or 0)
+    except Exception:
+        pass
+
+    unclear_misses = 0
+    try:
+        import missed_router
+        cutoff = (_dt.now().date().toordinal() - 30)
+        for e in missed_router._load()["entries"].values():
+            if e.get("verdict") != "unclear":
+                continue
+            d = routine._to_date(e.get("date"))
+            if d and d.toordinal() < cutoff:
+                unclear_misses += 1
+    except Exception:
+        pass
+
+    action = routine.next_action(
+        phase,
+        plans_today=plans_today,
+        last_prep=last_prep,
+        cache_as_of=cache_as_of,
+        open_suggestions=open_suggestions,
+        unclear_misses=unclear_misses,
+    )
+    return {"action": action, "phase": phase,
+            "signals": {"plans_today": plans_today, "last_prep": last_prep,
+                        "cache_as_of": cache_as_of, "open_suggestions": open_suggestions,
+                        "unclear_misses": unclear_misses}}
+
+
 @router.get("/attention")
 def get_attention(
     lane: str = Query("", description="Restrict to one lane (e.g. RS); blank = all"),
