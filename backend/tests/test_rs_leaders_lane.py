@@ -147,3 +147,44 @@ def test_stage_analysis_still_defines_rs_the_way_this_lane_assumes():
 def test_a_useless_benchmark_returns_none_rather_than_garbage(bad):
     closes = np.ones((3, 5)) * 10
     assert RL.rs_persistence(closes, bad, ma_days=150) is None
+
+
+# --- stage_analysis leaders lane -------------------------------------------
+# The Stage page's per-stage cap plus a turn-first sort is what hid SNDK there:
+# classified Stage 2 at RS 99-100 the whole way from $219 to $2,100, visible in
+# the returned table on 27 of 177 replayed sessions. The leaders lane is drawn
+# before the cap so "who is leading" is always answerable.
+
+def test_stage_leaders_lane_is_exempt_from_the_per_stage_cap():
+    from scanners import stage_analysis as SA
+
+    payload = SA.run(per_stage_limit=5)
+    leaders = payload.get("leaders") or []
+    if not leaders:
+        import pytest as _pytest
+        _pytest.skip("breadth cache not populated in this environment")
+
+    shown = {c["symbol"] for c in payload["candidates"]}
+    # With a cap of 5 per stage, most of the top-RS names cannot be in the table.
+    assert len(leaders) > len([c for c in leaders if c["symbol"] in shown])
+
+
+def test_stage_leaders_are_stage_2_ranked_by_rs():
+    from scanners import stage_analysis as SA
+
+    leaders = (SA.run().get("leaders") or [])
+    if not leaders:
+        import pytest as _pytest
+        _pytest.skip("breadth cache not populated in this environment")
+
+    assert all(c["stage"] == 2 for c in leaders)
+    ranks = [c["rs_rank"] for c in leaders]
+    assert ranks == sorted(ranks, reverse=True)
+    assert len(leaders) <= SA.LEADERS_LIMIT
+
+
+def test_stage_leaders_do_not_leak_internal_sort_fields():
+    from scanners import stage_analysis as SA
+
+    for c in (SA.run().get("leaders") or []):
+        assert "_sort_bucket" not in c and "_score" not in c

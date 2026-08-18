@@ -287,6 +287,7 @@ export default function Prep() {
   const [kind, setKind] = useState('evening')
   const [lastSession, setLastSession] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -430,8 +431,11 @@ export default function Prep() {
     return days > 3 ? days : null
   }, [leaders])
 
-  const handleSave = useCallback(async () => {
-    setSaving(true)
+  // `quiet` is the autosave path: same write, no toast. The endpoint upserts by
+  // date ("one record per day — re-saving replaces"), so repeatedly saving the
+  // same evening is safe by construction and can't produce duplicate sessions.
+  const persist = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) setSaving(true)
     try {
       const res = await savePrepSession({
         kind,
@@ -443,13 +447,29 @@ export default function Prep() {
         candidates: picks,
       })
       setLastSession(res.session)
-      toast.success(`Prep saved — ${picks.length} name${picks.length === 1 ? '' : 's'}`)
+      setSavedAt(Date.now())
+      if (!quiet) toast.success(`Prep saved — ${picks.length} name${picks.length === 1 ? '' : 's'}`)
     } catch (e) {
-      toast.error(e.message)
+      // An autosave that shouts on every transient failure is worse than one
+      // that retries on the next edit.
+      if (!quiet) toast.error(e.message)
     } finally {
-      setSaving(false)
+      if (!quiet) setSaving(false)
     }
   }, [kind, gate.key, score, sa, notes, picks, toast])
+
+  const handleSave = useCallback(() => persist({ quiet: false }), [persist])
+
+  // Autosave. The record is what makes the rest of the loop work — the missed
+  // suggester matches shortlists to fills, Discipline separates planned trades
+  // from 10am impulses, and the attention ledger needs to know what you picked,
+  // not just what the scan listed. All of that was dark because saving was a
+  // button you had to remember. Fires once there's something worth keeping.
+  useEffect(() => {
+    if (!picks.length && !notes.trim()) return
+    const t = setTimeout(() => persist({ quiet: true }), 1500)
+    return () => clearTimeout(t)
+  }, [picks, notes, kind, persist])
 
   const handleAddToWatchlist = useCallback(async () => {
     if (!picks.length) return
@@ -685,6 +705,11 @@ export default function Prep() {
                 >
                   {saving ? 'Saving…' : 'Save prep'}
                 </button>
+                {savedAt && !saving && (
+                  <span className="text-[10px] text-surface-500 font-mono" title="Autosaved — the record is what the missed-trade and discipline views read">
+                    saved
+                  </span>
+                )}
               </div>
             }
           >

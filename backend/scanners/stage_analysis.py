@@ -101,6 +101,9 @@ _MAX_NEED = MA_DAYS + SLOPE_LOOKBACK
 # The whole market classifies to thousands of names; cap the returned table to
 # the strongest N per stage so the JSON payload stays light (counts stay full).
 PER_STAGE_LIMIT = 200
+# Strongest Stage-2 names by RS, returned outside the per-stage cap so a
+# continuing leader can't be pushed off the page by fresher turn candidates.
+LEADERS_LIMIT = 20
 
 STAGE_NAMES = {1: "Basing", 2: "Advancing", 3: "Topping", 4: "Declining"}
 
@@ -229,8 +232,25 @@ def run(
         c.pop("_sort_bucket", None)
         c.pop("_score", None)
         kept.append(c)
+    all_classified = candidates          # pre-cap, for the leaders lane below
     candidates = kept
     counts["returned"] = len(candidates)
+
+    # --- Strongest advancers, exempt from the cap -------------------------
+    # The priority sort deliberately puts Stage 1->2 turns first, and the
+    # per-stage cap then trims the tail. Together they bury a name that is
+    # merely *continuing* to lead: SNDK classified Stage 2 at RS 99-100 every
+    # month from $219 to $2,100 and appeared in the returned table on 27 of 177
+    # sessions. This lane is drawn from the full classification before the cap,
+    # so the strongest names in the market are always visible somewhere on the
+    # page — it answers "who is leading" rather than "what is turning".
+    leaders = sorted(
+        (c for c in all_classified if c.get("stage") == 2 and c.get("rs_rank") is not None),
+        key=lambda c: (-(c.get("rs_rank") or 0), -(c.get("quality") or 0)),
+    )[:LEADERS_LIMIT]
+    for c in leaders:
+        c.pop("_sort_bucket", None)
+        c.pop("_score", None)
 
     return {
         "as_of": today.isoformat(),
@@ -247,6 +267,7 @@ def run(
         },
         "regime": _regime(counts),
         "candidates": candidates,
+        "leaders": leaders,
         "counts": counts,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }
