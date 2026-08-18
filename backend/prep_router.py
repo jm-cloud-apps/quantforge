@@ -33,6 +33,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+import prep_ledger
 from scanners import rs_leaders
 from ttl_cache import ScanCache
 
@@ -68,14 +69,67 @@ def get_leaders(
     Reads the shared breadth grouped cache — no provider calls. Names appearing
     in two or more windows come back in `confluence`.
     """
+    def _scan() -> dict:
+        payload = rs_leaders.run(
+            min_price=min_price,
+            min_dollar_volume=min_dollar_volume,
+            min_adr_pct=min_adr_pct,
+            max_adr_pct=max_adr_pct,
+            top_n=top_n,
+        )
+        # Record who was on the list today. Inside the scan closure, so it only
+        # fires on a real scan rather than on every cache hit — the ledger
+        # counts sessions, not page views.
+        try:
+            if payload.get("as_of") and not payload.get("error"):
+                prep_ledger.record(payload["as_of"], prep_ledger.lanes_from_payload(payload))
+        except Exception as e:                     # a ledger write must never fail the scan
+            logger.warning("prep ledger write failed (%s)", e)
+        return payload
+
     key = (min_price, min_dollar_volume, min_adr_pct, max_adr_pct, top_n)
-    return _leaders_cache.fetch(key, lambda: rs_leaders.run(
-        min_price=min_price,
-        min_dollar_volume=min_dollar_volume,
-        min_adr_pct=min_adr_pct,
-        max_adr_pct=max_adr_pct,
-        top_n=top_n,
-    ), force=fresh)
+    return _leaders_cache.fetch(key, _scan, force=fresh)
+
+
+@router.get("/attention")
+def get_attention(
+    lane: str = Query("", description="Restrict to one lane (e.g. RS); blank = all"),
+    long_listed: int = Query(prep_ledger.LONG_LISTED_SESSIONS, ge=1, le=200),
+    limit: int = Query(20, ge=1, le=100),
+) -> dict:
+    """Leaders you keep seeing and never trade.
+
+    Every scanner in this app measures the stock. This measures the gap between
+    what the scan surfaced and what you acted on — the one thing that would
+    have said "SNDK has been on your list for forty sessions" while it was
+    still worth saying.
+
+    Fails soft: no ledger or no workbook returns an empty list with a reason,
+    because a nudge that 500s is worse than no nudge.
+    """
+    ledger = prep_ledger.load()
+    if not ledger.get("days"):
+        return {"rows": [], "sessions_in_ledger": 0,
+                "reason": "No leader history recorded yet — it builds as the scan runs."}
+
+    try:
+        from trading_analysis_router import load_default_trades
+        trades = (load_default_trades() or {}).get("trades") or []
+    except Exception:
+        # No workbook is survivable: everything then reads as never-traded,
+        # which over-reports rather than hiding a name you did skip.
+        trades = []
+
+    lanes = [lane] if lane else None
+    rows = prep_ledger.ignored_leaders(ledger, trades, lanes=lanes,
+                                       long_listed=long_listed, limit=limit)
+    return {
+        "rows": rows,
+        "sessions_in_ledger": len(ledger["days"]),
+        "long_listed_threshold": long_listed,
+        "lane": lane or "all",
+        "reason": None,
+    }
 
 
 # ---------------------------------------------------------------------------

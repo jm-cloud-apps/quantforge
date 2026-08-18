@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getPrepLeaders, getPrepSessions, savePrepSession } from '../api/prep'
+import { getPrepAttention, getPrepLeaders, getPrepSessions, savePrepSession } from '../api/prep'
 import { getSituationalAwareness } from '../api/breadth'
 import { getRRG } from '../api/sectorRotation'
 import { getEarnings } from '../api/calendar'
@@ -130,6 +130,51 @@ function riskTone(v) {
   return 'text-danger'
 }
 
+// Names the scan keeps surfacing that never become a trade.
+//
+// Every other panel here measures the stock. This measures the distance
+// between what the scan showed you and what you did — the thing that would
+// have said "SNDK has been on this list for forty sessions" while that was
+// still worth hearing, instead of after it went from $219 to $2,100.
+function IgnoredLeaders({ data, onAdd, pickedSet }) {
+  if (!data || !data.rows?.length) return null
+  return (
+    <div className="border-t border-surface-700/40 bg-amber-500/[0.04] px-4 py-3">
+      <div className="flex items-baseline gap-2 flex-wrap mb-1.5">
+        <span className="text-[10px] font-bold tracking-widest uppercase text-amber-300">Kept seeing, never traded</span>
+        <span className="text-[11px] text-surface-500">
+          on the list {data.long_listed_threshold}+ sessions and never taken since it first appeared
+        </span>
+        <span className="ml-auto text-[10px] font-mono text-surface-600">
+          {data.sessions_in_ledger} sessions on record
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {data.rows.map(r => (
+          <button
+            key={r.symbol}
+            onClick={() => onAdd(r.symbol)}
+            disabled={pickedSet.has(r.symbol)}
+            title={`Listed ${r.sessions_listed} sessions (${r.first_listed} → ${r.last_listed}) · lanes ${r.lanes.join(', ')}`}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] transition-colors ${
+              pickedSet.has(r.symbol)
+                ? 'border-accent/40 bg-accent/10 text-accent cursor-default'
+                : 'border-surface-700 bg-surface-950/40 text-surface-200 hover:border-amber-400/50'
+            }`}
+          >
+            <span className="font-mono font-semibold">{r.symbol}</span>
+            <span className="font-mono text-surface-500">{r.sessions_listed}d</span>
+          </button>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] text-surface-500 leading-snug">
+        Not a buy list — a list of names your process surfaced and your attention skipped. If one of these is a
+        correct pass, log it that way in the Missed Book and it stops being a question.
+      </p>
+    </div>
+  )
+}
+
 function LeaderRow({ row, picked, onToggle, earning, onLastPrep }) {
   return (
     <tr className={`border-t border-surface-800/60 ${picked ? 'bg-accent/[0.07]' : 'hover:bg-surface-800/30'}`}>
@@ -242,6 +287,7 @@ export default function Prep() {
   const [kind, setKind] = useState('evening')
   const [lastSession, setLastSession] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -292,6 +338,18 @@ export default function Prep() {
 
   const score = sa?.score ?? null
   const gate = gateFor(score)
+  // Names the scan keeps surfacing that never turn into a trade. Loaded
+  // independently and allowed to fail silently — it's a nudge beside the
+  // scans, never a precondition for them.
+  const [attention, setAttention] = useState(null)
+  useEffect(() => {
+    let alive = true
+    getPrepAttention({ limit: 8 })
+      .then(d => { if (alive) setAttention(d) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [])
+
   const pickedSet = useMemo(() => new Set(picks.map(p => p.symbol)), [picks])
 
   const togglePick = useCallback((row) => {
@@ -303,6 +361,12 @@ export default function Prep() {
           horizons: row.horizons || [],
           adr_pct: row.adr_pct ?? null,
           from_high_pct: row.from_high_pct ?? null,
+          // Carried so an RS-leadership pick keeps its reason on the shortlist —
+          // it qualifies on sustained rank, not on any return horizon.
+          rs_rank: row.rs_rank ?? null,
+          rs_days_top: row.rs_days_top ?? null,
+          rs_window: row.rs_window ?? null,
+          sessions_listed: row.sessions_listed ?? null,
           note: '',
         }])
   }, [])
@@ -367,8 +431,11 @@ export default function Prep() {
     return days > 3 ? days : null
   }, [leaders])
 
-  const handleSave = useCallback(async () => {
-    setSaving(true)
+  // `quiet` is the autosave path: same write, no toast. The endpoint upserts by
+  // date ("one record per day — re-saving replaces"), so repeatedly saving the
+  // same evening is safe by construction and can't produce duplicate sessions.
+  const persist = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) setSaving(true)
     try {
       const res = await savePrepSession({
         kind,
@@ -380,13 +447,29 @@ export default function Prep() {
         candidates: picks,
       })
       setLastSession(res.session)
-      toast.success(`Prep saved — ${picks.length} name${picks.length === 1 ? '' : 's'}`)
+      setSavedAt(Date.now())
+      if (!quiet) toast.success(`Prep saved — ${picks.length} name${picks.length === 1 ? '' : 's'}`)
     } catch (e) {
-      toast.error(e.message)
+      // An autosave that shouts on every transient failure is worse than one
+      // that retries on the next edit.
+      if (!quiet) toast.error(e.message)
     } finally {
-      setSaving(false)
+      if (!quiet) setSaving(false)
     }
   }, [kind, gate.key, score, sa, notes, picks, toast])
+
+  const handleSave = useCallback(() => persist({ quiet: false }), [persist])
+
+  // Autosave. The record is what makes the rest of the loop work — the missed
+  // suggester matches shortlists to fills, Discipline separates planned trades
+  // from 10am impulses, and the attention ledger needs to know what you picked,
+  // not just what the scan listed. All of that was dark because saving was a
+  // button you had to remember. Fires once there's something worth keeping.
+  useEffect(() => {
+    if (!picks.length && !notes.trim()) return
+    const t = setTimeout(() => persist({ quiet: true }), 1500)
+    return () => clearTimeout(t)
+  }, [picks, notes, kind, persist])
 
   const handleAddToWatchlist = useCallback(async () => {
     if (!picks.length) return
@@ -577,6 +660,20 @@ export default function Prep() {
                 </div>
               </>
             )}
+            <IgnoredLeaders
+              data={attention}
+              pickedSet={pickedSet}
+              onAdd={(symbol) => {
+                // Pull the full row out of whichever lane holds it so the pick
+                // carries its state and ADR, not just a ticker.
+                const all = (leaders?.horizons || []).flatMap(h => h.rows || [])
+                const live = all.find(r => r.symbol === symbol)
+                // A long-ignored name is often no longer on today's list — that
+                // is rather the point — so fall back to what the ledger knows.
+                const seen = (attention?.rows || []).find(r => r.symbol === symbol)
+                togglePick(live || { symbol, sessions_listed: seen?.sessions_listed ?? null })
+              }}
+            />
           </Section>
 
           {/* 4 — the shortlist */}
@@ -608,6 +705,11 @@ export default function Prep() {
                 >
                   {saving ? 'Saving…' : 'Save prep'}
                 </button>
+                {savedAt && !saving && (
+                  <span className="text-[10px] text-surface-500 font-mono" title="Autosaved — the record is what the missed-trade and discipline views read">
+                    saved
+                  </span>
+                )}
               </div>
             }
           >
@@ -624,7 +726,16 @@ export default function Prep() {
                       <span className="font-mono font-semibold text-surface-100 w-16 shrink-0"><TickerLink symbol={p.symbol} /></span>
                       <StateBadge state={p.setup_state} />
                       <span className="text-[11px] text-surface-500 font-mono shrink-0">
-                        {(p.horizons || []).join('+') || '—'} · ADR {p.adr_pct?.toFixed?.(1) ?? '—'}%
+                        {/* Return-lane names carry their horizons; an RS-leadership
+                            name qualifies on sustained rank instead, so show that
+                            rather than an empty dash. */}
+                        {(p.horizons || []).length
+                          ? p.horizons.join('+')
+                          : p.rs_days_top != null
+                            ? `RS ${p.rs_rank} · ${p.rs_days_top}/${p.rs_window}d`
+                            : p.sessions_listed != null
+                              ? `ignored ${p.sessions_listed}d`
+                              : '—'} · ADR {p.adr_pct?.toFixed?.(1) ?? '—'}%
                       </span>
                       <input
                         value={p.note}

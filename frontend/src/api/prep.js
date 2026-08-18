@@ -37,3 +37,13 @@ export function savePrepSession(body) {
 export function deletePrepSession(date) {
   return req(`/session/${encodeURIComponent(date)}`, { method: 'DELETE' })
 }
+
+// Leaders that keep appearing on the scan and never get traded. The scanners
+// measure the stock; this measures the gap between what the scan surfaced and
+// what you acted on. Always resolves — an empty ledger returns rows: [] with a
+// reason, because a nudge that throws is worse than no nudge.
+export function getPrepAttention({ lane = '', limit = 20 } = {}) {
+  const q = new URLSearchParams({ limit: String(limit) })
+  if (lane) q.set('lane', lane)
+  return req(`/attention?${q}`)
+}

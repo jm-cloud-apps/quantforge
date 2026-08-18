@@ -197,6 +197,7 @@ export default function StageAnalysis() {
   useEffect(() => { load(false) }, [load])
 
   const candidates = data?.candidates || []
+  const leaders = data?.leaders || []
   const counts = data?.counts || {}
   const th = data?.thresholds || {}
   const regime = data?.regime
@@ -326,6 +327,39 @@ export default function StageAnalysis() {
             : 'bg-surface-700/40 text-surface-300'
           }`}>{regime.label}</span>
           <span className="text-[12px] text-surface-300">{regime.note}</span>
+        </div>
+      )}
+
+      {/* Strongest advancers — outside the per-stage cap.
+          The table below is priority-sorted so Stage 1->2 turns come first,
+          then capped at 200 per stage. Both are deliberate, and together they
+          bury a name that is merely *continuing* to lead: SNDK classified
+          Stage 2 at RS 99-100 the whole way from $219 to $2,100 and reached
+          the visible table on 27 of 177 sessions. This strip is drawn before
+          the cap, so "who is leading" is always answerable here. */}
+      {leaders.length > 0 && !data?.error && (
+        <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/[0.04] px-4 py-3">
+          <div className="flex items-baseline gap-2 flex-wrap mb-2">
+            <span className="text-[10px] font-bold tracking-widest uppercase text-emerald-300">Strongest advancers</span>
+            <span className="text-[11px] text-surface-500">
+              top Stage-2 names by relative strength — shown outside the per-stage cap, so a continuing leader can’t be
+              pushed off the page by fresher turn candidates
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {leaders.map(c => (
+              <span
+                key={c.symbol}
+                title={`RS ${c.rs_rank} · quality ${c.quality} · ${c.pct_vs_ma}% vs the ${th.ma_weeks || 30}-week MA`}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-surface-700 bg-surface-950/40 px-2 py-1 text-[11px]"
+              >
+                <span className="font-mono font-semibold text-surface-100">
+                  <TickerLink symbol={c.symbol} />
+                </span>
+                <span className="font-mono text-emerald-300">RS {c.rs_rank}</span>
+              </span>
+            ))}
+          </div>
         </div>
       )}
 

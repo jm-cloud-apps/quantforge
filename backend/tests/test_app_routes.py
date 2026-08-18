@@ -63,6 +63,7 @@ def test_critical_routes_are_registered():
         # Pre-market prep (prep_router)
         "/api/prep/leaders",
         "/api/prep/session",
+        "/api/prep/attention",
         "/api/screener/qullamaggie",
         "/api/trade-plans",
         # Discipline / process analytics (discipline_router)
