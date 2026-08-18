@@ -109,3 +109,49 @@ def last_market_close() -> datetime:
             return cutoff
         d -= timedelta(days=1)
     return datetime.combine(d, _ACTIVE_CUTOFF_PT, tzinfo=PT)  # pathological fallback
+
+
+# Session phase, for surfaces that need to know *where in the day* we are
+# rather than just whether the data is moving. The routine differs at 8am,
+# 10am and 5pm, and until now nothing in the UI could tell them apart.
+ET = ZoneInfo("America/New_York")
+_OPEN_ET = dtime(9, 30)
+_CLOSE_ET = dtime(16, 0)
+
+
+def session_phase(now: datetime | None = None) -> dict:
+    """Where the clock is in the trading day, in market terms.
+
+    phase is one of: weekend | holiday | premarket | session | postclose.
+    Returns the ET wall clock too, so a caller in any timezone reasons about
+    the market's day rather than its own.
+    """
+    now_et = (now or datetime.now(ET)).astimezone(ET)
+    date_iso = now_et.date().isoformat()
+    weekday = now_et.weekday()
+
+    if weekday >= 5:
+        phase = "weekend"
+    elif date_iso in _NYSE_HOLIDAYS:
+        phase = "holiday"
+    elif now_et.time() < _OPEN_ET:
+        phase = "premarket"
+    elif now_et.time() < _CLOSE_ET:
+        phase = "session"
+    else:
+        phase = "postclose"
+
+    minutes_to_open = None
+    if phase == "premarket":
+        open_at = now_et.replace(hour=_OPEN_ET.hour, minute=_OPEN_ET.minute,
+                                 second=0, microsecond=0)
+        minutes_to_open = max(0, int((open_at - now_et).total_seconds() // 60))
+
+    return {
+        "phase": phase,
+        "date": date_iso,
+        "et_time": now_et.strftime("%H:%M"),
+        "weekday": weekday,
+        "minutes_to_open": minutes_to_open,
+        "is_active": is_market_active_now(),
+    }

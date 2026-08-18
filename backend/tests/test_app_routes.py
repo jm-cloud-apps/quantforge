@@ -64,6 +64,7 @@ def test_critical_routes_are_registered():
         "/api/prep/leaders",
         "/api/prep/session",
         "/api/prep/attention",
+        "/api/prep/routine",
         "/api/screener/qullamaggie",
         "/api/trade-plans",
         # Discipline / process analytics (discipline_router)
