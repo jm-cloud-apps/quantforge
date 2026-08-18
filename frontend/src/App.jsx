@@ -43,6 +43,7 @@ const EdgeValidation  = lazy(() => import('./pages/EdgeValidation'))
 const Discipline      = lazy(() => import('./pages/Discipline'))
 const RiskManagement  = lazy(() => import('./pages/RiskManagement'))
 const MissedBook      = lazy(() => import('./pages/MissedBook'))
+const Loop            = lazy(() => import('./pages/Loop'))
 
 // Note: the Suspense boundary for lazy page chunks lives INSIDE Layout (around
 // the <Outlet>), so the sidebar/header stay mounted and only the content area
@@ -55,6 +56,7 @@ function AppRoutes() {
         <Route index element={<Dashboard />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="rules" element={<Rules />} />
+        <Route path="loop" element={<Loop />} />
         <Route path="backtesting" element={<Backtesting />} />
         <Route path="screener" element={<Screener />} />
         <Route path="breakouts" element={<Breakouts />} />

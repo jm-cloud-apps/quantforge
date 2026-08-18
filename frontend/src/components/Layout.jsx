@@ -180,6 +180,13 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M17 15l4 4m0-4l-4 4" />
     </svg>
   ),
+  loop: (
+    // A closed cycle — the five stages feed each other.
+    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 12a8 8 0 0113.7-5.7M20 12a8 8 0 01-13.7 5.7" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M18 3v4h-4M6 21v-4h4" />
+    </svg>
+  ),
   prep: (
     // A clipboard with a checked line — the routine you work through.
     <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -197,6 +204,7 @@ const navGroups = [
   {
     label: 'Overview',
     items: [
+      { path: '/loop', label: 'The Loop', icon: icons.loop },
       { path: '/',      label: 'Dashboard', icon: icons.dashboard, end: true },
     ],
   },
@@ -214,18 +222,23 @@ const navGroups = [
   {
     label: '2 · Find Setups',
     items: [
+      // The daily path. Setups Board aggregates the five setup scanners, so the
+      // individual scanner pages below it are drill-downs rather than steps —
+      // twelve equal-weight entries made "2 · Find Setups" a drawer you still
+      // had to choose from. `secondary` folds them behind one toggle; nothing
+      // is removed, and edit mode still shows everything so it stays orderable.
       { path: '/setups',          label: 'Setups Board',     icon: icons.board },
       { path: '/stage-analysis',  label: 'Stage Analysis',   icon: icons.stages },
-      { path: '/ma-reclaim',      label: '200 MA Reclaim',   icon: icons.reclaim },
-      { path: '/breakouts',       label: 'Breakouts',        icon: icons.breakouts },
-      { path: '/scanner-9m',      label: '$9M Scanner',      icon: icons.ninem },
-      { path: '/reversal-setup',  label: 'Reversal Setup',   icon: icons.reversal },
-      { path: '/parabolic-short', label: 'Parabolic Short',  icon: icons.parabolic },
-      { path: '/breakdown-short', label: 'Breakdown Short',  icon: icons.breakdown },
-      { path: '/screener',        label: 'Sector Scan',      icon: icons.sector },
       { path: '/earnings',        label: 'Earnings',         icon: icons.calendar },
-      { path: '/news',            label: 'Stock Analysis',   icon: icons.stock },
-      { path: '/flow',            label: 'Options Flow',     icon: icons.breakouts },
+      { path: '/ma-reclaim',      label: '200 MA Reclaim',   icon: icons.reclaim, secondary: true },
+      { path: '/breakouts',       label: 'Breakouts',        icon: icons.breakouts, secondary: true },
+      { path: '/scanner-9m',      label: '$9M Scanner',      icon: icons.ninem, secondary: true },
+      { path: '/reversal-setup',  label: 'Reversal Setup',   icon: icons.reversal, secondary: true },
+      { path: '/parabolic-short', label: 'Parabolic Short',  icon: icons.parabolic, secondary: true },
+      { path: '/breakdown-short', label: 'Breakdown Short',  icon: icons.breakdown, secondary: true },
+      { path: '/screener',        label: 'Sector Scan',      icon: icons.sector, secondary: true },
+      { path: '/news',            label: 'Stock Analysis',   icon: icons.stock, secondary: true },
+      { path: '/flow',            label: 'Options Flow',     icon: icons.breakouts, secondary: true },
     ],
   },
   {
@@ -346,12 +359,29 @@ export default function Layout() {
   })
   const [editOrder, setEditOrder] = useState(false)
   const [dragItem, setDragItem] = useState(null)   // { group, path }
+  // Groups with a short daily path (`secondary: true` items) start folded.
+  // Not persisted on purpose — the fold is the default view, and an expansion
+  // you set once in March shouldn't quietly become permanent.
+  const [expandedGroups, setExpandedGroups] = useState({})
 
   useEffect(() => {
     try { localStorage.setItem(ORDER_KEY, JSON.stringify(order)) } catch {}
   }, [order])
 
   const orderedGroups = useMemo(() => applyOrder(order), [order])
+
+  // A folded group still shows the page you're on — a nav that hides your own
+  // location is worse than a long one. Edit mode shows everything so every row
+  // stays draggable.
+  const visibleItems = (group) => {
+    if (editOrder || expandedGroups[group.label]) return group.items
+    return group.items.filter(it => !it.secondary || it.path === location.pathname)
+  }
+  const hiddenCount = (group) => group.items.length - visibleItems(group).length
+  // Whether the group *has* a folded tail — not how much is folded right now.
+  // Keying the toggle off hiddenCount made it vanish once expanded, stranding
+  // the group open with no way back.
+  const secondaryCount = (group) => group.items.filter(it => it.secondary).length
   const hasCustomOrder = Object.keys(order).length > 0
 
   // --- Favourites (star a page to emphasise its row) -----------------------
@@ -458,7 +488,7 @@ export default function Layout() {
               )}
               {collapsed && <div className="mx-2 mb-2 h-px bg-surface-700/40" />}
               <div className="space-y-[3px]">
-                {group.items.map(({ path, label, icon, end }) => (
+                {visibleItems(group).map(({ path, label, icon, end }) => (
                   editOrder && !collapsed ? (
                     <div
                       key={path}
@@ -502,6 +532,20 @@ export default function Layout() {
                     </div>
                   )
                 ))}
+                {secondaryCount(group) > 0 && !collapsed && !editOrder && (
+                  <button
+                    onClick={() => setExpandedGroups(g => ({ ...g, [group.label]: !g[group.label] }))}
+                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[12px] text-surface-500 hover:text-surface-300 hover:bg-surface-800/50 transition-colors"
+                  >
+                    <svg className={`w-3.5 h-3.5 shrink-0 transition-transform ${expandedGroups[group.label] ? 'rotate-180' : ''}`}
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                    {expandedGroups[group.label]
+                      ? 'Show fewer'
+                      : `${hiddenCount(group)} more scanner${hiddenCount(group) === 1 ? '' : 's'}`}
+                  </button>
+                )}
               </div>
             </div>
           ))}
