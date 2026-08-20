@@ -66,6 +66,12 @@ function Exits({ collapsible = false, collapsed = false, onToggle, id }) {
             the night before. This is that number. It re-teaches nothing: each row points at the panel that owns the
             reasoning behind it.
           </p>
+          <p className="mt-2 text-[12px] text-surface-400 leading-snug">
+            One schedule, deliberately. Episodic pivots do not share it —{' '}
+            <Link to="/zh-stockbee-ep#trim" className="text-cyan hover:underline">ZH Stockbee on EPs</Link> carries a
+            trim-and-trail ladder indexed on day <em>and</em> catalyst type, which is the axis this ticket has no room
+            for.
+          </p>
         </div>
 
         {/* THE TICKET */}

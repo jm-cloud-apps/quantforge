@@ -30,7 +30,24 @@ def _sources():
             {"symbol": "ARDX", "close": 5.1, "recovery_pct": 89.5, "tail_body_ratio": None}]},
         "regime": {"as_of": "2026-07-14", "score": 46,
                    "stance": {"level": "selective", "label": "Selective", "headline": "Be picky"},
-                   "score_delta_5d": -7},
+                   "score_delta_5d": -7,
+                   "drivers": [
+                       {"label": "Leadership (Qtr ±25%)", "points": 9, "tone": "bull",
+                        "detail": "410 up 25%+ this quarter vs 120 down — positive leadership"},
+                       {"label": "10-day thrust", "points": -5, "tone": "bear",
+                        "detail": "10-day 4% ratio 0.85 — soft"},
+                       {"label": "Froth (Mo +50%)", "points": 0, "tone": "neutral", "detail": None},
+                   ],
+                   "explanation": {"summary": "Exposure scores 46/100 — the Selective band (45–59).",
+                                   "baseline": 50, "bull_points": 9, "bear_points": 13,
+                                   "to_up": {"level": "constructive", "label": "Constructive",
+                                             "threshold": 60, "gain_needed": 14},
+                                   "to_down": {"level": "defensive", "label": "Defensive",
+                                               "threshold": 45, "drop_to": 45}},
+                   "verdict": {"code": "defend", "label": "Defend — no new longs, stalk shorts only",
+                               "tone": "warn", "new_long": "no", "new_short": "stalk",
+                               "why": "Distribution is underway but the Shorts/Hedges light isn't green yet.",
+                               "existing": "Trim laggards.", "avoid": False}},
     }
 
 
@@ -135,3 +152,48 @@ def test_long_and_short_on_the_same_symbol_is_a_conflict_not_conviction():
 
 def test_conflicts_is_empty_when_nothing_contradicts():
     assert build_board(_short_sources())["conflicts"] == []
+
+
+def test_regime_carries_the_reasoning_not_just_the_verdict():
+    """The board banner must be able to answer "why this stance?" — the driver
+    ledger and the band edges ride along with the label."""
+    reg = build_board(_sources())["regime"]
+
+    # Only factors that actually moved the score; the 0-point one is noise.
+    assert [d["label"] for d in reg["drivers"]] == ["Leadership (Qtr ±25%)", "10-day thrust"]
+    assert reg["drivers"][0]["points"] == 9
+    assert reg["drivers"][0]["detail"]
+
+    ex = reg["explanation"]
+    assert ex["baseline"] == 50 and ex["bullPoints"] == 9 and ex["bearPoints"] == 13
+    # A stance is a band: both edges are reported so the page can say what flips it.
+    assert ex["toUp"]["threshold"] == 60 and ex["toUp"]["gain_needed"] == 14
+    assert ex["toDown"]["label"] == "Defensive"
+
+
+def test_regime_without_an_explanation_still_renders():
+    """Older/degraded situational payloads carry no explanation — the banner
+    keeps its verdict rather than the whole board losing its regime block."""
+    reg = build_board({"regime": {"as_of": "2026-07-14", "score": 46,
+                                  "stance": {"level": "selective", "label": "Selective"}}})["regime"]
+    assert reg["stance"]["label"] == "Selective"
+    assert reg["drivers"] == []
+    assert reg["explanation"] is None
+
+
+def test_regime_carries_per_direction_permission_for_the_lane_books():
+    """The board groups lanes long/short, so it gates them on `day_verdict`'s
+    per-direction answer — never on the stance label, which doesn't distinguish
+    "defensive" from "shorts are actually on"."""
+    v = build_board(_sources())["regime"]["verdict"]
+    assert v["newLong"] == "no"
+    assert v["newShort"] == "stalk"     # defensive ≠ shorts in season
+    assert v["code"] == "defend" and v["why"]
+
+
+def test_regime_without_a_verdict_leaves_the_books_ungated():
+    """No verdict → the page must fail open and show both books, so a degraded
+    auxiliary read can never hide setups from a trader holding a position."""
+    reg = build_board({"regime": {"as_of": "2026-07-14", "score": 46,
+                                  "stance": {"level": "selective", "label": "Selective"}}})["regime"]
+    assert reg["verdict"] is None

@@ -28,6 +28,7 @@ const Prep            = lazy(() => import('./pages/Prep'))
 const EarningsCalendar = lazy(() => import('./pages/EarningsCalendar'))
 const Scanner9M       = lazy(() => import('./pages/Scanner9M'))
 const Rules           = lazy(() => import('./pages/Rules'))
+const ZHStockbeeEP    = lazy(() => import('./pages/ZHStockbeeEP'))
 const Dashboard       = lazy(() => import('./pages/Dashboard'))
 const Review          = lazy(() => import('./pages/Review'))
 const AITrader        = lazy(() => import('./pages/AITrader'))
@@ -56,6 +57,7 @@ function AppRoutes() {
         <Route index element={<Dashboard />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="rules" element={<Rules />} />
+        <Route path="zh-stockbee-ep" element={<ZHStockbeeEP />} />
         <Route path="loop" element={<Loop />} />
         <Route path="backtesting" element={<Backtesting />} />
         <Route path="screener" element={<Screener />} />

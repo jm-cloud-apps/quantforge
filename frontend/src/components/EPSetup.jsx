@@ -407,6 +407,20 @@ function EPSetup({ collapsible = false, collapsed = false, onToggle, id }) {
           </div>
         </div>
 
+        {/* One trader's full working method, for the same setup. This panel is
+            the house framework; that page is attributable and disagrees with us
+            in places (notably the stop), which is the reason it is separate. */}
+        <div className="mt-4 rounded-xl border border-surface-700/40 bg-surface-900/30 px-4 py-3">
+          <p className="text-[11.5px] text-surface-400 leading-snug">
+            <span className="font-bold tracking-widest uppercase text-surface-400 text-[10px]">Going deeper</span>
+            <span className="mx-1.5">·</span>
+            <Link to="/zh-stockbee-ep" className="text-cyan hover:underline">ZH Stockbee on EPs</Link> is one trader’s
+            complete working method for this setup — catalyst families, the trim-and-trail ladder by day and EP type,
+            and the theme doctrine. It disagrees with this page in places (it never moves a stop); the differences are
+            labelled there rather than reconciled.
+          </p>
+        </div>
+
         {/* Lineage */}
         <div className="mt-4 pt-3 border-t border-surface-700/40">
           <p className="text-[11px] text-surface-500 leading-snug">

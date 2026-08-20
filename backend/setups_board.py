@@ -150,6 +150,67 @@ def _date_only(s):
     return s[:10] if isinstance(s, str) else s
 
 
+# The banner used to show only the stance label and the score, which states the
+# conclusion without the argument: "Aggressive · 82/100" gives no way to tell a
+# tape carried by broad leadership from one riding a single thrust reading, and
+# no sense of how close the read sits to flipping. `situational.assess` already
+# computes both — the per-factor driver ledger and the band arithmetic — so the
+# board passes them through rather than deriving a second explanation of its own
+# (there is exactly one exposure score; there should be exactly one story about
+# why). Kept lean: only the factors that actually moved the score off 50.
+_MAX_DRIVERS = 6
+
+
+def _regime_view(reg: dict) -> dict | None:
+    """Board-shaped view of the situational read, including *why* it says that."""
+    if not reg or reg.get("error"):
+        return None
+
+    drivers = [
+        {"label": d.get("label"), "points": d.get("points"),
+         "detail": d.get("detail"), "tone": d.get("tone")}
+        for d in (reg.get("drivers") or []) if d.get("points")
+    ][:_MAX_DRIVERS]
+
+    ex = reg.get("explanation") or {}
+    explanation = {
+        "summary": ex.get("summary"),
+        "baseline": ex.get("baseline", 50),
+        "bullPoints": ex.get("bull_points"),
+        "bearPoints": ex.get("bear_points"),
+        # What would move the stance — the read is a band, not a point.
+        "toUp": ex.get("to_up"),
+        "toDown": ex.get("to_down"),
+    } if ex else None
+
+    # The board groups its lanes long / short, so it needs to know which book is
+    # in season — and `day_verdict` already answers exactly that, per direction,
+    # as the thing Trade Today acts on. Passing it through means the board gates
+    # on the same call rather than inferring a second one from the stance label:
+    # "defensive" does NOT imply shorts are on (the verdict only says yes once
+    # the Shorts/Hedges family has its own green), and that distinction is the
+    # whole point of the rule ladder in `situational.day_verdict`.
+    v = reg.get("verdict") or {}
+    verdict = {
+        "code": v.get("code"),
+        "label": v.get("label"),
+        "why": v.get("why"),
+        # "yes" | "stalk" | "no" — per-direction permission for NEW risk.
+        "newLong": v.get("new_long"),
+        "newShort": v.get("new_short"),
+    } if v else None
+
+    return {
+        "score": reg.get("score"),
+        "stance": reg.get("stance"),
+        "asOf": _date_only(reg.get("as_of")),
+        "delta5d": reg.get("score_delta_5d"),
+        "drivers": drivers,
+        "explanation": explanation,
+        "verdict": verdict,
+    }
+
+
 def build_board(sources: dict, per_lane: int = 8, confluence_scan: int = 40) -> dict:
     """Assemble the board payload from each scanner's raw response.
 
@@ -227,15 +288,7 @@ def build_board(sources: dict, per_lane: int = 8, confluence_scan: int = 40) -> 
     # Trim the wide scan set out of the returned lanes to keep the payload lean.
     lane_out = [{k: v for k, v in lane.items() if k != "scanRows"} for lane in lanes]
 
-    regime = None
-    reg = sources.get("regime") or {}
-    if reg and not reg.get("error"):
-        regime = {
-            "score": reg.get("score"),
-            "stance": reg.get("stance"),
-            "asOf": _date_only(reg.get("as_of")),
-            "delta5d": reg.get("score_delta_5d"),
-        }
+    regime = _regime_view(sources.get("regime") or {})
 
     as_ofs = sorted([l["asOf"] for l in lane_out if l.get("asOf")])
     as_of = as_ofs[-1] if as_ofs else (regime.get("asOf") if regime else None)

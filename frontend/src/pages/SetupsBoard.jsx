@@ -36,6 +36,156 @@ function regimeTone(level) {
   return 'amber'
 }
 
+// ---------------------------------------------------------------------------
+// Which book is in season?
+//
+// The board shows a stance and then rendered both books at identical weight —
+// 95 short candidates sitting under a banner that says "press exposure", with a
+// header telling you to go check Trade Today and gate them yourself. The read is
+// already in hand, so the page applies it: the out-of-season book folds to one
+// line and its count.
+//
+// The permission comes from `day_verdict`'s per-direction answer, NOT from the
+// stance label. Those differ on purpose: a Defensive tape does not mean shorts
+// are on — the verdict only says yes once the Shorts/Hedges family has its own
+// green, because a weak long read is not a short signal.
+//
+// It folds, it never hides: the count stays visible, one click opens it, and a
+// missing verdict leaves both books open. An existing position still needs its
+// data, so this withholds attention, not information — the same fail-open rule
+// the discipline breaker follows.
+// ---------------------------------------------------------------------------
+function bookGate(verdict, dir) {
+  const permission = dir === 'short' ? verdict?.newShort : verdict?.newLong
+  const other = dir === 'short' ? 'shorting' : 'buying'
+  if (permission === 'no') {
+    return {
+      permission: 'no',
+      tone: 'text-surface-500',
+      note: verdict?.label ? `out of season · today's read: ${verdict.label}` : 'out of season — no new risk this side',
+      folded: verdict?.why || `Today's read is against new ${other}.`,
+    }
+  }
+  if (permission === 'stalk') {
+    return {
+      permission: 'stalk',
+      tone: 'text-amber-300/90',
+      note: 'stalk only — wait for the trigger, don\'t initiate on the scan alone',
+    }
+  }
+  if (permission === 'yes') {
+    return { permission: 'yes', tone: 'text-emerald-300/90', note: 'in season' }
+  }
+  // No verdict (degraded payload) → fail open, exactly as before.
+  return {
+    permission: null,
+    tone: 'text-surface-500',
+    note: dir === 'short'
+      ? 'check the Trade Today read before shorting anything here'
+      : 'the default book',
+  }
+}
+
+// Tone → text color for the driver ledger (mirrors Trade Today's map).
+const TONE_TEXT = { bull: 'text-emerald-300', bear: 'text-danger', warn: 'text-amber-300', neutral: 'text-surface-400' }
+
+// ---------------------------------------------------------------------------
+// "Why are we in this stance?" — the argument behind the banner's conclusion.
+//
+// The banner alone states a verdict ("Aggressive · press exposure") with no way
+// to tell a tape carried by broad quarterly leadership from one riding a single
+// thrust print, and no sense of how close the read is to flipping. That matters
+// on THIS page: the stance is what tells you whether to take the lanes below at
+// full size, so "because of what?" is the next question every time.
+//
+// It renders the same ledger `situational` computed — neutral 50, each factor's
+// signed contribution, the total — and the band edges. No arithmetic of its own:
+// a second implementation of the reasoning is how two surfaces drift apart.
+// Collapsed by default; the verdict stays the loudest thing on the page.
+// ---------------------------------------------------------------------------
+function RegimeWhy({ regime, tone }) {
+  const [open, setOpen] = useState(false)
+  const drivers = regime?.drivers || []
+  const ex = regime?.explanation
+  if (!drivers.length && !ex?.summary) return null
+
+  return (
+    <div className="basis-full">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="text-[11px] text-surface-400 hover:text-surface-200 flex items-center gap-1.5 underline decoration-dotted underline-offset-2"
+      >
+        <span>{open ? 'Hide' : 'Why'} this stance</span>
+        <svg className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="mt-3 rounded-lg bg-surface-950/40 border border-surface-700/40 px-4 py-3 space-y-3">
+          {ex?.summary && (
+            <p className="text-[12.5px] text-surface-300 leading-relaxed">{ex.summary}</p>
+          )}
+
+          {/* The ledger: 50 baseline, one row per factor that moved it, the total. */}
+          {drivers.length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-surface-600 font-semibold mb-1.5">
+                What moved the score
+              </div>
+              <div className="divide-y divide-surface-800/50">
+                <div className="flex items-baseline gap-3 py-1 text-[12px]">
+                  <span className="font-mono w-9 shrink-0 text-surface-500">50</span>
+                  <span className="text-surface-500">Neutral baseline</span>
+                </div>
+                {drivers.map((d, i) => (
+                  <div key={i} className="flex items-baseline gap-3 py-1">
+                    <span className={`font-mono w-9 shrink-0 text-[12px] font-semibold ${TONE_TEXT[d.tone] || TONE_TEXT.neutral}`}>
+                      {d.points > 0 ? '+' : '−'}{Math.abs(d.points)}
+                    </span>
+                    <div className="min-w-0">
+                      <span className="text-[12px] text-surface-200">{d.label}</span>
+                      {d.detail && (
+                        <span className="text-[11.5px] text-surface-500"> · {d.detail}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                <div className="flex items-baseline gap-3 pt-1.5 text-[12px]">
+                  <span className={`font-mono w-9 shrink-0 font-bold ${tone.text}`}>{regime.score}</span>
+                  <span className="text-surface-400">
+                    Exposure score — the {regime.stance?.label} band
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* A stance is a band, not a point: say what would tip it either way. */}
+          {(ex?.toUp || ex?.toDown) && (
+            <div className="text-[11.5px] text-surface-500 flex flex-wrap gap-x-5 gap-y-1 pt-1 border-t border-surface-800/60">
+              {ex.toUp && (
+                <span>
+                  <span className="text-emerald-400 font-mono">+{ex.toUp.gain_needed}</span>
+                  {' '}(≥ {ex.toUp.threshold}) → {ex.toUp.label}
+                </span>
+              )}
+              {ex.toDown && (
+                <span>
+                  below <span className="text-rose-400 font-mono">{ex.toDown.threshold}</span> → {ex.toDown.label}
+                </span>
+              )}
+              <Link to="/situational-awareness" className="ml-auto text-surface-500 hover:text-surface-300 underline decoration-dotted underline-offset-2">
+                Full breadth read →
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function fmtMoney(n) {
   if (n === null || n === undefined || Number.isNaN(n)) return '—'
   return `$${Number(n).toFixed(2)}`
@@ -51,6 +201,8 @@ export default function SetupsBoard() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  // Per-book override — folding is a nudge, and one click undoes it.
+  const [openBooks, setOpenBooks] = useState({ long: false, short: false })
 
   const load = useCallback(async (force = false) => {
     setLoading(true)
@@ -70,7 +222,12 @@ export default function SetupsBoard() {
   const confluence = data?.confluence || []
   const conflicts = data?.conflicts || []
   const regime = data?.regime
-  const totalIdeas = lanes.reduce((sum, l) => sum + (l.count || 0), 0)
+  // Deliberately NOT the sum of every lane's count. That totalled 614 on a
+  // normal day — 286 Stage-2 transitions and 87 reversals nobody opens — which
+  // is a big number standing in for a useful one. What the board actually put
+  // in front of you is the shown rows; what it wants you to look at first is
+  // the confluence set. Count those.
+  const shownIdeas = lanes.reduce((sum, l) => sum + (l.items?.length || 0), 0)
 
   return (
     <div className="space-y-6">
@@ -87,7 +244,10 @@ export default function SetupsBoard() {
         <div className="flex items-center gap-3 flex-wrap">
           {data?.asOf && (
             <span className="text-[11px] text-surface-500">
-              {totalIdeas} ideas · {fmtDate(data.asOf)}
+              {confluence.length > 0 && (
+                <span className="text-accent">{confluence.length} confluence · </span>
+              )}
+              {shownIdeas} shown · {fmtDate(data.asOf)}
             </span>
           )}
           <RefreshControl jobId="setups-board" onRefresh={() => load(true)} refreshing={loading} busyLabel="Refreshing…" />
@@ -130,6 +290,7 @@ export default function SetupsBoard() {
                 Trade Today →
               </Link>
             </div>
+            <RegimeWhy regime={regime} tone={tone} />
           </div>
         )
       })()}
@@ -217,18 +378,38 @@ export default function SetupsBoard() {
         const group = (lanes.length ? lanes : LANE_SKELETON).filter(
           (l) => (l.direction || 'long') === dir)
         if (!group.length) return null
+        const gate = bookGate(regime?.verdict, dir)
+        const ideas = group.reduce((n, l) => n + (l.count || 0), 0)
+        const folded = gate.permission === 'no' && !openBooks[dir]
         return (
           <div key={dir}>
             <div className="flex items-center gap-2 flex-wrap mb-2">
               <span className="text-[9.5px] font-bold tracking-widest text-surface-400 uppercase">
                 {dir === 'short' ? 'Short setups' : 'Long setups'}
               </span>
-              <span className="text-[11px] text-surface-500">
-                {dir === 'short'
-                  ? 'regime-gated — check the Trade Today read before shorting anything here'
-                  : 'the default book'}
-              </span>
+              <span className={`text-[11px] ${gate.tone}`}>{gate.note}</span>
+              {folded && (
+                <button
+                  onClick={() => setOpenBooks((o) => ({ ...o, [dir]: true }))}
+                  className="text-[11px] text-surface-400 hover:text-surface-200 underline decoration-dotted underline-offset-2"
+                >
+                  Show {ideas} anyway →
+                </button>
+              )}
+              {gate.permission === 'no' && openBooks[dir] && (
+                <button
+                  onClick={() => setOpenBooks((o) => ({ ...o, [dir]: false }))}
+                  className="text-[11px] text-surface-500 hover:text-surface-300 underline decoration-dotted underline-offset-2"
+                >
+                  Fold away
+                </button>
+              )}
             </div>
+            {folded ? (
+              <div className="rounded-2xl bg-surface-900/40 border border-dashed border-surface-700/50 px-5 py-4 text-[12px] text-surface-500">
+                {gate.folded}
+              </div>
+            ) : (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {group.map((lane) => {
           const accent = ACCENT[lane.accent] || ACCENT.emerald
@@ -239,8 +420,14 @@ export default function SetupsBoard() {
                 <Link to={lane.route} className="text-[13px] font-semibold text-surface-100 hover:text-white">
                   {lane.label}
                 </Link>
+                {/* A bare "286" next to eight rows reads as the lane's size, not
+                    as how much of it you're being shown. Say both. */}
                 {lane.count != null && (
-                  <span className="text-[11px] font-mono text-surface-500">{lane.count}</span>
+                  <span className="text-[11px] font-mono text-surface-500">
+                    {lane.count > (lane.items?.length || 0)
+                      ? `top ${lane.items.length} of ${lane.count}`
+                      : lane.count}
+                  </span>
                 )}
                 <Link to={lane.route} className="ml-auto text-[11px] text-surface-500 hover:text-surface-300">
                   all →
@@ -278,6 +465,7 @@ export default function SetupsBoard() {
                 )
               })}
             </div>
+            )}
           </div>
         )
       })}
@@ -293,10 +481,15 @@ export default function SetupsBoard() {
 }
 
 // Placeholder lanes so the grid keeps its shape before the first load resolves.
+// `direction` is required, not decoration: the render groups by it, so a
+// skeleton without it put every lane in the long book and dropped the short
+// section entirely — the page then jumped when data landed.
 const LANE_SKELETON = [
-  { key: 'ma-reclaim', label: '200 MA Reclaim', route: '/ma-reclaim', accent: 'emerald', items: [], count: null },
-  { key: 'stage-analysis', label: 'Stage 1→2', route: '/stage-analysis', accent: 'sky', items: [], count: null },
-  { key: 'breakouts', label: 'Breakouts', route: '/breakouts', accent: 'violet', items: [], count: null },
-  { key: 'scanner-9m', label: '$9M Scanner', route: '/scanner-9m', accent: 'amber', items: [], count: null },
-  { key: 'reversal-setup', label: 'Reversal', route: '/reversal-setup', accent: 'rose', items: [], count: null },
+  { key: 'ma-reclaim', label: '200 MA Reclaim', route: '/ma-reclaim', accent: 'emerald', direction: 'long', items: [], count: null },
+  { key: 'stage-analysis', label: 'Stage 1→2', route: '/stage-analysis', accent: 'sky', direction: 'long', items: [], count: null },
+  { key: 'breakouts', label: 'Breakouts', route: '/breakouts', accent: 'violet', direction: 'long', items: [], count: null },
+  { key: 'scanner-9m', label: '$9M Scanner', route: '/scanner-9m', accent: 'amber', direction: 'long', items: [], count: null },
+  { key: 'reversal-setup', label: 'Reversal', route: '/reversal-setup', accent: 'rose', direction: 'long', items: [], count: null },
+  { key: 'parabolic-short', label: 'Parabolic Short', route: '/parabolic-short', accent: 'rose', direction: 'short', items: [], count: null },
+  { key: 'breakdown-short', label: 'Breakdown Short', route: '/breakdown-short', accent: 'rose', direction: 'short', items: [], count: null },
 ]
