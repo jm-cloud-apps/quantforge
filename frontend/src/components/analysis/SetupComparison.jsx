@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
@@ -56,8 +56,243 @@ function computeSubSetups(trades) {
     map[setup].push(t);
   }
   return Object.entries(map)
-    .map(([setup, tds]) => ({ setup, ...computeStats(tds) }))
+    .map(([setup, tds]) => ({ setup, trades: tds, ...computeStats(tds) }))
     .sort((a, b) => b.totalPnl - a.totalPnl);
+}
+
+// Workbook dates arrive as "2025-05-21T00:00:00" (no zone, so no off-by-one
+// from a UTC parse) and times as a bare "09:32:31" string. A missing time is
+// zeroed to 0 by the backend's NaN cleanup, hence the shape check rather than
+// a truthiness one.
+function fmtDay(d) {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return String(d);
+  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+}
+
+function fmtClock(t) {
+  if (!t || !/^\d{1,2}:/.test(String(t))) return null;
+  return String(t).slice(0, 5);
+}
+
+function fmtHold(days) {
+  if (days == null) return null;
+  return days > 0 ? `${days}d` : 'intraday';
+}
+
+function TradeLine({ trade }) {
+  const clock = fmtClock(trade.entry_time);
+  const hold = fmtHold(trade.duration_days);
+  const px = trade.entry_price != null && trade.exit_price != null
+    ? `$${trade.entry_price.toFixed(2)} → $${trade.exit_price.toFixed(2)}`
+    : null;
+  const qty = trade.quantity ? `${trade.quantity} @ ` : '';
+  const win = (trade.pnl || 0) >= 0;
+
+  return (
+    <div className="py-2 px-3 rounded-lg bg-surface-900/50 border border-surface-700/20">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="flex items-baseline gap-1.5 min-w-0">
+          <span className="text-sm font-mono font-semibold text-surface-100 truncate">{trade.symbol || '—'}</span>
+          {trade.side && (
+            <span className={`text-[9px] px-1 py-px rounded uppercase tracking-wide ${trade.side === 'LONG' ? 'bg-accent/15 text-accent' : 'bg-danger/10 text-danger'}`}>
+              {trade.side}
+            </span>
+          )}
+        </span>
+        <span className={`text-sm font-mono font-semibold flex-shrink-0 ${win ? 'text-success' : 'text-danger'}`}>
+          {win ? '+' : ''}{fmt(trade.pnl)}
+        </span>
+      </div>
+      <div className="flex items-baseline justify-between gap-3 mt-0.5">
+        <span className="text-[11px] font-mono text-surface-400 truncate">
+          {fmtDay(trade.entry_date)}{clock ? ` · ${clock}` : ''}
+        </span>
+        <span className={`text-[11px] font-mono flex-shrink-0 ${win ? 'text-success/70' : 'text-danger/70'}`}>
+          {trade.pnl_pct >= 0 ? '+' : ''}{trade.pnl_pct?.toFixed(2)}%
+        </span>
+      </div>
+      {(px || hold) && (
+        <p className="text-[10px] font-mono text-surface-500 mt-0.5 truncate">
+          {px ? `${qty}${px}` : ''}{px && hold ? ' · ' : ''}{hold || ''}
+        </p>
+      )}
+    </div>
+  );
+}
+
+const TRADES_PER_PAGE = 10;
+
+// Sort keys for an expanded trade list. `date` reads the ENTRY timestamp
+// because that is the field each line prints — sorting on the hidden exit date
+// (the Recent Trades default) makes the list look unsorted. Both date parts
+// are ISO-ish, so a plain string compare is chronological.
+const TRADE_SORTS = {
+  date: (t) => `${t.entry_date || t.exit_date || ''} ${t.entry_time || ''}`,
+  pnl: (t) => t.pnl ?? 0,
+  pnl_pct: (t) => t.pnl_pct ?? 0,
+};
+
+const SORT_NAMES = { date: 'entry date', pnl: 'P&L in dollars', pnl_pct: 'return %' };
+
+function SortButton({ label, sortKey, sort, onSort }) {
+  const active = sort.key === sortKey;
+  const name = SORT_NAMES[sortKey];
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(sortKey)}
+      className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+        active ? 'bg-surface-700/70 text-surface-100' : 'text-surface-500 hover:text-surface-300'
+      }`}
+      title={active
+        ? `Sorted by ${name}, ${sort.dir === 'asc' ? 'ascending' : 'descending'} — click to reverse`
+        : `Sort by ${name}`}
+    >
+      {label}
+      <span className={`ml-0.5 ${active ? 'text-accent' : 'text-surface-600'}`}>
+        {active ? (sort.dir === 'asc' ? '↑' : '↓') : '↕'}
+      </span>
+    </button>
+  );
+}
+
+// One sub-setup row. Click the header to expand the trades that make up its
+// numbers, paginated 10 at a time — a category like "Continuation (Post-Gap)"
+// can hold 50 fills, and the point of drilling in is to read them, not to
+// scroll past them. Page state lives here so collapsing and reopening a row
+// starts back at the top, and so two open rows don't share a page number.
+function BreakdownRow({ sub, stripPrefix }) {
+  const [open, setOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  // Newest first by default — the question a drill-down usually opens with is
+  // "how has this setup been doing lately".
+  const [sort, setSort] = useState({ key: 'date', dir: 'desc' });
+
+  const sorted = useMemo(() => {
+    const value = TRADE_SORTS[sort.key];
+    const rows = sub.trades.slice();
+    rows.sort((a, b) => {
+      const av = value(a);
+      const bv = value(b);
+      if (av === bv) return 0;
+      return (av < bv ? -1 : 1) * (sort.dir === 'asc' ? 1 : -1);
+    });
+    return rows;
+  }, [sub.trades, sort]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / TRADES_PER_PAGE));
+  // Guard against a stale page if the trade list shrinks under an open row.
+  const safePage = Math.min(page, totalPages);
+  const startIndex = (safePage - 1) * TRADES_PER_PAGE;
+  const pageTrades = sorted.slice(startIndex, startIndex + TRADES_PER_PAGE);
+
+  const label = stripPrefix && sub.setup.startsWith(stripPrefix)
+    ? sub.setup.slice(stripPrefix.length)
+    : sub.setup;
+
+  const toggle = () => {
+    if (open) setPage(1);
+    setOpen(!open);
+  };
+
+  // Re-picking the active key reverses it; switching keys starts descending
+  // (newest / biggest first), which is the useful end of both columns.
+  const applySort = (key) => {
+    setPage(1);
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' }));
+  };
+
+  return (
+    <div className={`rounded-lg border transition-colors ${open ? 'bg-surface-800/50 border-surface-700/40' : 'bg-surface-800/30 border-surface-700/20'}`}>
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        className="w-full flex items-center justify-between py-2 px-3 text-left rounded-lg hover:bg-surface-700/20 transition-colors"
+        title={`${open ? 'Hide' : 'Show'} the ${sub.totalTrades} ${sub.setup} trade${sub.totalTrades === 1 ? '' : 's'}`}
+      >
+        <div className="min-w-0 flex items-center gap-1.5">
+          <svg
+            className={`w-3 h-3 flex-shrink-0 text-surface-500 transition-transform ${open ? 'rotate-90' : ''}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+          <div className="min-w-0">
+            <p className="text-sm text-surface-200 font-medium truncate">{label}</p>
+            <p className="text-[11px] text-surface-500">{sub.totalTrades} trades · {sub.winRate.toFixed(0)}% win</p>
+          </div>
+        </div>
+        <div className="text-right flex-shrink-0 ml-4">
+          <p className={`text-sm font-mono font-semibold ${sub.totalPnl >= 0 ? 'text-success' : 'text-danger'}`}>
+            {sub.totalPnl >= 0 ? '+' : ''}{fmt(sub.totalPnl)}
+          </p>
+          <p className={`text-[11px] font-mono ${sub.avgPnl >= 0 ? 'text-success/70' : 'text-danger/70'}`}>
+            avg {fmt(sub.avgPnl)}
+          </p>
+        </div>
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 pt-1 border-t border-surface-700/30">
+          <div className="flex items-center gap-1 mt-2 mb-1.5">
+            <span className="text-[10px] text-surface-600 uppercase tracking-wider mr-0.5">Sort</span>
+            <SortButton label="Date" sortKey="date" sort={sort} onSort={applySort} />
+            <SortButton label="P&L" sortKey="pnl" sort={sort} onSort={applySort} />
+            <SortButton label="%" sortKey="pnl_pct" sort={sort} onSort={applySort} />
+          </div>
+          <div className="space-y-1.5">
+            {pageTrades.map((t, i) => (
+              <TradeLine key={`${t.symbol}-${t.entry_date}-${t.entry_time}-${startIndex + i}`} trade={t} />
+            ))}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between gap-2 mt-2.5 pt-2.5 border-t border-surface-700/30">
+              <span className="text-[10px] text-surface-500 font-mono">
+                {startIndex + 1}–{Math.min(startIndex + TRADES_PER_PAGE, sorted.length)} of {sorted.length}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={safePage === 1}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${safePage === 1 ? 'text-surface-600 cursor-not-allowed' : 'text-surface-200 bg-surface-700/60 hover:bg-surface-600'}`}
+                >
+                  Prev
+                </button>
+                <span className="text-[10px] text-surface-500 font-mono px-1">{safePage}/{totalPages}</span>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safePage === totalPages}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${safePage === totalPages ? 'text-surface-600 cursor-not-allowed' : 'text-surface-200 bg-surface-700/60 hover:bg-surface-600'}`}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BreakdownColumn({ title, titleClass, subSetups, stripPrefix }) {
+  if (subSetups.length === 0) return null;
+  return (
+    <div>
+      <p className={`text-sm font-semibold ${titleClass} mb-3`}>{title}</p>
+      <div className="space-y-2">
+        {subSetups.map((s) => (
+          <BreakdownRow key={s.setup} sub={s} stripPrefix={stripPrefix} />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function StatRow({ label, vals, format = 'number', highlight = false }) {
@@ -200,82 +435,11 @@ export default function SetupComparison({ trades }) {
         )}
       </div>
 
-      {/* Sub-setup breakdown */}
+      {/* Sub-setup breakdown — each row expands into its own trades */}
       <div className={`grid grid-cols-1 ${categories.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2'} gap-6`}>
-        {/* EP sub-setups */}
-        {epSubSetups.length > 0 && (
-          <div>
-            <p className="text-sm font-semibold text-accent mb-3">EP Breakdown</p>
-            <div className="space-y-2">
-              {epSubSetups.map((s) => (
-                <div key={s.setup} className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-800/30 border border-surface-700/20">
-                  <div className="min-w-0">
-                    <p className="text-sm text-surface-200 font-medium truncate">{s.setup.replace('EP - ', '')}</p>
-                    <p className="text-[11px] text-surface-500">{s.totalTrades} trades · {s.winRate.toFixed(0)}% win</p>
-                  </div>
-                  <div className="text-right flex-shrink-0 ml-4">
-                    <p className={`text-sm font-mono font-semibold ${s.totalPnl >= 0 ? 'text-success' : 'text-danger'}`}>
-                      {s.totalPnl >= 0 ? '+' : ''}{fmt(s.totalPnl)}
-                    </p>
-                    <p className={`text-[11px] font-mono ${s.avgPnl >= 0 ? 'text-success/70' : 'text-danger/70'}`}>
-                      avg {fmt(s.avgPnl)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* HTF sub-setups */}
-        {htfSubSetups.length > 0 && (
-          <div>
-            <p className="text-sm font-semibold text-cyan mb-3">HTF Breakdown</p>
-            <div className="space-y-2">
-              {htfSubSetups.map((s) => (
-                <div key={s.setup} className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-800/30 border border-surface-700/20">
-                  <div className="min-w-0">
-                    <p className="text-sm text-surface-200 font-medium truncate">{s.setup.replace('HTF - ', '')}</p>
-                    <p className="text-[11px] text-surface-500">{s.totalTrades} trades · {s.winRate.toFixed(0)}% win</p>
-                  </div>
-                  <div className="text-right flex-shrink-0 ml-4">
-                    <p className={`text-sm font-mono font-semibold ${s.totalPnl >= 0 ? 'text-success' : 'text-danger'}`}>
-                      {s.totalPnl >= 0 ? '+' : ''}{fmt(s.totalPnl)}
-                    </p>
-                    <p className={`text-[11px] font-mono ${s.avgPnl >= 0 ? 'text-success/70' : 'text-danger/70'}`}>
-                      avg {fmt(s.avgPnl)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* N/A sub-setups */}
-        {naSubSetups.length > 0 && (
-          <div>
-            <p className="text-sm font-semibold text-amber-400 mb-3">N/A Breakdown</p>
-            <div className="space-y-2">
-              {naSubSetups.map((s) => (
-                <div key={s.setup} className="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-800/30 border border-surface-700/20">
-                  <div className="min-w-0">
-                    <p className="text-sm text-surface-200 font-medium truncate">{s.setup}</p>
-                    <p className="text-[11px] text-surface-500">{s.totalTrades} trades · {s.winRate.toFixed(0)}% win</p>
-                  </div>
-                  <div className="text-right flex-shrink-0 ml-4">
-                    <p className={`text-sm font-mono font-semibold ${s.totalPnl >= 0 ? 'text-success' : 'text-danger'}`}>
-                      {s.totalPnl >= 0 ? '+' : ''}{fmt(s.totalPnl)}
-                    </p>
-                    <p className={`text-[11px] font-mono ${s.avgPnl >= 0 ? 'text-success/70' : 'text-danger/70'}`}>
-                      avg {fmt(s.avgPnl)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        <BreakdownColumn title="EP Breakdown" titleClass="text-accent" subSetups={epSubSetups} stripPrefix="EP - " />
+        <BreakdownColumn title="HTF Breakdown" titleClass="text-cyan" subSetups={htfSubSetups} stripPrefix="HTF - " />
+        <BreakdownColumn title="N/A Breakdown" titleClass="text-amber-400" subSetups={naSubSetups} />
       </div>
     </div>
   );
